@@ -278,40 +278,6 @@ struct MeetingDetailPayload: Encodable {
     }
 }
 
-struct DictationListRow: Encodable {
-    let id: Int64
-    let timestamp: String
-    let durationSeconds: Double
-    let wordCount: Int
-    let appContext: String
-
-    init(_ record: DictationRecord) {
-        id = record.id
-        timestamp = record.timestamp
-        durationSeconds = record.durationSeconds
-        wordCount = record.wordCount
-        appContext = record.appContext
-    }
-}
-
-struct DictationDetailPayload: Encodable {
-    let id: Int64
-    let timestamp: String
-    let durationSeconds: Double
-    let wordCount: Int
-    let appContext: String
-    let rawText: String
-
-    init(_ record: DictationRecord) {
-        id = record.id
-        timestamp = record.timestamp
-        durationSeconds = record.durationSeconds
-        wordCount = record.wordCount
-        appContext = record.appContext
-        rawText = record.rawText
-    }
-}
-
 struct CommandSpecPayload: Encodable {
     struct SpecCommand: Encodable {
         let name: String
@@ -328,8 +294,8 @@ struct CommandSpecPayload: Encodable {
 struct MuesliCLI: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "muesli-cli",
-        abstract: "Agent-friendly CLI for local Muesli meetings and dictations.",
-        subcommands: [SpecCommand.self, InfoCommand.self, TranscribeCommand.self, MeetingsCommand.self, DictationsCommand.self]
+        abstract: "Agent-friendly CLI for local Muesli meetings.",
+        subcommands: [SpecCommand.self, InfoCommand.self, TranscribeCommand.self, MeetingsCommand.self]
     )
 
     static func exit(withError error: Error? = nil) -> Never {
@@ -373,8 +339,6 @@ struct MuesliCLI: AsyncParsableCommand {
             .init(name: "meetings list", usage: "muesli-cli meetings list [--limit <n>] [--folder-id <id>]", summary: "List recent meetings.", examples: ["muesli-cli meetings list --limit 5", "muesli-cli meetings list --folder-id 2"]),
             .init(name: "meetings get", usage: "muesli-cli meetings get <id>", summary: "Return a full meeting record.", examples: ["muesli-cli meetings get 42"]),
             .init(name: "meetings update-notes", usage: "muesli-cli meetings update-notes <id> (--stdin | --file <path>)", summary: "Replace stored meeting notes only.", examples: ["muesli-cli meetings update-notes 42 --file notes.md", "cat notes.md | muesli-cli meetings update-notes 42 --stdin"]),
-            .init(name: "dictations list", usage: "muesli-cli dictations list [--limit <n>]", summary: "List recent dictations.", examples: ["muesli-cli dictations list --limit 10"]),
-            .init(name: "dictations get", usage: "muesli-cli dictations get <id>", summary: "Return a full dictation record.", examples: ["muesli-cli dictations get 7"]),
         ])
     }
 }
@@ -502,46 +466,5 @@ struct MeetingsUpdateNotesCommand: ParsableCommand {
             throw CLIError.databaseError("The meeting was updated but could not be reloaded.")
         }
         emitSuccess(command: "muesli-cli meetings update-notes", data: MeetingDetailPayload(updated), dbPath: context.databaseURL, warnings: warnings)
-    }
-}
-
-struct DictationsCommand: ParsableCommand {
-    static let configuration = CommandConfiguration(commandName: "dictations", abstract: "Inspect Muesli dictations.", subcommands: [DictationsListCommand.self, DictationsGetCommand.self])
-}
-
-struct DictationsListCommand: ParsableCommand {
-    static let configuration = CommandConfiguration(commandName: "list", abstract: "List recent dictations.")
-    @OptionGroup var global: GlobalOptions
-    @Option(name: .long, help: "Maximum number of dictations to return.") var limit: Int = 10
-
-    func run() throws {
-        let context = CLIContext(options: global)
-        guard limit > 0 else {
-            throw CLIError.invalidInput("--limit must be greater than zero.", fix: "Pass a positive integer such as --limit 10.")
-        }
-        if !context.store.databaseExists {
-            emitSuccess(command: "muesli-cli dictations list", data: [DictationListRow](), dbPath: context.databaseURL, warnings: ["No Muesli database exists at the resolved path."])
-            return
-        }
-        let (rows, warnings) = try withMigration(context) {
-            try context.store.recentDictations(limit: limit).map(DictationListRow.init)
-        }
-        emitSuccess(command: "muesli-cli dictations list", data: rows, dbPath: context.databaseURL, warnings: warnings)
-    }
-}
-
-struct DictationsGetCommand: ParsableCommand {
-    static let configuration = CommandConfiguration(commandName: "get", abstract: "Return a full dictation record.")
-    @OptionGroup var global: GlobalOptions
-    @Argument(help: "Dictation ID") var id: Int64
-
-    func run() throws {
-        let context = CLIContext(options: global)
-        try ensureDatabaseAvailable(context, command: "muesli-cli dictations get")
-        let (found, warnings) = try withMigration(context) { try context.store.dictation(id: id) }
-        guard let dictation = found else {
-            throw CLIError.notFound("No dictation exists with id \(id).", fix: "Run `muesli-cli dictations list` to find a valid ID.")
-        }
-        emitSuccess(command: "muesli-cli dictations get", data: DictationDetailPayload(dictation), dbPath: context.databaseURL, warnings: warnings)
     }
 }
