@@ -3,8 +3,6 @@ import Foundation
 enum ContributionMilestoneAction: String, CaseIterable {
     case githubStar = "github_star"
     case buyMeCoffee = "buy_me_coffee"
-    case tweetAboutMuesli = "tweet_about_muesli"
-    case postOnLinkedIn = "post_on_linkedin"
 
     var supportURL: URL? {
         switch self {
@@ -12,14 +10,11 @@ enum ContributionMilestoneAction: String, CaseIterable {
             return URL(string: "https://github.com/Muesli-HQ/muesli")!
         case .buyMeCoffee:
             return URL(string: "https://buymeacoffee.com/phequals7")!
-        case .tweetAboutMuesli, .postOnLinkedIn:
-            return nil
         }
     }
 }
 
 enum ContributionMilestoneKind: String {
-    case dictationWords = "dictation_words"
     case meetings
 }
 
@@ -28,73 +23,26 @@ struct ContributionMilestonePrompt: Equatable, Identifiable {
     let count: Int
     let showGitHubStar: Bool
     let showBuyMeCoffee: Bool
-    let showTweetAboutMuesli: Bool
-    let showPostOnLinkedIn: Bool
 
     var id: String { "\(kind.rawValue):\(count)" }
 
     var title: String {
-        switch kind {
-        case .dictationWords:
-            return "You crossed \(ContributionSocialShare.formatCount(count)) words!"
-        case .meetings:
-            return "You captured \(ContributionSocialShare.formatCount(count)) meetings!"
-        }
+        "You captured \(ContributionMilestonePolicy.formatCount(count)) meetings!"
     }
 
     var message: String {
-        switch kind {
-        case .dictationWords:
-            if !showGitHubStar && !showBuyMeCoffee && (showTweetAboutMuesli || showPostOnLinkedIn) {
-                return "That is a serious pile of words. If Muesli has been saving your fingers and your flow, sharing your milestone helps more people find it."
-            }
-            return "That is a serious pile of words. If Muesli has been saving your fingers and your flow, a GitHub star or a coffee helps keep it moving."
-        case .meetings:
-            return "That is a lot of conversations turned into something useful. If Muesli has been keeping your meetings in order, a GitHub star or a coffee helps keep it moving."
-        }
+        "That is a lot of conversations turned into something useful. If Muesli has been keeping your meetings in order, a GitHub star or a coffee helps keep it moving."
     }
 }
 
-enum ContributionSocialShare {
-    static let muesliURL = URL(string: "https://muesli.works")!
+enum ContributionMilestonePolicy {
+    static let meetingInterval = 25
 
-    static func completedWordMilestone(totalWords: Int) -> Int? {
-        let clampedTotal = max(totalWords, 0)
-        guard clampedTotal >= ContributionMilestonePolicy.dictationWordInterval else { return nil }
-        return (clampedTotal / ContributionMilestonePolicy.dictationWordInterval) * ContributionMilestonePolicy.dictationWordInterval
-    }
-
-    static func message(wordCount: Int) -> String {
-        "I've dictated \(formatCount(wordCount)) words with Muesli. It's fast, open source, on-device, and free to use. Try it: \(muesliURL.absoluteString)"
-    }
-
-    static func tweetURL(wordCount: Int) -> URL {
-        var components = URLComponents(string: "https://x.com/intent/tweet")!
-        components.queryItems = [
-            URLQueryItem(name: "text", value: message(wordCount: wordCount)),
-        ]
-        return components.url!
-    }
-
-    static func linkedInURL(wordCount: Int) -> URL {
-        var components = URLComponents(string: "https://www.linkedin.com/feed/")!
-        components.queryItems = [
-            URLQueryItem(name: "shareActive", value: "true"),
-            URLQueryItem(name: "text", value: message(wordCount: wordCount)),
-            URLQueryItem(name: "url", value: muesliURL.absoluteString),
-            URLQueryItem(name: "shareUrl", value: muesliURL.absoluteString),
-            URLQueryItem(name: "linkOrigin", value: "LI_BADGE"),
-        ]
-        return components.url!
-    }
-
-    /// Grouping locale for milestone counts. Every caller interpolates the result into
-    /// fixed English copy, including the share text posted to X and LinkedIn, so the
-    /// separator must not follow `Locale.current`: a locale-grouped "31.000" reads as
-    /// thirty-one point zero in an English sentence.
-    ///
-    /// Deliberately `en_US` and not `en_US_POSIX` — the POSIX locale drops grouping
-    /// entirely and formats 31000 as "31000".
+    /// Grouping locale for milestone counts. Interpolated into fixed English
+    /// copy, so the separator must not follow `Locale.current`: a locale-grouped
+    /// "31.000" reads as thirty-one point zero in an English sentence.
+    /// Deliberately `en_US` and not `en_US_POSIX` — the POSIX locale drops
+    /// grouping entirely and formats 31000 as "31000".
     static let countGroupingLocale = Locale(identifier: "en_US")
 
     static func formatCount(_ value: Int) -> String {
@@ -107,27 +55,9 @@ enum ContributionSocialShare {
         formatter.numberStyle = .decimal
         return formatter.string(from: NSNumber(value: value)) ?? "\(value)"
     }
-}
 
-enum ContributionMilestonePolicy {
-    static let dictationWordInterval = 1_000
-    static let meetingInterval = 25
-
-    static func nextMilestone(after totalWords: Int) -> Int {
-        nextMilestone(after: totalWords, interval: dictationWordInterval)
-    }
-
-    static func nextMeetingMilestone(after totalMeetings: Int) -> Int {
+    static func nextMilestone(after totalMeetings: Int) -> Int {
         nextMilestone(after: totalMeetings, interval: meetingInterval)
-    }
-
-    static func nextMilestone(after total: Int, kind: ContributionMilestoneKind) -> Int {
-        switch kind {
-        case .dictationWords:
-            return nextMilestone(after: total)
-        case .meetings:
-            return nextMeetingMilestone(after: total)
-        }
     }
 
     private static func nextMilestone(after total: Int, interval: Int) -> Int {
@@ -137,72 +67,43 @@ enum ContributionMilestonePolicy {
 
     static func resolvedNextMilestone(
         storedNextMilestone: Int?,
-        total: Int,
-        intervalKind: ContributionMilestoneKind,
+        totalMeetings: Int,
         githubStarClicked: Bool,
-        buyMeCoffeeClicked: Bool,
-        tweetClicked: Bool = false,
-        linkedInClicked: Bool = false
+        buyMeCoffeeClicked: Bool
     ) -> Int? {
-        let isComplete: Bool
-        switch intervalKind {
-        case .dictationWords:
-            isComplete = githubStarClicked && buyMeCoffeeClicked && tweetClicked && linkedInClicked
-        case .meetings:
-            isComplete = githubStarClicked && buyMeCoffeeClicked
-        }
+        let isComplete = githubStarClicked && buyMeCoffeeClicked
         guard !isComplete else { return nil }
         guard let storedNextMilestone else {
-            switch intervalKind {
-            case .dictationWords:
-                return nextMilestone(after: total)
-            case .meetings:
-                return nextMeetingMilestone(after: total)
-            }
+            return nextMilestone(after: totalMeetings)
         }
-
-        switch intervalKind {
-        case .dictationWords:
-            guard total >= storedNextMilestone + dictationWordInterval else { return storedNextMilestone }
-            return nextMilestone(after: total)
-        case .meetings:
-            guard total >= storedNextMilestone + meetingInterval else { return storedNextMilestone }
-            return nextMeetingMilestone(after: total)
-        }
+        guard totalMeetings >= storedNextMilestone + meetingInterval else { return storedNextMilestone }
+        return nextMilestone(after: totalMeetings)
     }
 
     static func prompt(
-        kind: ContributionMilestoneKind,
-        total: Int,
+        totalMeetings: Int,
         nextMilestone: Int?,
         githubStarClicked: Bool,
         buyMeCoffeeClicked: Bool,
-        tweetClicked: Bool = false,
-        linkedInClicked: Bool = false,
         dismissedThisLaunch: Bool
     ) -> ContributionMilestonePrompt? {
         guard !dismissedThisLaunch,
               let nextMilestone,
-              total >= nextMilestone else {
+              totalMeetings >= nextMilestone else {
             return nil
         }
 
         let showGitHubStar = !githubStarClicked
         let showBuyMeCoffee = !buyMeCoffeeClicked
-        let canShowSocialActions = kind == .dictationWords && (githubStarClicked || buyMeCoffeeClicked)
-        let showTweetAboutMuesli = canShowSocialActions && !tweetClicked
-        let showPostOnLinkedIn = canShowSocialActions && !linkedInClicked
-        guard showGitHubStar || showBuyMeCoffee || showTweetAboutMuesli || showPostOnLinkedIn else {
+        guard showGitHubStar || showBuyMeCoffee else {
             return nil
         }
 
         return ContributionMilestonePrompt(
-            kind: kind,
+            kind: .meetings,
             count: nextMilestone,
             showGitHubStar: showGitHubStar,
-            showBuyMeCoffee: showBuyMeCoffee,
-            showTweetAboutMuesli: showTweetAboutMuesli,
-            showPostOnLinkedIn: showPostOnLinkedIn
+            showBuyMeCoffee: showBuyMeCoffee
         )
     }
 }

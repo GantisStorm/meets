@@ -1256,12 +1256,9 @@ struct AppConfig: Codable {
     var autoExportFileFormat: String = MeetingAutoExportFileFormat.markdown.rawValue
     var iCloudSyncEnabled: Bool = false
     var showIOSCompanionPrompt: Bool = true
-    var contributionPromptNextWordCount: Int?
     var contributionPromptNextMeetingCount: Int?
     var contributionGitHubStarClicked: Bool = false
     var contributionBuyMeCoffeeClicked: Bool = false
-    var contributionTweetClicked: Bool = false
-    var contributionLinkedInClicked: Bool = false
 
     enum CodingKeys: String, CodingKey {
         case meetingRecordingHotkey = "meeting_recording_hotkey"
@@ -1348,12 +1345,9 @@ struct AppConfig: Codable {
         case autoExportFileFormat = "auto_export_file_format"
         case iCloudSyncEnabled = "icloud_sync_enabled"
         case showIOSCompanionPrompt = "show_ios_companion_prompt"
-        case contributionPromptNextWordCount = "contribution_prompt_next_word_count"
         case contributionPromptNextMeetingCount = "contribution_prompt_next_meeting_count"
         case contributionGitHubStarClicked = "contribution_github_star_clicked"
         case contributionBuyMeCoffeeClicked = "contribution_buy_me_coffee_clicked"
-        case contributionTweetClicked = "contribution_tweet_clicked"
-        case contributionLinkedInClicked = "contribution_linkedin_clicked"
     }
 
     init() {}
@@ -1498,12 +1492,9 @@ struct AppConfig: Codable {
         autoExportMarkdownContent = MeetingExportContent(rawValue: decodedAutoExportMarkdownContent)?.rawValue ?? defaults.autoExportMarkdownContent
         let decodedAutoExportFileFormat = (try? c.decode(String.self, forKey: .autoExportFileFormat)) ?? defaults.autoExportFileFormat
         autoExportFileFormat = MeetingAutoExportFileFormat(rawValue: decodedAutoExportFileFormat)?.rawValue ?? defaults.autoExportFileFormat
-        contributionPromptNextWordCount = try? c.decode(Int.self, forKey: .contributionPromptNextWordCount)
         contributionPromptNextMeetingCount = try? c.decode(Int.self, forKey: .contributionPromptNextMeetingCount)
         contributionGitHubStarClicked = (try? c.decode(Bool.self, forKey: .contributionGitHubStarClicked)) ?? defaults.contributionGitHubStarClicked
         contributionBuyMeCoffeeClicked = (try? c.decode(Bool.self, forKey: .contributionBuyMeCoffeeClicked)) ?? defaults.contributionBuyMeCoffeeClicked
-        contributionTweetClicked = (try? c.decode(Bool.self, forKey: .contributionTweetClicked)) ?? defaults.contributionTweetClicked
-        contributionLinkedInClicked = (try? c.decode(Bool.self, forKey: .contributionLinkedInClicked)) ?? defaults.contributionLinkedInClicked
     }
 
     var resolvedCohereLanguage: CohereTranscribeLanguage {

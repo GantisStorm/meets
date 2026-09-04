@@ -80,8 +80,6 @@ struct SettingsView: View {
     @State private var accessibilityGranted = false
     @State private var inputMonitoringGranted = false
     @State private var screenRecordingGranted = false
-    @AppStorage("settings.pendingScreenContextEnable") private var pendingScreenContextEnable = false
-    @AppStorage("settings.pendingScreenContextRequestedAt") private var pendingScreenContextRequestedAt = 0.0
     @State private var systemAudioGranted = false
     @State private var isCheckingSystemAudioPermission = false
     @State private var isUsingCustomOpenRouterModel = false
@@ -97,7 +95,6 @@ struct SettingsView: View {
     private let controlWidth: CGFloat = 220
     // Wider controls keep model/provider selections visually consistent in Settings.
     private let meetingControlWidth: CGFloat = 275
-    private let screenContextGrantIntentTimeout: TimeInterval = 15 * 60
     private let meetingDetectionAppOptions: [MeetingDetectionAppOption] = [
         MeetingDetectionAppOption(bundleID: "com.google.Chrome", name: "Chrome", icon: "globe"),
         MeetingDetectionAppOption(bundleID: "company.thebrowser.Browser", name: "Arc", icon: "globe"),
@@ -295,17 +292,20 @@ struct SettingsView: View {
     }
 
     private func refreshAudioInputDevices() {
-        loadCachedAudioInputDevices()
         audioInputDeviceRefreshTask?.cancel()
         audioInputDeviceRefreshTask = Task { @MainActor in
-            let devices = await controller.refreshDictationInputDevices()
+            // Live CoreAudio reads can block while the HAL is unhealthy, so
+            // never run them on the main thread.
+            let devices = await Task.detached(priority: .userInitiated) {
+                CoreAudioDeviceInspector().availableInputDevices()
+            }.value
             guard !Task.isCancelled else { return }
             audioInputDevices = devices
         }
     }
 
     private func loadCachedAudioInputDevices() {
-        audioInputDevices = controller.cachedDictationInputDevices()
+        refreshAudioInputDevices()
     }
 
     private static let accentPresets: [(hex: String, name: String)] = [
@@ -457,186 +457,6 @@ struct SettingsView: View {
         .padding(.bottom, MuesliTheme.spacing8)
     }
 
-    private var dictationModelSettingsSection: some View {
-        settingsSection("Speech Recognition") {
-            settingsRow("Provider", controlWidth: meetingControlWidth) {
-                settingsMenu(
-                    selection: appState.dictationProvider.label,
-                    options: DictationProvider.allCases.map(\.label)
-                ) { label in
-                    if let provider = DictationProvider.allCases.first(where: { $0.label == label }) {
-                        controller.selectDictationProvider(provider)
-                    }
-                }
-            }
-            .id(FeatureTourTarget.dictationProviderSetting.rawValue)
-            .featureTourTarget(.dictationProviderSetting)
-            Divider().background(MuesliTheme.surfaceBorder)
-            if appState.dictationProvider == .openAI {
-                openAIDictationSettingsRows
-                Divider().background(MuesliTheme.surfaceBorder)
-            } else if appState.dictationProvider == .openRouter {
-                openRouterDictationSettingsRows
-                Divider().background(MuesliTheme.surfaceBorder)
-            }
-            settingsRow(appState.dictationProvider.isHosted ? "Fallback model" : "Dictation model", controlWidth: meetingControlWidth) {
-                if let displayedDictationBackend {
-                    settingsMenu(
-                        selection: displayedDictationBackend.label,
-                        options: dictationBackendOptions.map(\.label),
-                        disabledOptions: disabledDictationBackendLabels
-                    ) { label in
-                        if let option = dictationBackendOptions.first(where: { $0.label == label }) {
-                            controller.selectBackend(option)
-                        }
-                    }
-                } else {
-                    Text("No compatible model installed")
-                        .foregroundStyle(.secondary)
-                }
-            }
-            if appState.dictationProvider.isHosted {
-                settingsDescription(
-                    displayedDictationBackend == nil
-                        ? "Download a non-streaming local model to enable automatic fallback."
-                        : "Used automatically if \(appState.dictationProvider.label) transcription fails."
-                )
-            }
-            if !disabledDictationBackendLabels.isEmpty {
-                settingsDescription("Gemma 4 dictation is unavailable while Gemma 4 is the cleanup backend.")
-            }
-            if displayedDictationBackend?.backend == BackendOption.cohereTranscribe.backend {
-                Divider().background(MuesliTheme.surfaceBorder)
-                settingsRow("Cohere language", controlWidth: meetingControlWidth) {
-                    cohereLanguageMenu
-                }
-            }
-            if displayedDictationBackend?.backend == BackendOption.indicASR.backend {
-                Divider().background(MuesliTheme.surfaceBorder)
-                settingsRow("Indic language", controlWidth: meetingControlWidth) {
-                    indicLanguageMenu
-                }
-            }
-            if displayedDictationBackend?.supportsWhisperLanguageSelection == true {
-                Divider().background(MuesliTheme.surfaceBorder)
-                settingsRow("Whisper language", controlWidth: meetingControlWidth) {
-                    whisperLanguageMenu
-                }
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var openAIDictationSettingsRows: some View {
-        settingsRow("API Key", controlWidth: meetingControlWidth) {
-            PastableSecureField(
-                text: appState.config.openAIAPIKey,
-                placeholder: "sk-...",
-                onChange: { val in
-                    openAITestState = .idle
-                    controller.setOpenAIDictationAPIKey(val)
-                }
-            )
-            .frame(height: 22)
-        }
-        if controller.hostedDictationModelVisibility.shows(.openAI) {
-            Divider().background(MuesliTheme.surfaceBorder)
-            settingsRow("Model", controlWidth: meetingControlWidth) {
-                settingsModelMenu(
-                    currentModel: appState.config.openaiDictationModel,
-                    presets: openAIDictationModelPresets
-                ) { controller.selectOpenAIDictationModel($0) }
-            }
-            Divider().background(MuesliTheme.surfaceBorder)
-            settingsRow("Connection", controlWidth: meetingControlWidth) {
-                openAITestControl
-            }
-        }
-    }
-
-    private var openAIDictationModelPresets: [SummaryModelPreset] {
-        OpenAITranscriptionClient.modelPresets.map { SummaryModelPreset(id: $0, label: $0) }
-    }
-
-    @ViewBuilder
-    private var openRouterDictationSettingsRows: some View {
-        settingsRow("Account", controlWidth: meetingControlWidth) {
-            openRouterAccountControl(selectMeetingSummaryBackend: false)
-        }
-        if controller.hostedDictationModelVisibility.shows(.openRouter) {
-            Divider().background(MuesliTheme.surfaceBorder)
-            settingsRow("Model", controlWidth: meetingControlWidth) {
-                openRouterTranscriptionModelMenu
-            }
-            Divider().background(MuesliTheme.surfaceBorder)
-            settingsRow("Custom model ID", controlWidth: meetingControlWidth) {
-                settingsModelTextField(
-                    currentModel: appState.config.openRouterDictationModel,
-                    placeholder: "provider/model",
-                    onBeginEditing: { isUsingCustomOpenRouterDictationModel = true }
-                ) { controller.selectOpenRouterDictationModel($0) }
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var openAITestControl: some View {
-        switch openAITestState {
-        case .idle:
-            HStack {
-                Spacer()
-                compactActionButton("Test connection") {
-                    testOpenAIConnection()
-                }
-            }
-        case .testing:
-            HStack(spacing: 8) {
-                Spacer()
-                ProgressView()
-                    .controlSize(.small)
-                Text("Testing…")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(MuesliTheme.textTertiary)
-            }
-        case .success:
-            HStack(spacing: 6) {
-                Spacer()
-                Circle()
-                    .fill(MuesliTheme.success)
-                    .frame(width: 6, height: 6)
-                Text("Connected")
-                    .font(.system(size: 11))
-                    .foregroundStyle(MuesliTheme.success)
-                compactActionButton("Test again") {
-                    testOpenAIConnection()
-                }
-            }
-        case .failed(let message):
-            HStack(spacing: 6) {
-                Spacer()
-                Text("Failed")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(MuesliTheme.recording)
-                    .help(message)
-                compactActionButton("Retry") {
-                    testOpenAIConnection()
-                }
-            }
-        }
-    }
-
-    private func testOpenAIConnection() {
-        openAITestState = .testing
-        Task {
-            do {
-                try await controller.testOpenAIConnection()
-                await MainActor.run { openAITestState = .success }
-            } catch {
-                await MainActor.run { openAITestState = .failed(error.localizedDescription) }
-            }
-        }
-    }
-
     private var meetingTranscriptionSettingsSection: some View {
         settingsSection("Transcription") {
             settingsRow(
@@ -746,208 +566,6 @@ struct SettingsView: View {
         }
     }
 
-    private var dictationCleanupSettingsSection: some View {
-        settingsSection("Dictation Cleanup") {
-            settingsRow("AI transcript cleanup") {
-                settingsSwitch(isOn: appState.config.enablePostProcessor) { newValue in
-                    controller.setPostProcessorEnabled(newValue)
-                }
-            }
-            if appState.config.enablePostProcessor {
-                Divider().background(MuesliTheme.surfaceBorder)
-                if cleanupModelUsesFixedPrompt {
-                    fixedCleanupPromptNotice
-                } else {
-                    cleanupPromptSettings
-                }
-                Divider().background(MuesliTheme.surfaceBorder)
-                settingsRow(
-                    "Cleanup source",
-                    description: cleanupBackendDescription,
-                    controlWidth: meetingControlWidth
-                ) {
-                    settingsMenu(
-                        selection: selectedCleanupBackendLabel,
-                        options: cleanupBackendOptions.map(\.label)
-                    ) { label in
-                        if let option = cleanupBackendOptions.first(where: { $0.label == label }) {
-                            controller.selectPostProcessorBackend(option)
-                        }
-                    }
-                }
-                .id(FeatureTourTarget.cloudCleanupSetting.rawValue)
-                .featureTourTarget(.cloudCleanupSetting)
-                if appState.selectedPostProcessorBackend.isOnDevice {
-                    Divider().background(MuesliTheme.surfaceBorder)
-                    settingsRow("Cleanup model", controlWidth: meetingControlWidth) {
-                        if onDeviceCleanupModels.isEmpty {
-                            compactActionButton("View cleanup models", systemImage: "arrow.right") {
-                                controller.showModels(category: .postProcessing)
-                            }
-                            .frame(width: meetingControlWidth, alignment: .trailing)
-                        } else {
-                            FixedWidthPopUp(
-                                selection: selectedOnDeviceCleanupModelLabel,
-                                options: onDeviceCleanupModels.map(\.label),
-                                onSelectIndex: { index in
-                                    guard onDeviceCleanupModels.indices.contains(index) else { return }
-                                    switch onDeviceCleanupModels[index] {
-                                    case let .gguf(option):
-                                        controller.selectPostProcessor(option)
-                                    case let .gemma4(model):
-                                        controller.selectGemma4PostProcessor(model)
-                                    }
-                                }
-                            )
-                            .frame(height: 24)
-                        }
-                    }
-                    if gemmaCleanupIsUnavailable {
-                        Text("Gemma 4 is unavailable for cleanup while a Gemma 4 model is selected for dictation.")
-                            .font(MuesliTheme.body())
-                            .foregroundStyle(MuesliTheme.textTertiary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                } else {
-                    hostedCleanupSettings(for: appState.selectedPostProcessorBackend)
-                }
-            }
-        }
-    }
-
-    private var quilSettingsSection: some View {
-        settingsSection("Quill", icon: QuillIcon.image()) {
-            settingsRow(
-                "Rewrite selected text",
-                description: "Highlight text to transform it. With no selection, Quill generates and pastes at the cursor."
-            ) {
-                settingsSwitch(isOn: appState.config.enableQuilMode) { newValue in
-                    _ = controller.updateQuilModeEnabled(newValue)
-                }
-            }
-            if appState.config.enableQuilMode {
-                Divider().background(MuesliTheme.surfaceBorder)
-                settingsRow(
-                    "Play Quill sounds",
-                    description: "Play the activation and release cues for Quill mode."
-                ) {
-                    settingsSwitch(isOn: appState.config.quilSoundEnabled) { newValue in
-                        controller.updateConfig { $0.quilSoundEnabled = newValue }
-                    }
-                }
-                Divider().background(MuesliTheme.surfaceBorder)
-                settingsRow("Model source", controlWidth: meetingControlWidth) {
-                    settingsMenu(
-                        selection: selectedQuilModelSource.label,
-                        options: QuilModelSourceOption.all.map(\.label)
-                    ) { label in
-                        guard let source = QuilModelSourceOption.all.first(where: { $0.label == label }) else {
-                            return
-                        }
-                        if source == .localModels {
-                            if !selectedQuilBackend.isOnDevice {
-                                selectQuilLocalModel(quilLocalModels.first)
-                            }
-                        } else if let backend = source.hostedBackend {
-                            controller.updateConfig {
-                                $0.quilBackend = backend.backend
-                                $0.quilModel = TranscriptCleanupClient.defaultModel(for: backend)
-                            }
-                        }
-                    }
-                }
-                if selectedQuilBackend.isOnDevice {
-                    Divider().background(MuesliTheme.surfaceBorder)
-                    settingsRow("Quill model", controlWidth: meetingControlWidth) {
-                        if quilLocalModels.isEmpty {
-                            compactActionButton("View local models", systemImage: "arrow.right") {
-                                controller.showModels(category: .postProcessing)
-                            }
-                            .frame(width: meetingControlWidth, alignment: .trailing)
-                        } else {
-                            FixedWidthPopUp(
-                                selection: selectedQuilLocalModelLabel,
-                                options: quilLocalModels.map(\.quilLabel),
-                                onSelectIndex: { index in
-                                    guard quilLocalModels.indices.contains(index) else { return }
-                                    selectQuilLocalModel(quilLocalModels[index])
-                                }
-                            )
-                            .frame(height: 24)
-                        }
-                    }
-                } else {
-                    hostedQuilSettings(for: selectedQuilBackend)
-                }
-            }
-        }
-        .id(FeatureTourTarget.quillSettings.rawValue)
-        .featureTourTarget(.quillSettings)
-    }
-
-    private func selectQuilLocalModel(_ model: OnDeviceCleanupModel?) {
-        controller.updateConfig {
-            let resolved = model ?? .gguf(PostProcessorOption.defaultQuilOption)
-            $0.quilBackend = resolved.quilBackend.backend
-            $0.quilModel = resolved.quilModelID
-        }
-    }
-
-    @ViewBuilder
-    private func hostedQuilSettings(for backend: TranscriptCleanupBackendOption) -> some View {
-        if backend == .hosted(.chatGPT) {
-            Divider().background(MuesliTheme.surfaceBorder)
-            settingsRow("Account", controlWidth: meetingControlWidth) {
-                chatGPTAccountControl(selectMeetingSummaryBackend: false)
-            }
-        } else if backend == .hosted(.openAI) {
-            Divider().background(MuesliTheme.surfaceBorder)
-            settingsRow("API Key", controlWidth: meetingControlWidth) {
-                PastableSecureField(
-                    text: appState.config.openAIAPIKey,
-                    placeholder: "sk-...",
-                    onChange: { value in controller.updateConfig { $0.openAIAPIKey = value } }
-                ).frame(height: 22)
-            }
-        } else if backend == .hosted(.openRouter) {
-            Divider().background(MuesliTheme.surfaceBorder)
-            settingsRow("Account", controlWidth: meetingControlWidth) {
-                openRouterAccountControl(selectMeetingSummaryBackend: false)
-            }
-        } else if backend == .hosted(.ollama) {
-            Divider().background(MuesliTheme.surfaceBorder)
-            settingsRow("Ollama URL", controlWidth: meetingControlWidth) {
-                PastableTextField(
-                    text: appState.config.ollamaURL,
-                    placeholder: "http://localhost:11434",
-                    onChange: { value in controller.updateConfig { $0.ollamaURL = value } }
-                ).frame(height: 22)
-            }
-        } else if backend == .hosted(.lmStudio) {
-            Divider().background(MuesliTheme.surfaceBorder)
-            settingsRow("LM Studio URL", controlWidth: meetingControlWidth) {
-                PastableTextField(
-                    text: appState.config.lmStudioURL,
-                    placeholder: "http://localhost:1234",
-                    onChange: { value in controller.updateConfig { $0.lmStudioURL = value } }
-                ).frame(height: 22)
-            }
-        } else if backend == .hosted(.customLLM) {
-            customLLMSettingsRows(model: appState.config.quilModel) { value in
-                controller.updateConfig { $0.quilModel = value }
-            }
-        }
-        if backend != .hosted(.customLLM) {
-            Divider().background(MuesliTheme.surfaceBorder)
-            settingsRow("Quill model", controlWidth: meetingControlWidth) {
-                settingsModelTextField(
-                    currentModel: appState.config.quilModel,
-                    placeholder: TranscriptCleanupClient.defaultModel(for: backend)
-                ) { value in controller.updateConfig { $0.quilModel = value } }
-            }
-        }
-    }
-
     private var cohereLanguageMenu: some View {
         settingsMenu(
             selection: selectedCohereLanguage.label,
@@ -988,150 +606,6 @@ struct SettingsView: View {
             }
         )
         .frame(height: 24)
-    }
-
-    @ViewBuilder
-    private func hostedCleanupSettings(for backend: TranscriptCleanupBackendOption) -> some View {
-        switch backend.llmBackend {
-        case .some(.chatGPT):
-            Divider().background(MuesliTheme.surfaceBorder)
-            settingsRow("Account", controlWidth: meetingControlWidth) {
-                chatGPTAccountControl(selectMeetingSummaryBackend: false)
-            }
-            Divider().background(MuesliTheme.surfaceBorder)
-            settingsRow("Cleanup model", controlWidth: meetingControlWidth) {
-                settingsModelMenu(
-                    currentModel: appState.config.postProcessorChatGPTModel,
-                    presets: SummaryModelPreset.chatGPTTranscriptCleanupModels
-                ) { controller.updatePostProcessorModel($0, for: backend) }
-            }
-        case .some(.openAI):
-            Divider().background(MuesliTheme.surfaceBorder)
-            settingsRow("API Key", controlWidth: meetingControlWidth) {
-                PastableSecureField(
-                    text: appState.config.openAIAPIKey,
-                    placeholder: "sk-...",
-                    onChange: { val in controller.updateConfig { $0.openAIAPIKey = val } }
-                )
-                .frame(height: 22)
-            }
-            Divider().background(MuesliTheme.surfaceBorder)
-            settingsRow("Cleanup model", controlWidth: meetingControlWidth) {
-                settingsModelMenu(
-                    currentModel: appState.config.postProcessorOpenAIModel,
-                    presets: SummaryModelPreset.openAIModels
-                ) { controller.updatePostProcessorModel($0, for: backend) }
-            }
-            keyStatusRow(key: appState.config.openAIAPIKey)
-        case .some(.openRouter):
-            Divider().background(MuesliTheme.surfaceBorder)
-            settingsRow("Account", controlWidth: meetingControlWidth) {
-                openRouterAccountControl(selectMeetingSummaryBackend: false)
-            }
-            Divider().background(MuesliTheme.surfaceBorder)
-            settingsRow("Model preset", controlWidth: meetingControlWidth) {
-                settingsModelMenu(
-                    currentModel: appState.config.postProcessorOpenRouterModel,
-                    presets: SummaryModelPreset.openRouterModels
-                ) { controller.updatePostProcessorModel($0, for: backend) }
-            }
-            Divider().background(MuesliTheme.surfaceBorder)
-            settingsRow("Custom model ID", controlWidth: meetingControlWidth) {
-                settingsModelTextField(
-                    currentModel: appState.config.postProcessorOpenRouterModel,
-                    placeholder: "provider/model"
-                ) { controller.updatePostProcessorModel($0, for: backend) }
-            }
-        case .some(.ollama):
-            Divider().background(MuesliTheme.surfaceBorder)
-            settingsRow("Ollama URL", controlWidth: meetingControlWidth) {
-                PastableTextField(
-                    text: appState.config.ollamaURL,
-                    placeholder: "http://localhost:11434",
-                    onChange: { val in controller.updateConfig { $0.ollamaURL = val } }
-                )
-                .frame(height: 22)
-            }
-            Divider().background(MuesliTheme.surfaceBorder)
-            settingsRow("Cleanup model", controlWidth: meetingControlWidth) {
-                settingsModelTextField(
-                    currentModel: appState.config.postProcessorOllamaModel,
-                    placeholder: TranscriptCleanupClient.defaultModel(for: backend)
-                ) { controller.updatePostProcessorModel($0, for: backend) }
-            }
-        case .some(.lmStudio):
-            Divider().background(MuesliTheme.surfaceBorder)
-            settingsRow("LM Studio URL", controlWidth: meetingControlWidth) {
-                PastableTextField(
-                    text: appState.config.lmStudioURL,
-                    placeholder: "http://localhost:1234",
-                    onChange: { val in controller.updateConfig { $0.lmStudioURL = val } }
-                )
-                .frame(height: 22)
-            }
-            Divider().background(MuesliTheme.surfaceBorder)
-            settingsRow("Cleanup model", controlWidth: meetingControlWidth) {
-                settingsModelTextField(
-                    currentModel: appState.config.postProcessorLMStudioModel,
-                    placeholder: "Loaded LM Studio model"
-                ) { controller.updatePostProcessorModel($0, for: backend) }
-            }
-        case .some(.customLLM):
-            customLLMSettingsRows(model: appState.config.postProcessorCustomLLMModel) {
-                controller.updatePostProcessorModel($0, for: backend)
-            }
-        default:
-            EmptyView()
-        }
-    }
-
-    private var cleanupPromptSettings: some View {
-        VStack(alignment: .leading, spacing: MuesliTheme.spacing12) {
-            settingsRow("Cleanup preset", controlWidth: meetingControlWidth) {
-                FixedWidthPopUp(
-                    selection: selectedCleanupPromptName,
-                    options: cleanupPromptPresets.map(\.name),
-                    onSelectIndex: { index in
-                        guard index >= 0, index < cleanupPromptPresets.count else { return }
-                        controller.selectTranscriptCleanupPrompt(id: cleanupPromptPresets[index].id)
-                    }
-                )
-                .frame(height: 24)
-            }
-
-            Text(appState.config.postProcessorSystemPrompt)
-                .font(.system(size: 12, design: .monospaced))
-                .foregroundStyle(MuesliTheme.textSecondary)
-                .lineLimit(4)
-                .padding(10)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(MuesliTheme.surfacePrimary.opacity(0.7))
-                .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
-                .overlay(
-                    RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall)
-                        .strokeBorder(MuesliTheme.surfaceBorder, lineWidth: 1)
-                )
-
-            HStack {
-                Spacer()
-                compactActionButton("Manage Presets…", systemImage: "slider.horizontal.3") {
-                    isCleanupPromptManagerPresented = true
-                }
-            }
-        }
-    }
-
-    private var fixedCleanupPromptNotice: some View {
-        settingsRow(
-            "Cleanup prompt",
-            description: "S1-mini uses Superwhisper’s built-in normalization instructions.",
-            controlWidth: meetingControlWidth
-        ) {
-            Text("Built in")
-                .font(MuesliTheme.body())
-                .foregroundStyle(MuesliTheme.textSecondary)
-                .frame(width: meetingControlWidth, alignment: .trailing)
-        }
     }
 
     private var meetingSummarySettingsSection: some View {
@@ -1274,101 +748,6 @@ struct SettingsView: View {
                     ? "claude-3-5-sonnet-20241022"
                     : "custom-model-id"
             ) { val in onModelChange(val) }
-        }
-    }
-
-    private var dictationSettingsPane: some View {
-        VStack(alignment: .leading, spacing: MuesliTheme.spacing24) {
-            dictationModelSettingsSection
-
-            settingsSection("Transcription") {
-                settingsRow(
-                    "Microphone",
-                    description: "Automatic uses system input, or Mac mic with AirPods."
-                ) {
-                    let options = dictationMicrophoneOptions
-                    FixedWidthPopUp(
-                        selection: selectedDictationMicrophoneLabel,
-                        options: options.map(\.label),
-                        onSelectIndex: { index in
-                            guard index >= 0, index < options.count else { return }
-                            controller.selectDictationInputDeviceUID(options[index].uid)
-                            loadCachedAudioInputDevices()
-                        }
-                    )
-                    .frame(height: 24)
-                }
-                Divider().background(MuesliTheme.surfaceBorder)
-                settingsRow(
-                    "Dictionary suggestions",
-                    description: "Suggest words after corrections by briefly reading focused app text via Accessibility."
-                ) {
-                    settingsSwitch(isOn: appState.config.enableDictionaryCorrectionPrompts) { newValue in
-                        handleDictionaryCorrectionPromptsToggle(newValue)
-                    }
-                    .help("Briefly reads focused app text after dictation to detect corrections.")
-                }
-            }
-
-            dictationCleanupSettingsSection
-
-            quilSettingsSection
-
-            settingsSection("Advanced") {
-                settingsRow("Pause media during dictation") {
-                    settingsSwitch(isOn: appState.config.pauseMediaDuringDictation) { newValue in
-                        controller.updateConfig { $0.pauseMediaDuringDictation = newValue }
-                    }
-                }
-                Divider().background(MuesliTheme.surfaceBorder)
-                settingsRow("Mute system audio during dictation") {
-                    settingsSwitch(isOn: appState.config.muteSystemAudioDuringDictation) { newValue in
-                        controller.updateConfig { $0.muteSystemAudioDuringDictation = newValue }
-                    }
-                }
-                Divider().background(MuesliTheme.surfaceBorder)
-                screenContextRow("App context")
-                Divider().background(MuesliTheme.surfaceBorder)
-                dictationOCRContextRow
-            }
-        }
-    }
-
-    private var computerUseSettingsPane: some View {
-        VStack(alignment: .leading, spacing: MuesliTheme.spacing24) {
-            settingsSection("Computer Use") {
-                settingsRow("Enable planner", controlWidth: meetingControlWidth) {
-                    settingsSwitch(isOn: appState.config.enableComputerUsePlanner) { newValue in
-                        controller.updateConfig { $0.enableComputerUsePlanner = newValue }
-                    }
-                }
-                Divider().background(MuesliTheme.surfaceBorder)
-                settingsRow("Account", controlWidth: meetingControlWidth) {
-                    chatGPTAccountControl()
-                }
-                Divider().background(MuesliTheme.surfaceBorder)
-                settingsRow("Planner model", controlWidth: meetingControlWidth) {
-                    settingsModelMenu(
-                        currentModel: appState.config.computerUsePlannerModel,
-                        presets: SummaryModelPreset.computerUsePlannerModels
-                    ) { val in controller.updateConfig { $0.computerUsePlannerModel = val } }
-                }
-                Divider().background(MuesliTheme.surfaceBorder)
-                settingsRow("Timeout", controlWidth: meetingControlWidth) {
-                    integerInput(
-                        label: "Computer use timeout",
-                        value: Binding(
-                            get: { max(appState.config.computerUseTimeoutSeconds, 1) },
-                            set: { newValue in
-                                controller.updateConfig { $0.computerUseTimeoutSeconds = max(newValue, 1) }
-                            }
-                        ),
-                        range: 1...600,
-                        step: 15,
-                        unit: { $0 == 1 ? "second" : "seconds" }
-                    )
-                }
-            }
         }
     }
 
@@ -1858,7 +1237,6 @@ struct SettingsView: View {
                             openRouterSignInError = controller.signOutOpenRouter()
                             if openRouterSignInError == nil && !appState.isOpenRouterAuthenticated {
                                 isUsingCustomOpenRouterModel = false
-                                isUsingCustomOpenRouterDictationModel = false
                             }
                         } label: {
                             Text(appState.isOpenRouterEnvironmentManaged ? "Forget local" : "Disconnect")
@@ -1912,9 +1290,6 @@ struct SettingsView: View {
                         )
                         isSigningInOpenRouter = false
                         openRouterSignInError = error
-                        if error == nil, appState.dictationProvider == .openRouter {
-                            loadOpenRouterTranscriptionModelsIfNeeded()
-                        }
                     }
                 } label: {
                     HStack(spacing: 5) {
@@ -1959,9 +1334,6 @@ struct SettingsView: View {
                             if openRouterSignInError == nil {
                                 manualOpenRouterAPIKey = ""
                                 isEnteringOpenRouterAPIKey = false
-                                if appState.dictationProvider == .openRouter {
-                                    loadOpenRouterTranscriptionModelsIfNeeded()
-                                }
                             }
                         }
                         .disabled(manualOpenRouterAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
@@ -2345,64 +1717,27 @@ struct SettingsView: View {
         }
     }
 
-    @ViewBuilder
-    private func dictationOCRContextControl(width: CGFloat? = nil) -> some View {
-        if !appState.config.enableScreenContext {
-            settingsSwitch(isOn: false) { _ in }
-                .frame(width: width, alignment: .trailing)
-                .disabled(true)
-        } else if screenRecordingGranted {
-            settingsSwitch(isOn: appState.config.enableDictationOCRContext) { newValue in
-                controller.updateConfig { $0.enableDictationOCRContext = newValue }
-            }
-            .frame(width: width, alignment: .trailing)
-        } else {
-            Button {
-                _ = CGRequestScreenCaptureAccess()
-                refreshPermissionStatuses(for: .permissionRequested)
-            } label: {
-                Text("Grant")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(MuesliTheme.accent)
-                    .frame(width: width)
-                    .frame(minHeight: 32)
-                    .background(MuesliTheme.accentSubtle)
-                    .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
-            }
-            .buttonStyle(.plain)
-        }
-    }
-
     @discardableResult
     private func handleScreenContextToggle(_ enabled: Bool) -> Bool {
         guard enabled else {
-            clearPendingScreenContextEnable()
             controller.updateConfig {
                 $0.enableScreenContext = false
-                $0.enableDictationOCRContext = false
             }
             return false
         }
 
         guard accessibilityGranted else {
-            pendingScreenContextEnable = true
-            pendingScreenContextRequestedAt = Date().timeIntervalSince1970
-            let granted = controller.requestScreenContextEnable()
+            let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary
+            AXIsProcessTrustedWithOptions(options)
             accessibilityGranted = AXIsProcessTrusted()
-            if granted || accessibilityGranted {
-                clearPendingScreenContextEnable()
+            if accessibilityGranted {
+                controller.updateConfig { $0.enableScreenContext = true }
             }
-            return granted || accessibilityGranted
+            return accessibilityGranted
         }
 
-        clearPendingScreenContextEnable()
-        return controller.requestScreenContextEnable()
-    }
-
-    private func handleDictionaryCorrectionPromptsToggle(_ enabled: Bool) {
-        if controller.setDictionaryCorrectionPromptsFromToggle(enabled) == .needsAccessibilityPermission {
-            isShowingDictionaryAccessibilityPrompt = true
-        }
+        controller.updateConfig { $0.enableScreenContext = true }
+        return true
     }
 
     private func startPermissionPolling() {
@@ -2426,49 +1761,21 @@ struct SettingsView: View {
     private func refreshPermissionStatuses(for reason: SettingsPermissionRefreshReason) {
         micGranted = AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
         accessibilityGranted = AXIsProcessTrusted()
-        controller.reconcilePendingDictionaryCorrectionAccessibilityEnable()
         inputMonitoringGranted = CGPreflightListenEventAccess()
         screenRecordingGranted = CGPreflightScreenCaptureAccess()
         if reason.refreshesLaunchAtLogin {
             controller.refreshLaunchAtLoginState()
         }
-        if accessibilityGranted && pendingScreenContextEnable {
-            if controller.requestScreenContextEnable() {
-                clearPendingScreenContextEnable()
-            }
-        }
-        if !accessibilityGranted && isPendingScreenContextGrantExpired {
-            clearPendingScreenContextEnable()
-        }
         if !accessibilityGranted && appState.config.enableScreenContext {
-            clearPendingScreenContextEnable()
+            // The app lost Accessibility access since the toggle was enabled;
+            // meeting context capture cannot run without it.
             controller.updateConfig {
                 $0.enableScreenContext = false
-                $0.enableDictationOCRContext = false
             }
         }
-        if (!appState.config.enableScreenContext || !screenRecordingGranted) && appState.config.enableDictationOCRContext {
-            controller.updateConfig { $0.enableDictationOCRContext = false }
-        }
-        controller.reclassifyVoiceNotesAsDictationIfReady(
-            microphoneGranted: micGranted,
-            accessibilityGranted: accessibilityGranted,
-            inputMonitoringGranted: inputMonitoringGranted
-        )
         if reason.refreshesSystemAudio {
             refreshSystemAudioPermissionIfNeeded()
         }
-    }
-
-    private var isPendingScreenContextGrantExpired: Bool {
-        guard pendingScreenContextEnable else { return false }
-        guard pendingScreenContextRequestedAt > 0 else { return true }
-        return Date().timeIntervalSince1970 - pendingScreenContextRequestedAt > screenContextGrantIntentTimeout
-    }
-
-    private func clearPendingScreenContextEnable() {
-        pendingScreenContextEnable = false
-        pendingScreenContextRequestedAt = 0
     }
 
     private func refreshSystemAudioPermissionIfNeeded() {
@@ -3264,53 +2571,6 @@ struct SettingsView: View {
 
     private func loadOpenRouterFreeModelsIfNeeded() {
         controller.loadOpenRouterModels(.text)
-    }
-
-    @ViewBuilder
-    private var openRouterTranscriptionModelMenu: some View {
-        let placeholder = "Choose a model…"
-        let customOption = "Custom model ID"
-        let configured = OpenRouterTranscriptionClient.normalizedModel(
-            appState.config.openRouterDictationModel
-        )
-        let presets = appState.openRouterTranscriptionModels
-        let configuredPreset = presets.first(where: { $0.id == configured })
-        let options = [placeholder] + presets.map(\.label) + [customOption]
-        let selected = isUsingCustomOpenRouterDictationModel
-            ? customOption
-            : (configured.isEmpty ? placeholder : (configuredPreset?.label ?? customOption))
-
-        HStack(spacing: 8) {
-            if appState.openRouterTranscriptionCatalogState == .loading, presets.isEmpty {
-                ProgressView().controlSize(.small)
-            }
-            FixedWidthPopUp(
-                selection: selected,
-                options: options,
-                disabledOptions: [placeholder],
-                onSelectIndex: { index in
-                    guard index > 0 else { return }
-                    if index == options.count - 1 {
-                        isUsingCustomOpenRouterDictationModel = true
-                        return
-                    }
-                    isUsingCustomOpenRouterDictationModel = false
-                    controller.selectOpenRouterDictationModel(presets[index - 1].id)
-                }
-            )
-            .frame(height: 24)
-
-            if case .failed = appState.openRouterTranscriptionCatalogState {
-                Button("Retry") {
-                    controller.loadOpenRouterModels(.transcription, force: true)
-                }
-                .font(.system(size: 11, weight: .medium))
-            }
-        }
-    }
-
-    private func loadOpenRouterTranscriptionModelsIfNeeded() {
-        controller.loadOpenRouterModels(.transcription)
     }
 
     @ViewBuilder

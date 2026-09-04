@@ -1,36 +1,12 @@
 import AppKit
 import AudioToolbox
 
-/// Plays subtle sounds for dictation and Quill lifecycle events.
+/// Plays subtle app lifecycle sounds.
 /// Sounds are skipped when `soundEnabled` is false.
 @MainActor
 enum SoundController {
     static func prewarmLifecycleSounds() {
         SystemSoundPlayer.prewarm(names: ["Tink", "Purr", "Glass"])
-        let quillSounds = ["quill-activate", "quill-release"].compactMap { name in
-            bundledLifecycleSoundURL(named: name).map { (name, $0) }
-        }
-        SystemSoundPlayer.prewarmBundled(quillSounds)
-    }
-
-    static func playDictationStart(enabled: Bool) {
-        guard enabled else { return }
-        SystemSoundPlayer.play(named: "Tink")
-    }
-
-    static func playDictationInsert(enabled: Bool) {
-        guard enabled else { return }
-        SystemSoundPlayer.play(named: "Purr")
-    }
-
-    static func playQuillStart(enabled: Bool) {
-        guard enabled, let url = bundledLifecycleSoundURL(named: "quill-activate") else { return }
-        SystemSoundPlayer.playBundled(named: "quill-activate", url: url)
-    }
-
-    static func playQuillRelease(enabled: Bool) {
-        guard enabled, let url = bundledLifecycleSoundURL(named: "quill-release") else { return }
-        SystemSoundPlayer.playBundled(named: "quill-release", url: url)
     }
 
     static func playModelReady(enabled: Bool) {

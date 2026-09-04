@@ -4,7 +4,6 @@ import MuesliCore
 import Foundation
 
 /// Streaming ASR backend protocol used by the Nemotron 3.5 transcriber.
-/// (Previously declared in the removed dictation StreamingDictationController.)
 @available(macOS 15, *)
 protocol NemotronStreamingTranscribing: AnyObject {
     func makeStreamState() async throws -> RNNTStreamState
