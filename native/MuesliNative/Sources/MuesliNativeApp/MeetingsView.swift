@@ -261,11 +261,7 @@ struct MeetingsView: View {
         ScrollView {
             let presentation = browserPresentation
             VStack(alignment: .leading, spacing: MuesliTheme.spacing24) {
-                DashboardPageHeader(
-                    title: "Meetings",
-                    appState: appState,
-                    controller: controller
-                )
+                PageTitle("Meetings")
 
                 if !appState.upcomingCalendarEvents.isEmpty {
                     comingUpSection
@@ -646,11 +642,6 @@ struct MeetingsView: View {
             }
 
             browserHeaderMeta(meetingCount: meetingCount)
-
-            RecordOriginPicker(selection: Binding(
-                get: { appState.meetingOriginFilter },
-                set: { controller.filterMeetings(origin: $0) }
-            ))
         }
     }
 
@@ -955,19 +946,12 @@ struct MeetingsView: View {
     }
 
     private var emptyStateTitle: String {
-        switch appState.meetingOriginFilter {
-        case .thisMac:
-            return "No meetings from this Mac"
-        case .fromIPhone:
-            return "No meetings from iPhone"
-        case .all:
-            return appState.selectedFolderID == nil ? "No meetings yet" : "No meetings in this folder"
-        }
+        appState.selectedFolderID == nil ? "No meetings yet" : "No meetings in this folder"
     }
 
     private var emptyStateInstruction: String {
-        if appState.meetingOriginFilter != .all || selectedFilter != .all {
-            return "Try another source, time range, or folder."
+        if selectedFilter != .all {
+            return "Try another filter, time range, or folder."
         }
         return appState.selectedFolderID == nil
             ? "Start a recording from the menu bar to create your first meeting note."

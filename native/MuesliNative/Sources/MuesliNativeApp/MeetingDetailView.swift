@@ -414,9 +414,6 @@ struct MeetingDetailView: View {
                 metadataItem(systemImage: "clock", text: formatDuration(meeting.durationSeconds))
                 metadataDivider
                 metadataItem(systemImage: "doc.text", text: "\(meeting.wordCount) words")
-                if let label = SyncOriginDisplay.badgeLabel(forMeetingSource: meeting.source) {
-                    SyncOriginBadge(label: label)
-                }
             }
         }
     }
@@ -1393,11 +1390,7 @@ struct MeetingDetailView: View {
 
     private func threadLink(icon: String, text: String, targetID: Int64) -> some View {
         Button {
-            if appState.meetingDetailReturnDestination == .timeline {
-                controller.showTimelineMeetingDocument(id: targetID)
-            } else {
-                controller.showMeetingDocument(id: targetID)
-            }
+            controller.showMeetingDocument(id: targetID)
         } label: {
             HStack(spacing: 4) {
                 Image(systemName: icon)

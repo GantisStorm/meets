@@ -237,15 +237,6 @@ enum DiagnosticErrorCatalog {
             }
             return nemotronMatch(for: failure)
         }
-        if normalizedDomain.hasSuffix(".StartupError"), normalizedCode == "0" {
-            return fixedMatch(
-                signature: "audio_startup_no_buffer",
-                summary: "Audio startup did not receive a microphone buffer",
-                area: "dictation_audio_capture",
-                domain: "StartupError",
-                code: normalizedCode
-            )
-        }
         return nil
     }
 
@@ -253,16 +244,6 @@ enum DiagnosticErrorCatalog {
         kind: DiagnosticIncidentKind,
         stage: DiagnosticIncidentStage
     ) -> DiagnosticErrorFingerprint {
-        if kind == .streamingDictationStartFailed, stage == .nemotronStreamingStart {
-            return DiagnosticErrorFingerprint(
-                signature: "streaming_controller_start_failed",
-                summary: "Streaming dictation controller did not start",
-                area: "streaming_transcription",
-                safeDomain: nil,
-                safeCode: nil,
-                isKnown: true
-            )
-        }
         if kind == .manualReport {
             return DiagnosticErrorFingerprint(
                 signature: "manual_report",
@@ -331,33 +312,21 @@ enum DiagnosticErrorCatalog {
         "Muesli": [
             "1": .init(summary: "Selected transcription backend requires a newer macOS version", area: "transcription_runtime"),
         ],
-        "MicrophoneRecorder": [
-            "1": .init(summary: "Microphone recorder was unavailable at start", area: "dictation_audio_capture"),
-            "2": .init(summary: "Microphone recorder failed to start", area: "dictation_audio_capture"),
-            "3": .init(summary: "Preferred microphone input could not be selected", area: "audio_route_selection"),
-            "4": .init(summary: "Microphone input changed while recording", area: "audio_route_selection"),
-            "5": .init(summary: "Microphone recording stopped unexpectedly", area: "dictation_audio_capture"),
-            "6": .init(summary: "Microphone recorder failed to prepare", area: "dictation_audio_capture"),
-        ],
         "StreamingMicRecorder": [
-            "1": .init(summary: "No audio input was available", area: "dictation_audio_capture"),
-            "2": .init(summary: "Target streaming audio format could not be created", area: "dictation_audio_capture"),
-            "3": .init(summary: "Streaming microphone file could not be opened", area: "dictation_audio_capture"),
+            "1": .init(summary: "No audio input was available", area: "meeting_audio_capture"),
+            "2": .init(summary: "Target streaming audio format could not be created", area: "meeting_audio_capture"),
+            "3": .init(summary: "Streaming microphone file could not be opened", area: "meeting_audio_capture"),
         ],
         "AudioQueueInputRecorder": [
-            "1": .init(summary: "Audio queue was not initialized", area: "dictation_audio_capture"),
-            "2": .init(summary: "Audio queue buffer enqueue failed during startup", area: "dictation_audio_capture"),
-            "3": .init(summary: "Audio queue failed to start", area: "dictation_audio_capture"),
-            "4": .init(summary: "Audio queue input creation failed", area: "dictation_audio_capture"),
-            "5": .init(summary: "Audio queue buffer allocation failed", area: "dictation_audio_capture"),
+            "1": .init(summary: "Audio queue was not initialized", area: "meeting_audio_capture"),
+            "2": .init(summary: "Audio queue buffer enqueue failed during startup", area: "meeting_audio_capture"),
+            "3": .init(summary: "Audio queue failed to start", area: "meeting_audio_capture"),
+            "4": .init(summary: "Audio queue input creation failed", area: "meeting_audio_capture"),
+            "5": .init(summary: "Audio queue buffer allocation failed", area: "meeting_audio_capture"),
             "6": .init(summary: "Preferred input device UID could not be resolved", area: "audio_route_selection"),
             "7": .init(summary: "Audio queue current device selection failed", area: "audio_route_selection"),
-            "8": .init(summary: "Audio queue buffer enqueue failed while recording", area: "dictation_audio_capture"),
-            "9": .init(summary: "Audio queue recording file could not be opened", area: "dictation_audio_capture"),
-        ],
-        "AppScopedDictationRecorder": [
-            "1": .init(summary: "Dictation recording was cancelled before microphone startup finished", area: "dictation_audio_capture"),
-            "2": .init(summary: "Dictation microphone preparation was cancelled", area: "dictation_audio_capture"),
+            "8": .init(summary: "Audio queue buffer enqueue failed while recording", area: "meeting_audio_capture"),
+            "9": .init(summary: "Audio queue recording file could not be opened", area: "meeting_audio_capture"),
         ],
         "MeetingRecordingWriter": [
             "1": .init(summary: "Retained meeting recording file could not be opened", area: "meeting_recording_save"),

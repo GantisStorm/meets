@@ -48,13 +48,6 @@ struct ModelsView: View {
     @State private var liveCaptionDownloadGeneration = ModelDownloadGenerationState()
     @State private var showDeleteLiveCaptionModelConfirmation = false
 
-    // Post-processor state
-    @State private var downloadingPostProcModels: Set<String> = []
-    @State private var downloadProgressPostProc: [String: Double] = [:]
-    @State private var downloadedPostProcModels: Set<String> = []
-    @State private var downloadTasksPostProc: [String: Task<Void, Never>] = [:]
-    @State private var postProcModelToDelete: PostProcessorOption?
-
     init(appState: AppState, controller: MuesliController) {
         self.appState = appState
         self.controller = controller
@@ -73,7 +66,7 @@ struct ModelsView: View {
                         .font(MuesliTheme.title1())
                         .foregroundStyle(MuesliTheme.textPrimary)
 
-                    Text("Choose the transcription and cleanup models that fit how you speak and work.")
+                    Text("Choose the transcription models that best match how your meetings sound.")
                         .font(MuesliTheme.body())
                         .foregroundStyle(MuesliTheme.textSecondary)
 
@@ -108,7 +101,6 @@ struct ModelsView: View {
         .background(MuesliTheme.backgroundBase)
         .onAppear {
             checkDownloadedModels()
-            checkDownloadedPostProcModels()
             isLiveCaptionModelDownloaded = MeetingLiveCaptionModelStore.isDownloaded()
             syncSelectionsFromActiveBackend()
             checkNemotron35Update()
@@ -136,24 +128,6 @@ struct ModelsView: View {
             Text("The downloaded model files will be removed from this Mac. You can download the model again later.")
         }
         .alert(
-            "Delete \"\(postProcModelToDelete?.label ?? "")\"?",
-            isPresented: Binding(
-                get: { postProcModelToDelete != nil },
-                set: { if !$0 { postProcModelToDelete = nil } }
-            )
-        ) {
-            Button("Cancel", role: .cancel) {
-                postProcModelToDelete = nil
-            }
-            Button("Delete", role: .destructive) {
-                guard let option = postProcModelToDelete else { return }
-                deletePostProcModel(option)
-                postProcModelToDelete = nil
-            }
-        } message: {
-            Text(postProcessorDeleteMessage)
-        }
-        .alert(
             "Delete \"\(MeetingLiveCaptionModelStore.label)\"?",
             isPresented: $showDeleteLiveCaptionModelConfirmation
         ) {
@@ -173,17 +147,10 @@ struct ModelsView: View {
         )
     }
 
-    private var postProcessorDeleteMessage: String {
-        guard let option = postProcModelToDelete, !option.isDownloadable else {
-            return "The downloaded model files will be removed from this Mac. You can download the model again later."
-        }
-        return "The downloaded model files will be removed from this Mac. This legacy model is no longer available to download, so deleting it is permanent."
-    }
-
     @ViewBuilder
     private var selectedCategoryContent: some View {
         switch appState.selectedModelsCategory {
-        case .dictation:
+        case .transcription:
             ForEach(BackendOption.systemManaged, id: \.model) { option in
                 let featureTourTarget: FeatureTourTarget? = option.backend == BackendOption.appleSpeechAnalyzer.backend
                     ? .appleSpeechCard
@@ -199,7 +166,7 @@ struct ModelsView: View {
 
             familyCard(
                 title: "Parakeet Family",
-                subtitle: "The most responsive choices for everyday dictation, with multilingual and English-only options.",
+                subtitle: "The most responsive choices for meeting transcription, with multilingual and English-only options.",
                 defaultBadge: "Recommended: Unified",
                 logo: "nvidia-logo",
                 selection: $selectedParakeetModel,
@@ -222,8 +189,6 @@ struct ModelsView: View {
             comingSoonSection
         case .streaming:
             streamingSection
-        case .postProcessing:
-            postProcessorSection
         }
     }
 
@@ -256,19 +221,19 @@ struct ModelsView: View {
         switch activeFeatureTourTarget {
         case .modelLibrary:
             target = .modelLibrary
-            appState.selectedModelsCategory = .dictation
+            appState.selectedModelsCategory = .transcription
         case .appleSpeechCard:
             target = .appleSpeechCard
-            appState.selectedModelsCategory = .dictation
+            appState.selectedModelsCategory = .transcription
         case .parakeetFamilyCard:
             target = .parakeetFamilyCard
-            appState.selectedModelsCategory = .dictation
+            appState.selectedModelsCategory = .transcription
         case .streamingModels:
             target = .streamingModels
             appState.selectedModelsCategory = .streaming
         case .experimentalModels:
             target = .experimentalModels
-            appState.selectedModelsCategory = .dictation
+            appState.selectedModelsCategory = .transcription
             showExperimental = true
         default:
             return
@@ -551,16 +516,7 @@ struct ModelsView: View {
             if showExperimental {
                 VStack(spacing: MuesliTheme.spacing12) {
                     ForEach(BackendOption.experimental, id: \.model) { option in
-                        if !appState.selectedPostProcessorBackend.isCompatible(with: option) {
-                            modelCard(
-                                option: option,
-                                logo: logoForBackend(option),
-                                downloadedLabel: "Used for Cleanup",
-                                activationDisabledReason: "Unavailable while Gemma 4 is selected for cleanup. Choose another cleanup backend first."
-                            )
-                        } else {
-                            modelCard(option: option, logo: logoForBackend(option))
-                        }
+                        modelCard(option: option, logo: logoForBackend(option))
                     }
                 }
             }
@@ -623,176 +579,6 @@ struct ModelsView: View {
         Binding(
             get: { appState.config.resolvedAppleSpeechLanguage },
             set: { controller.selectAppleSpeechLanguage($0) }
-        )
-    }
-
-    private var postProcessorSection: some View {
-        VStack(alignment: .leading, spacing: MuesliTheme.spacing12) {
-            VStack(alignment: .leading, spacing: MuesliTheme.spacing4) {
-                Text("CLEANUP")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(MuesliTheme.textTertiary)
-                    .textCase(.uppercase)
-                    .padding(.leading, 2)
-
-                Text("Optional cleanup after transcription. Use it to remove filler words, follow spoken corrections, format lists, and fix obvious dictation errors.")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(MuesliTheme.textSecondary)
-                    .padding(.leading, 2)
-            }
-            .padding(.top, MuesliTheme.spacing8)
-
-            VStack(spacing: MuesliTheme.spacing12) {
-                ForEach(Gemma4LiteRTModel.allCases) { model in
-                    gemmaCleanupModelCard(model)
-                }
-
-                ForEach(displayedPostProcessorOptions) { option in
-                    postProcModelCard(option)
-                }
-            }
-        }
-    }
-
-    private func gemmaCleanupModelCard(_ model: Gemma4LiteRTModel) -> some View {
-        let option = BackendOption.gemma4LiteRT(model)
-        let isDownloaded = downloadedModels.contains(option.model)
-        let isCompatible = TranscriptCleanupBackendOption.gemma4LiteRT
-            .isCompatible(with: appState.selectedBackend)
-
-        return modelCard(
-            option: option,
-            logo: "google-logo",
-            isActive: isDownloaded
-                && appState.selectedPostProcessorBackend == .gemma4LiteRT
-                && appState.config.postProcessorGemmaModel == model.repoID,
-            onSetActive: {
-                controller.selectGemma4PostProcessor(model)
-            },
-            description: "An experimental local option for filler removal, formatting, and obvious transcript errors. It shares the \(model.label) download with dictation and Quill.",
-            activeLabel: "Cleanup Active",
-            downloadedLabel: isCompatible ? "Downloaded" : "Used for Dictation",
-            actionTitle: "Use for Cleanup",
-            activationDisabledReason: isCompatible
-                ? nil
-                : "Unavailable while Gemma 4 is selected for dictation. Choose another dictation model first."
-        )
-    }
-
-    private func postProcModelCard(_ option: PostProcessorOption) -> some View {
-        let isDownloaded = downloadedPostProcModels.contains(option.id)
-        let isActive = appState.activePostProcessor.id == option.id && isDownloaded
-        let isDownloading = downloadingPostProcModels.contains(option.id)
-        let progress = downloadProgressPostProc[option.id] ?? 0
-        let showsDownloadStatus = shouldShowDownloadStatus(for: option.id, isDownloading: isDownloading)
-
-        return VStack(alignment: .leading, spacing: MuesliTheme.spacing12) {
-            HStack(alignment: .top, spacing: MuesliTheme.spacing12) {
-                brandLogo(option.logoResourceName)
-                VStack(alignment: .leading, spacing: MuesliTheme.spacing4) {
-                    HStack(spacing: MuesliTheme.spacing8) {
-                        Text(option.label)
-                            .font(MuesliTheme.headline())
-                            .foregroundStyle(MuesliTheme.textPrimary)
-
-                        Text(option.sizeLabel)
-                            .font(MuesliTheme.caption())
-                            .foregroundStyle(MuesliTheme.textTertiary)
-                    }
-
-                    Text(option.description)
-                        .font(MuesliTheme.caption())
-                        .foregroundStyle(MuesliTheme.textSecondary)
-                }
-
-                Spacer()
-
-                if isActive {
-                    Text("Active")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(MuesliTheme.success)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 3)
-                        .background(MuesliTheme.success.opacity(0.15))
-                        .clipShape(RoundedRectangle(cornerRadius: 4))
-                } else if isDownloaded {
-                    Text("Downloaded")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(MuesliTheme.textTertiary)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 3)
-                        .background(MuesliTheme.surfacePrimary)
-                        .clipShape(RoundedRectangle(cornerRadius: 4))
-                }
-            }
-
-            if showsDownloadStatus {
-                downloadProgressView(
-                    for: option.id,
-                    fallbackProgress: progress,
-                    fallbackMessage: downloadMessages[option.id]
-                )
-            }
-
-            HStack(spacing: MuesliTheme.spacing8) {
-                if isDownloading {
-                    Button("Pause") {
-                        cancelPostProcDownload(option)
-                    }
-                    .buttonStyle(.plain)
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(MuesliTheme.textSecondary)
-                    .padding(.horizontal, MuesliTheme.spacing12)
-                    .padding(.vertical, 4)
-                    .background(MuesliTheme.surfacePrimary)
-                    .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
-                } else if isDownloaded {
-                    if !isActive {
-                        Button("Set Active") {
-                            controller.selectPostProcessor(option)
-                        }
-                        .buttonStyle(.plain)
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(MuesliTheme.accent)
-                        .padding(.horizontal, MuesliTheme.spacing12)
-                        .padding(.vertical, 4)
-                        .background(MuesliTheme.accentSubtle)
-                        .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
-                    }
-
-                    Button {
-                        postProcModelToDelete = option
-                    } label: {
-                        Image(systemName: "trash")
-                            .font(.system(size: 12))
-                            .foregroundStyle(.red.opacity(0.6))
-                            .frame(width: 20, height: 20)
-                    }
-                    .buttonStyle(.plain)
-                } else if option.isDownloadable {
-                    Button("Download") {
-                        startPostProcDownload(option)
-                    }
-                    .buttonStyle(.plain)
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(MuesliTheme.accent)
-                    .padding(.horizontal, MuesliTheme.spacing12)
-                    .padding(.vertical, 4)
-                    .background(MuesliTheme.accentSubtle)
-                    .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
-                } else {
-                    Text("No longer available")
-                        .font(MuesliTheme.caption())
-                        .foregroundStyle(MuesliTheme.textTertiary)
-                }
-            }
-        }
-        .padding(MuesliTheme.spacing16)
-        .background(MuesliTheme.backgroundRaised)
-        .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerMedium))
-        .overlay(
-            RoundedRectangle(cornerRadius: MuesliTheme.cornerMedium)
-                .strokeBorder(isActive ? MuesliTheme.accent.opacity(0.5) : MuesliTheme.surfaceBorder, lineWidth: isActive ? 1.5 : 1)
         )
     }
 
@@ -1407,174 +1193,6 @@ struct ModelsView: View {
         .opacity(0.6)
     }
 
-    // MARK: - Post-Processor Actions
-
-    private func startPostProcDownload(_ option: PostProcessorOption) {
-        guard option.isDownloadable else { return }
-        withAnimation { _ = downloadingPostProcModels.insert(option.id) }
-        downloadProgressPostProc[option.id] = 0.02
-        downloadMessages.removeValue(forKey: option.id)
-        downloadSnapshots.removeValue(forKey: option.id)
-        let generation = UUID()
-        downloadGenerations[option.id] = generation
-
-        let task = Task {
-            let fm = FileManager.default
-            do {
-                try fm.createDirectory(at: option.cacheDirectory, withIntermediateDirectories: true)
-
-                try await downloadPostProcModel(option, generation: generation)
-                try Task.checkCancellation()
-
-                await MainActor.run {
-                    guard downloadGenerations[option.id] == generation, !Task.isCancelled else { return }
-                    withAnimation {
-                        downloadingPostProcModels.remove(option.id)
-                        downloadedPostProcModels.insert(option.id)
-                        downloadProgressPostProc.removeValue(forKey: option.id)
-                        downloadMessages.removeValue(forKey: option.id)
-                        downloadSnapshots.removeValue(forKey: option.id)
-                        if downloadGenerations[option.id] == generation {
-                            downloadGenerations.removeValue(forKey: option.id)
-                        }
-                        downloadTasksPostProc.removeValue(forKey: option.id)
-                    }
-                    if appState.config.enablePostProcessor && !appState.activePostProcessor.isDownloaded {
-                        controller.selectPostProcessor(option)
-                        controller.preloadExperimentalTranscriptionFeatures()
-                    }
-                }
-            } catch {
-                let isCancelled = error is CancellationError || (error as? URLError)?.code == .cancelled
-                await MainActor.run {
-                    guard downloadGenerations[option.id] == generation else { return }
-                    withAnimation {
-                        downloadingPostProcModels.remove(option.id)
-                        downloadProgressPostProc.removeValue(forKey: option.id)
-                        downloadMessages[option.id] = isCancelled
-                            ? "Paused — select Download to resume"
-                            : error.localizedDescription
-                        if let snapshot = downloadSnapshots[option.id] {
-                            downloadSnapshots[option.id] = snapshot.replacing(
-                                phase: isCancelled ? .paused : .failed,
-                                message: downloadMessages[option.id]
-                            )
-                        }
-                        if downloadGenerations[option.id] == generation {
-                            downloadGenerations.removeValue(forKey: option.id)
-                        }
-                        downloadTasksPostProc.removeValue(forKey: option.id)
-                    }
-                }
-                if !isCancelled {
-                    fputs("[muesli-native] Post-processor download failed: \(error)\n", stderr)
-                }
-            }
-        }
-        downloadTasksPostProc[option.id] = task
-    }
-
-    private func downloadPostProcModel(_ option: PostProcessorOption, generation: UUID) async throws {
-        let manifest = ModelDownloadManifest(
-            id: option.id,
-            version: "main",
-            files: [ModelDownloadFile(relativePath: option.filename, remoteURL: option.downloadURL)],
-            maximumConcurrency: 1
-        )
-        try await ModelDownloadCoordinator.shared.download(manifest, to: option.cacheDirectory) { snapshot in
-            DispatchQueue.main.async {
-                guard downloadGenerations[option.id] == generation else { return }
-                downloadProgressPostProc[option.id] = max(snapshot.fractionCompleted ?? 0.02, 0.02)
-                downloadSnapshots[option.id] = snapshot
-            }
-        }
-        try Task.checkCancellation()
-        do {
-            try validateGGUFHeader(at: option.modelURL)
-        } catch {
-            try? FileManager.default.removeItem(at: option.modelURL)
-            throw error
-        }
-    }
-
-    private func validateGGUFHeader(at url: URL) throws {
-        let fh = try FileHandle(forReadingFrom: url)
-        defer { try? fh.close() }
-        let header = try fh.read(upToCount: 4) ?? Data()
-        guard header == Data([0x47, 0x47, 0x55, 0x46]) else {
-            throw NSError(domain: "PostProcDownload", code: 1, userInfo: [
-                NSLocalizedDescriptionKey: "Downloaded post-processor file is not a GGUF model",
-            ])
-        }
-    }
-
-    private func cancelPostProcDownload(_ option: PostProcessorOption) {
-        let task = downloadTasksPostProc[option.id]
-        let cancellationGeneration = UUID()
-        task?.cancel()
-        Task {
-            await ModelDownloadCoordinator.shared.cancel(modelID: option.id)
-            _ = await task?.value
-            await MainActor.run {
-                guard downloadGenerations[option.id] == cancellationGeneration else { return }
-                if option.isDownloaded {
-                    downloadedPostProcModels.insert(option.id)
-                    downloadMessages.removeValue(forKey: option.id)
-                    downloadSnapshots.removeValue(forKey: option.id)
-                } else {
-                    downloadMessages[option.id] = "Paused — select Download to resume"
-                }
-                downloadGenerations.removeValue(forKey: option.id)
-            }
-        }
-        withAnimation {
-            downloadingPostProcModels.remove(option.id)
-            downloadProgressPostProc.removeValue(forKey: option.id)
-            // Invalidate callbacks from the cancelled task, but retain a
-            // generation until it has fully unwound so a race that finalizes
-            // the file can refresh the card immediately.
-            downloadGenerations[option.id] = cancellationGeneration
-            if let snapshot = downloadSnapshots[option.id] {
-                downloadSnapshots[option.id] = snapshot.replacing(phase: .paused, message: "Paused — select Download to resume")
-            }
-            downloadTasksPostProc.removeValue(forKey: option.id)
-        }
-    }
-
-    private func deletePostProcModel(_ option: PostProcessorOption) {
-        if appState.activePostProcessor.id == option.id {
-            let remainingDownloadedIDs = downloadedPostProcModels.subtracting([option.id])
-            if let fallback = PostProcessorOption.firstDownloaded(excluding: option.id, downloadedIDs: remainingDownloadedIDs) {
-                controller.selectPostProcessor(fallback)
-            } else {
-                controller.setPostProcessorEnabled(false)
-            }
-        }
-        try? FileManager.default.removeItem(at: option.cacheDirectory)
-        downloadedPostProcModels.remove(option.id)
-        downloadSnapshots.removeValue(forKey: option.id)
-        downloadGenerations.removeValue(forKey: option.id)
-    }
-
-    private func checkDownloadedPostProcModels() {
-        downloadedPostProcModels.removeAll()
-        for option in PostProcessorOption.downloaded {
-            if option.isDownloaded {
-                downloadedPostProcModels.insert(option.id)
-            }
-        }
-    }
-
-    /// The retired v2 cleanup model stays visible only for people who already
-    /// have it installed. Deleting it removes the card, and the model cannot
-    /// be downloaded again.
-    private var displayedPostProcessorOptions: [PostProcessorOption] {
-        PostProcessorOption.all
-            + (downloadedPostProcModels.contains(PostProcessorOption.legacyV2.id)
-                ? [.legacyV2]
-                : [])
-    }
-
     // MARK: - Actions
 
     private func startDownload(_ option: BackendOption) {
@@ -1781,10 +1399,6 @@ struct ModelsView: View {
         if option == .nemotron35Multilingual,
            appState.config.resolvedMeetingLiveCaptionBackend == .nemotron35 {
             controller.updateConfig { $0.enableLiveStreamingPartials = false }
-        }
-        if appState.selectedPostProcessorBackend == .gemma4LiteRT,
-           appState.config.postProcessorGemmaModel == option.model {
-            controller.selectPostProcessorBackend(.local)
         }
         if appState.selectedBackend == option {
             let fallback = downloadedModels

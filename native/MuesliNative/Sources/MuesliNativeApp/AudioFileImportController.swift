@@ -158,7 +158,6 @@ enum AudioFileImportController {
         progress("Loading transcription model...")
         try await transcriptionCoordinator.preloadRequired(
             backend: backend,
-            enablePostProcessor: false,
             includeMeetingHelpers: true,
             meetingHelperTrigger: .audioImport,
             appleSpeechLanguage: config.resolvedAppleSpeechLanguage

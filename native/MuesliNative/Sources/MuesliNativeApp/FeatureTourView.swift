@@ -82,9 +82,9 @@ struct FeatureTourCalloutLayout {
 
     private static func preferredEdges(for target: FeatureTourTarget) -> [FeatureTourCalloutEdge] {
         switch target {
-        case .timelineSidebar, .meetingsSidebar:
+        case .meetingsSidebar:
             return [.trailing, .leading, .below, .above]
-        case .timelineApplications, .appleSpeechCard, .meetingPeople, .timelineFilters, .modelLibrary, .insightsEntry, .liveCaptionsSetting, .dictationProviderSetting, .parakeetFamilyCard:
+        case .appleSpeechCard, .meetingPeople, .modelLibrary, .liveCaptionsSetting, .dictationProviderSetting, .parakeetFamilyCard:
             return [.below, .above, .trailing, .leading]
         case .dictionarySuggestions, .cloudCleanupSetting, .streamingModels, .experimentalModels, .quillSettings:
             return [.above, .below, .trailing, .leading]

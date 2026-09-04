@@ -28,93 +28,7 @@ public enum MeetingRecordingSavePolicy: String, Codable, CaseIterable, Sendable 
 
 public enum MeetingSource: String, Codable, Sendable {
     case meeting
-    case iOS = "ios"
     case audioImport = "audio_import"
-}
-
-public enum RecordOriginFilter: String, Codable, CaseIterable, Hashable, Sendable {
-    case all
-    case thisMac
-    case fromIPhone
-}
-
-public enum SyncTextRecordKind: String, Codable, Sendable {
-    case dictation
-    case meeting
-}
-
-public struct SyncTextRecord: Identifiable, Codable, Sendable, Equatable {
-    public let id: String
-    public let kind: SyncTextRecordKind
-    public var title: String?
-    public var text: String
-    public var speakerTranscript: String?
-    public var summaryText: String?
-    public var manualNotes: String?
-    public var source: String?
-    /// Platform origin for UI badges lives in `source`; this preserves the
-    /// local capture subtype such as dictation, cua, meeting, or audio_import.
-    public var localSource: String?
-    public var meetingStatus: MeetingStatus?
-    public var engineIdentifier: String?
-    public var createdAt: Date
-    public var updatedAt: Date
-    public var startedAt: Date?
-    public var endedAt: Date?
-    public var durationSeconds: Double
-    public var wordCount: Int
-    public var isDeleted: Bool
-    public var cloudChangeTag: String?
-    /// Opaque CKRecord identity and version metadata. MuesliCore stores the bytes
-    /// without importing CloudKit; platform sync clients encode and decode them.
-    public var cloudSystemFields: Data?
-    public var followUpToRecordName: String?
-
-    public init(
-        id: String,
-        kind: SyncTextRecordKind,
-        title: String? = nil,
-        text: String,
-        speakerTranscript: String? = nil,
-        summaryText: String? = nil,
-        manualNotes: String? = nil,
-        source: String? = nil,
-        localSource: String? = nil,
-        meetingStatus: MeetingStatus? = nil,
-        engineIdentifier: String? = nil,
-        createdAt: Date,
-        updatedAt: Date,
-        startedAt: Date? = nil,
-        endedAt: Date? = nil,
-        durationSeconds: Double,
-        wordCount: Int,
-        isDeleted: Bool = false,
-        cloudChangeTag: String? = nil,
-        cloudSystemFields: Data? = nil,
-        followUpToRecordName: String? = nil
-    ) {
-        self.id = id
-        self.kind = kind
-        self.title = title
-        self.text = text
-        self.speakerTranscript = speakerTranscript
-        self.summaryText = summaryText
-        self.manualNotes = manualNotes
-        self.source = source
-        self.localSource = localSource
-        self.meetingStatus = meetingStatus
-        self.engineIdentifier = engineIdentifier
-        self.createdAt = createdAt
-        self.updatedAt = updatedAt
-        self.startedAt = startedAt
-        self.endedAt = endedAt
-        self.durationSeconds = durationSeconds
-        self.wordCount = wordCount
-        self.isDeleted = isDeleted
-        self.cloudChangeTag = cloudChangeTag
-        self.cloudSystemFields = cloudSystemFields
-        self.followUpToRecordName = followUpToRecordName
-    }
 }
 
 public struct LiveTranscriptCheckpointEntry: Sendable, Equatable {
@@ -136,136 +50,6 @@ public struct LiveTranscriptCheckpointEntry: Sendable, Equatable {
         self.startSeconds = startSeconds
         self.endSeconds = endSeconds
         self.text = text
-    }
-}
-
-public struct DictationTargetApplication: Identifiable, Hashable, Sendable {
-    public let name: String
-    public let bundleID: String?
-
-    public init(name: String, bundleID: String?) {
-        self.name = name
-        self.bundleID = bundleID
-    }
-
-    public var id: String {
-        if let bundleID, !bundleID.isEmpty {
-            return "bundle:\(bundleID)"
-        }
-        return "name:\(name.lowercased())"
-    }
-}
-
-public struct DictationRecord: Identifiable, Codable, Sendable {
-    public let id: Int64
-    public let timestamp: String
-    public let durationSeconds: Double
-    public let rawText: String
-    public let appContext: String
-    public let wordCount: Int
-    public let source: String
-    public let targetAppName: String?
-    public let targetAppBundleID: String?
-    public let computerUseTrace: ComputerUseTraceRecord?
-
-    public init(
-        id: Int64,
-        timestamp: String,
-        durationSeconds: Double,
-        rawText: String,
-        appContext: String,
-        wordCount: Int,
-        source: String = "dictation",
-        targetAppName: String? = nil,
-        targetAppBundleID: String? = nil,
-        computerUseTrace: ComputerUseTraceRecord? = nil
-    ) {
-        self.id = id
-        self.timestamp = timestamp
-        self.durationSeconds = durationSeconds
-        self.rawText = rawText
-        self.appContext = appContext
-        self.wordCount = wordCount
-        self.source = source
-        self.targetAppName = targetAppName
-        self.targetAppBundleID = targetAppBundleID
-        self.computerUseTrace = computerUseTrace
-    }
-}
-
-public enum TimelineEntry: Identifiable, Sendable {
-    case dictation(DictationRecord)
-    case meeting(MeetingRecord)
-
-    public var id: String {
-        switch self {
-        case .dictation(let record):
-            return "dictation:\(record.id)"
-        case .meeting(let record):
-            return "meeting:\(record.id)"
-        }
-    }
-
-    public var timestamp: String {
-        switch self {
-        case .dictation(let record):
-            return record.timestamp
-        case .meeting(let record):
-            return record.startTime
-        }
-    }
-}
-
-public struct ComputerUseTraceRecord: Identifiable, Codable, Equatable, Sendable {
-    public let id: Int64
-    public let dictationID: Int64
-    public let finalStatus: String
-    public let finalMessage: String
-    public let events: [ComputerUseTraceEvent]
-    public let createdAt: String
-
-    public init(
-        id: Int64,
-        dictationID: Int64,
-        finalStatus: String,
-        finalMessage: String,
-        events: [ComputerUseTraceEvent],
-        createdAt: String
-    ) {
-        self.id = id
-        self.dictationID = dictationID
-        self.finalStatus = finalStatus
-        self.finalMessage = finalMessage
-        self.events = events
-        self.createdAt = createdAt
-    }
-}
-
-public struct ComputerUseTraceEvent: Identifiable, Codable, Equatable, Sendable {
-    public let id: UUID
-    public let kind: String
-    public let title: String
-    public let body: String
-    public let status: String?
-    public let step: Int?
-    public let timestamp: String
-
-    public init(
-        id: UUID = UUID(),
-        kind: String,
-        title: String,
-        body: String,
-        status: String? = nil,
-        step: Int? = nil,
-        timestamp: String = ISO8601DateFormatter().string(from: Date())
-    ) {
-        self.id = id
-        self.kind = kind
-        self.title = title
-        self.body = body
-        self.status = status
-        self.step = step
-        self.timestamp = timestamp
     }
 }
 
@@ -336,9 +120,6 @@ public struct MeetingRecord: Identifiable, Codable, Sendable {
     /// Self-referencing link: the meeting this one is a follow-up to. A meeting
     /// can have multiple follow-ups; root meetings have nil.
     public let followUpToID: Int64?
-    /// Stable sync identity for the predecessor. Local row ids differ across
-    /// devices, so sync uses the predecessor's cloud record name.
-    public let followUpToRecordName: String?
     /// Aggregated on-screen context (app text + OCR) captured during the
     /// meeting; nil when screen context was disabled or nothing was captured.
     public let visualContext: String?
@@ -365,7 +146,6 @@ public struct MeetingRecord: Identifiable, Codable, Sendable {
         selectedTemplatePrompt: String? = nil,
         source: MeetingSource = .meeting,
         followUpToID: Int64? = nil,
-        followUpToRecordName: String? = nil,
         visualContext: String? = nil
     ) {
         self.id = id
@@ -389,7 +169,6 @@ public struct MeetingRecord: Identifiable, Codable, Sendable {
         self.selectedTemplatePrompt = selectedTemplatePrompt
         self.source = source
         self.followUpToID = followUpToID
-        self.followUpToRecordName = followUpToRecordName
         self.visualContext = visualContext
     }
 
@@ -415,7 +194,6 @@ public struct MeetingRecord: Identifiable, Codable, Sendable {
         case selectedTemplatePrompt
         case source
         case followUpToID
-        case followUpToRecordName
         case visualContext
     }
 
@@ -443,7 +221,6 @@ public struct MeetingRecord: Identifiable, Codable, Sendable {
             selectedTemplatePrompt: try c.decodeIfPresent(String.self, forKey: .selectedTemplatePrompt),
             source: (try? c.decode(MeetingSource.self, forKey: .source)) ?? .meeting,
             followUpToID: try c.decodeIfPresent(Int64.self, forKey: .followUpToID),
-            followUpToRecordName: try c.decodeIfPresent(String.self, forKey: .followUpToRecordName),
             visualContext: try c.decodeIfPresent(String.self, forKey: .visualContext)
         )
     }
@@ -529,24 +306,6 @@ public struct MeetingFolder: Identifiable, Codable, Sendable {
     }
 }
 
-public struct DictationStats: Codable, Sendable {
-    public let totalWords: Int
-    public let totalSessions: Int
-    public let averageWordsPerSession: Double
-    public let averageWPM: Double
-    public let currentStreakDays: Int
-    public let longestStreakDays: Int
-
-    public init(totalWords: Int, totalSessions: Int, averageWordsPerSession: Double, averageWPM: Double, currentStreakDays: Int, longestStreakDays: Int) {
-        self.totalWords = totalWords
-        self.totalSessions = totalSessions
-        self.averageWordsPerSession = averageWordsPerSession
-        self.averageWPM = averageWPM
-        self.currentStreakDays = currentStreakDays
-        self.longestStreakDays = longestStreakDays
-    }
-}
-
 public struct MeetingStats: Codable, Sendable {
     public let totalWords: Int
     public let totalMeetings: Int
@@ -581,17 +340,11 @@ public enum InsightsRange: String, CaseIterable, Codable, Sendable {
 }
 
 public struct InsightsTotals: Codable, Sendable, Equatable {
-    public let dictationWords: Int
-    public let dictationSessions: Int
     public let meetingWords: Int
     public let meetings: Int
     public let averageWPM: Double
 
-    public var totalWords: Int { dictationWords + meetingWords }
-
-    public init(dictationWords: Int, dictationSessions: Int, meetingWords: Int, meetings: Int, averageWPM: Double) {
-        self.dictationWords = dictationWords
-        self.dictationSessions = dictationSessions
+    public init(meetingWords: Int, meetings: Int, averageWPM: Double) {
         self.meetingWords = meetingWords
         self.meetings = meetings
         self.averageWPM = averageWPM
@@ -631,7 +384,6 @@ public struct InsightsSnapshot: Codable, Sendable, Equatable {
     public let currentStreakDays: Int
     public let longestStreakDays: Int
     public let activeDaysInRange: Int
-    public let dictationWords: [InsightsWordFrequency]
     public let meetingWords: [InsightsWordFrequency]
 
     public init(
@@ -643,7 +395,6 @@ public struct InsightsSnapshot: Codable, Sendable, Equatable {
         currentStreakDays: Int,
         longestStreakDays: Int,
         activeDaysInRange: Int,
-        dictationWords: [InsightsWordFrequency],
         meetingWords: [InsightsWordFrequency]
     ) {
         self.range = range
@@ -654,7 +405,6 @@ public struct InsightsSnapshot: Codable, Sendable, Equatable {
         self.currentStreakDays = currentStreakDays
         self.longestStreakDays = longestStreakDays
         self.activeDaysInRange = activeDaysInRange
-        self.dictationWords = dictationWords
         self.meetingWords = meetingWords
     }
 }

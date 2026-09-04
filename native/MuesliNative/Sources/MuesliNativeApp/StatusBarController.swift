@@ -82,7 +82,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
             detail = nil
         }
         statusItem.button?.attributedTitle = MenuBarIconRenderer.statusTitle(
-            hotkey: controller.config.dictationHotkey,
+            hotkey: controller.config.meetingRecordingHotkey,
             showsHotkey: controller.config.showHotkeyInMenuBar,
             detail: detail
         )
@@ -123,96 +123,6 @@ final class StatusBarController: NSObject, NSMenuDelegate {
             ))
         }
         menu.addItem(.separator())
-
-        let recentItem = NSMenuItem(title: "Recent Dictations", action: nil, keyEquivalent: "")
-        let recentMenu = NSMenu()
-        let recentRows = controller.recentDictations()
-        if recentRows.isEmpty {
-            let empty = NSMenuItem(title: "No dictations yet", action: nil, keyEquivalent: "")
-            empty.isEnabled = false
-            recentMenu.addItem(empty)
-        } else {
-            for row in recentRows {
-                let item = NSMenuItem(title: controller.truncate(row.rawText, limit: 54), action: #selector(MuesliController.copyRecentDictation(_:)), keyEquivalent: "")
-                item.target = controller
-                item.representedObject = row.rawText
-                recentMenu.addItem(item)
-            }
-        }
-        menu.setSubmenu(recentMenu, for: recentItem)
-        menu.addItem(recentItem)
-
-        let dictationModelItem = NSMenuItem(title: "Dictation Model", action: nil, keyEquivalent: "")
-        let dictationModelMenu = NSMenu()
-        dictationModelMenu.addItem(.sectionHeader(title: "Local"))
-        for option in BackendOption.downloaded {
-            let isSelected = controller.selectedDictationProvider == .local
-                && controller.selectedBackend == option
-            let prefix = isSelected ? "✓ " : ""
-            let item = NSMenuItem(
-                title: "\(prefix)\(option.label)",
-                action: #selector(MuesliController.selectLocalDictationModelFromMenu(_:)),
-                keyEquivalent: ""
-            )
-            item.target = controller
-            item.representedObject = option.label
-            dictationModelMenu.addItem(item)
-        }
-
-        let hostedVisibility = controller.hostedDictationModelVisibility
-        if hostedVisibility.shows(.openAI) {
-            dictationModelMenu.addItem(.separator())
-            dictationModelMenu.addItem(.sectionHeader(title: "OpenAI"))
-            var openAIModels = OpenAITranscriptionClient.modelPresets
-            let configuredOpenAIModel = controller.config.openaiDictationModel
-            if !openAIModels.contains(configuredOpenAIModel) {
-                openAIModels.append(configuredOpenAIModel)
-            }
-            for model in openAIModels {
-                let isSelected = controller.selectedDictationProvider == .openAI
-                    && configuredOpenAIModel == model
-                let prefix = isSelected ? "✓ " : ""
-                let item = NSMenuItem(
-                    title: "\(prefix)\(model)",
-                    action: #selector(MuesliController.selectOpenAIDictationModelFromMenu(_:)),
-                    keyEquivalent: ""
-                )
-                item.target = controller
-                item.representedObject = model
-                dictationModelMenu.addItem(item)
-            }
-        }
-
-        if hostedVisibility.shows(.openRouter) {
-            controller.loadOpenRouterModels(.transcription)
-            dictationModelMenu.addItem(.separator())
-            dictationModelMenu.addItem(.sectionHeader(title: "OpenRouter"))
-            let openRouterModels = OpenRouterModelSelection.presetsIncludingConfiguredModel(
-                controller.appState.openRouterTranscriptionModels,
-                configuredModel: controller.config.openRouterDictationModel
-            )
-            if openRouterModels.isEmpty {
-                let item = NSMenuItem(title: "Choose a model in Settings…", action: nil, keyEquivalent: "")
-                item.isEnabled = false
-                dictationModelMenu.addItem(item)
-            } else {
-                for preset in openRouterModels {
-                    let isSelected = controller.selectedDictationProvider == .openRouter
-                        && controller.config.openRouterDictationModel == preset.id
-                    let prefix = isSelected ? "✓ " : ""
-                    let item = NSMenuItem(
-                        title: "\(prefix)\(preset.label)",
-                        action: #selector(MuesliController.selectOpenRouterDictationModelFromMenu(_:)),
-                        keyEquivalent: ""
-                    )
-                    item.target = controller
-                    item.representedObject = preset.id
-                    dictationModelMenu.addItem(item)
-                }
-            }
-        }
-        menu.setSubmenu(dictationModelMenu, for: dictationModelItem)
-        menu.addItem(dictationModelItem)
 
         let meetingBackendItem = NSMenuItem(title: "Meetings Backend", action: nil, keyEquivalent: "")
         let meetingBackendMenu = NSMenu()

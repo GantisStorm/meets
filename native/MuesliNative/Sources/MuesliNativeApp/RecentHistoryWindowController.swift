@@ -1,7 +1,6 @@
 import AppKit
 import Foundation
 import SwiftUI
-import MuesliCore
 
 struct DashboardPresentationReadiness<Action> {
     private(set) var isReady = false
@@ -59,7 +58,6 @@ enum DashboardWindowPlacement {
 final class RecentHistoryWindowController: NSObject, NSWindowDelegate {
     typealias ReadyAction = () -> Void
 
-    private let store: DictationStore
     private let controller: MuesliController
     private var window: NSWindow?
     private var keyMonitor: Any?
@@ -69,8 +67,7 @@ final class RecentHistoryWindowController: NSObject, NSWindowDelegate {
         window
     }
 
-    init(store: DictationStore, controller: MuesliController) {
-        self.store = store
+    init(controller: MuesliController) {
         self.controller = controller
     }
 

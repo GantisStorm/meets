@@ -224,25 +224,10 @@ struct DashboardRootView: View {
                 backLabel: "Back to Search"
             )
             .id(id)
-        } else if appState.selectedTab == .timeline,
-                  appState.meetingDetailReturnDestination == .timeline,
-                  case .document(let id) = appState.meetingsNavigationState {
-            MeetingDetailView(
-                meeting: appState.selectedMeeting,
-                controller: controller,
-                appState: appState,
-                onBack: { controller.showTimelineHome() },
-                backLabel: "Back to Timeline"
-            )
-            .id(id)
         } else if appState.isSearchActive {
             SearchResultsView(appState: appState, controller: controller)
         } else {
             switch appState.selectedTab {
-            case .timeline:
-                TimelineView(appState: appState, controller: controller)
-            case .dictations:
-                DictationsView(appState: appState, controller: controller)
             case .insights:
                 InsightsView(
                     initialSection: appState.insightsInitialSection,

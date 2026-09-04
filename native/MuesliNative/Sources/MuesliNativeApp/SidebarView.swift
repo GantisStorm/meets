@@ -145,8 +145,6 @@ struct SidebarView: View {
                 .padding(.top, MuesliTheme.spacing16)
                 .padding(.bottom, MuesliTheme.spacing12)
 
-            collapsedItem(tab: .timeline, icon: "clock", label: "Timeline")
-            collapsedItem(tab: .dictations, icon: "waveform", label: "Dictations")
             collapsedItem(tab: .meetings, icon: "person.2", label: "Meetings")
             collapsedItem(tab: .insights, icon: "chart.bar.xaxis", label: "Insights")
             collapsedItem(tab: .dictionary, icon: "character.book.closed", label: "Dictionary")
@@ -170,9 +168,7 @@ struct SidebarView: View {
     private func collapsedItem(tab: DashboardTab, icon: String, label: String) -> some View {
         Button {
             withAnimation(.easeInOut(duration: 0.15)) {
-                if tab == .timeline {
-                    controller.showTimelineHome()
-                } else if tab == .meetings {
+                if tab == .meetings {
                     // Mirror the expanded Meetings action: returning to the
                     // rail must restore the browser, not leave a document open.
                     meetingsExpanded = true
@@ -194,11 +190,7 @@ struct SidebarView: View {
         .accessibilityLabel(label)
         // Match the expanded rows so a tour targeting the sidebar keeps its
         // spotlight when the rail is collapsed mid-tour.
-        .featureTourTarget(
-            tab == .timeline ? .timelineSidebar
-            : tab == .meetings ? .meetingsSidebar
-            : nil
-        )
+        .featureTourTarget(tab == .meetings ? .meetingsSidebar : nil)
     }
 
     private var expandedSidebar: some View {
@@ -206,8 +198,6 @@ struct SidebarView: View {
             sidebarHeader
             searchBar
 
-            sidebarItem(tab: .timeline, icon: "clock", label: "Timeline")
-            sidebarItem(tab: .dictations, icon: "waveform", label: "Dictations")
             meetingsSection
             sidebarItem(tab: .insights, icon: "chart.bar.xaxis", label: "Insights")
             sidebarItem(tab: .dictionary, icon: "character.book.closed", label: "Dictionary")
@@ -215,7 +205,6 @@ struct SidebarView: View {
             Spacer()
 
             modelPreparationStatus
-            spreadTheWordSection
             sidebarItem(tab: .models, icon: "cpu", label: "Models")
             sidebarItem(tab: .shortcuts, icon: "command", label: "Shortcuts")
             sidebarItem(tab: .settings, icon: "gearshape", label: "Settings")
@@ -524,89 +513,11 @@ struct SidebarView: View {
     }
 
     @ViewBuilder
-    private var spreadTheWordSection: some View {
-        let wordMilestone = ContributionSocialShare.completedWordMilestone(
-            totalWords: appState.dictationStats.totalWords
-        )
-        if wordMilestone != nil {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Spread the Word")
-                    .font(.system(size: 11, weight: .semibold, design: .rounded))
-                    .foregroundStyle(MuesliTheme.textTertiary)
-                    .padding(.horizontal, sidebarRowHorizontalPadding)
-                    .padding(.bottom, 2)
-
-                socialShareRow(
-                    imageName: "x-logo",
-                    fallbackIcon: "bubble.left.and.bubble.right.fill",
-                    label: "Tweet about Muesli",
-                    action: { controller.openContributionSidebarShare(.tweetAboutMuesli) }
-                )
-                socialShareRow(
-                    imageName: "linkedin-logo",
-                    fallbackIcon: "person.crop.square.fill",
-                    label: "Post on LinkedIn",
-                    action: { controller.openContributionSidebarShare(.postOnLinkedIn) }
-                )
-            }
-            .padding(.horizontal, sidebarRowOuterPadding)
-            .padding(.bottom, MuesliTheme.spacing8)
-        }
-    }
-
-    @ViewBuilder
-    private func socialShareRow(
-        imageName: String,
-        fallbackIcon: String,
-        label: String,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            HStack(spacing: MuesliTheme.spacing12) {
-                socialLogo(imageName: imageName, fallbackIcon: fallbackIcon)
-                    .frame(width: sidebarIconColumnWidth, height: sidebarIconColumnWidth, alignment: .center)
-                Text(label)
-                    .font(MuesliTheme.callout())
-                    .foregroundStyle(MuesliTheme.textSecondary)
-                    .lineLimit(1)
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, sidebarRowHorizontalPadding)
-            .padding(.vertical, 6)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .help(label)
-    }
-
-    @ViewBuilder
-    private func socialLogo(imageName: String, fallbackIcon: String) -> some View {
-        if let url = Bundle.main.url(forResource: imageName, withExtension: "png"),
-           let image = NSImage(contentsOf: url) {
-            Image(nsImage: image)
-                .resizable()
-                .renderingMode(.template)
-                .scaledToFit()
-                .frame(width: 15, height: 15)
-                .foregroundStyle(MuesliTheme.textTertiary)
-        } else {
-            Image(systemName: fallbackIcon)
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(MuesliTheme.textTertiary)
-        }
-    }
-
-    @ViewBuilder
     private func sidebarItem(tab: DashboardTab, icon: String, label: String, updateCTA: UpdateCTA? = nil) -> some View {
         let isSelected = appState.selectedTab == tab
         Button {
             withAnimation(.easeInOut(duration: 0.15)) {
-                if tab == .timeline {
-                    controller.showTimelineHome()
-                } else {
-                    appState.selectedTab = tab
-                }
+                appState.selectedTab = tab
             }
         } label: {
             HStack(spacing: MuesliTheme.spacing12) {
@@ -648,7 +559,6 @@ struct SidebarView: View {
         }
         .buttonStyle(.plain)
         .padding(.horizontal, sidebarRowOuterPadding)
-        .featureTourTarget(tab == .timeline ? .timelineSidebar : nil)
     }
 
     @ViewBuilder

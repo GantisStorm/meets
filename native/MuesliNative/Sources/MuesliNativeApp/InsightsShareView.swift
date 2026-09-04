@@ -191,7 +191,7 @@ enum InsightsShareRenderer {
 
     static func renderTemplate() -> NSImage? {
         AppFonts.registerForRenderingIfNeeded()
-        let emptyTotals = InsightsTotals(dictationWords: 0, dictationSessions: 0, meetingWords: 0, meetings: 0, averageWPM: 0)
+        let emptyTotals = InsightsTotals(meetingWords: 0, meetings: 0, averageWPM: 0)
         let snapshot = InsightsSnapshot(
             range: .twelveMonths,
             generatedAt: Date(),
@@ -201,7 +201,6 @@ enum InsightsShareRenderer {
             currentStreakDays: 0,
             longestStreakDays: 0,
             activeDaysInRange: 0,
-            dictationWords: [],
             meetingWords: []
         )
         let renderer = ImageRenderer(
@@ -267,12 +266,12 @@ private struct InsightsShareCard: View {
 
                 Spacer(minLength: 34)
 
-                Text(showsNumbers ? snapshot.selected.totalWords.formatted() : "—")
+                Text(showsNumbers ? snapshot.selected.meetingWords.formatted() : "—")
                     .font(.system(size: 108, weight: .bold, design: .rounded))
                     .tracking(-5)
                     .monospacedDigit()
                     .foregroundStyle(pale)
-                Text("WORDS CAPTURED")
+                Text("MEETING WORDS CAPTURED")
                     .font(.system(size: 18, weight: .bold))
                     .tracking(2.8)
                     .foregroundStyle(muted)
@@ -284,9 +283,7 @@ private struct InsightsShareCard: View {
                     shareDivider
                     shareDatum(value: showsNumbers ? "\(Int(snapshot.selected.averageWPM.rounded()))" : "—", label: "AVERAGE WPM")
                     shareDivider
-                    shareDatum(value: showsNumbers ? dayCount(snapshot.currentStreakDays) : "—", label: "CURRENT STREAK")
-                    shareDivider
-                    shareDatum(value: showsNumbers ? dayCount(snapshot.longestStreakDays) : "—", label: "LONGEST STREAK")
+                    shareDatum(value: showsNumbers ? "\(snapshot.activeDaysInRange)" : "—", label: "ACTIVE DAYS")
                 }
                 .padding(.vertical, 24)
                 .background(Color(red: 0.035, green: 0.050, blue: 0.068).opacity(0.48))
@@ -329,10 +326,6 @@ private struct InsightsShareCard: View {
 
     private var shareDivider: some View {
         Rectangle().fill(Color.white.opacity(0.11)).frame(width: 1, height: 58)
-    }
-
-    private func dayCount(_ value: Int) -> String {
-        "\(value) \(value == 1 ? "DAY" : "DAYS")"
     }
 }
 

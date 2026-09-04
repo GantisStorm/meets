@@ -1,42 +1,39 @@
 import SwiftUI
 import MuesliCore
 
-private enum SearchTab: String, CaseIterable {
-    case dictations = "Dictations"
-    case meetings = "Meetings"
-}
-
 struct SearchResultsView: View {
     let appState: AppState
     let controller: MuesliController
-
-    @State private var selectedTab: SearchTab = .dictations
-
-    private var totalCount: Int {
-        appState.searchResultDictations.count + appState.searchResultMeetings.count
-    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
             Divider().foregroundStyle(MuesliTheme.surfaceBorder)
 
-            if totalCount == 0 {
+            if appState.searchResultMeetings.isEmpty {
                 emptyState
             } else {
-                tabContent
+                resultsList
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
-    // MARK: - Header with Tabs
+    // MARK: - Header
 
     @ViewBuilder
     private var header: some View {
         HStack(spacing: 0) {
-            tabButton(.dictations, count: appState.searchResultDictations.count)
-            tabButton(.meetings, count: appState.searchResultMeetings.count)
+            Text("Meetings")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(MuesliTheme.textPrimary)
+            Text("\(appState.searchResultMeetings.count)")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(MuesliTheme.accent)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(MuesliTheme.accentSubtle)
+                .clipShape(Capsule())
             Spacer()
             Button {
                 controller.clearSearch()
@@ -51,79 +48,19 @@ struct SearchResultsView: View {
         .padding(.vertical, MuesliTheme.spacing12)
     }
 
-    @ViewBuilder
-    private func tabButton(_ tab: SearchTab, count: Int) -> some View {
-        let isSelected = selectedTab == tab
-        Button {
-            withAnimation(.easeInOut(duration: 0.15)) { selectedTab = tab }
-        } label: {
-            HStack(spacing: 6) {
-                Text(tab.rawValue)
-                    .font(.system(size: 13, weight: isSelected ? .semibold : .regular))
-                    .foregroundStyle(isSelected ? MuesliTheme.textPrimary : MuesliTheme.textTertiary)
-                Text("\(count)")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(isSelected ? MuesliTheme.accent : MuesliTheme.textTertiary)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(isSelected ? MuesliTheme.accentSubtle : MuesliTheme.backgroundRaised)
-                    .clipShape(Capsule())
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .background(isSelected ? MuesliTheme.backgroundHover : Color.clear)
-            .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
-        }
-        .buttonStyle(.plain)
-    }
-
-    // MARK: - Tab Content
+    // MARK: - Results
 
     @ViewBuilder
-    private var tabContent: some View {
-        switch selectedTab {
-        case .dictations:
-            if appState.searchResultDictations.isEmpty {
-                noResultsForTab("dictations")
-            } else {
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 0) {
-                        ForEach(appState.searchResultDictations) { record in
-                            SearchDictationRow(
-                                record: record,
-                                query: appState.searchQuery,
-                                onCopy: {
-                                    NSPasteboard.general.clearContents()
-                                    NSPasteboard.general.setString(record.rawText, forType: .string)
-                                },
-                                onCopyTrace: record.computerUseTrace == nil ? nil : {
-                                    NSPasteboard.general.clearContents()
-                                    NSPasteboard.general.setString(
-                                        ComputerUseTraceFormatter.debugText(for: record),
-                                        forType: .string
-                                    )
-                                }
-                            )
-                        }
+    private var resultsList: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 0) {
+                ForEach(appState.searchResultMeetings) { record in
+                    SearchMeetingRow(record: record, query: appState.searchQuery) {
+                        controller.showMeetingDocument(id: record.id)
                     }
-                    .padding(.vertical, MuesliTheme.spacing8)
                 }
             }
-        case .meetings:
-            if appState.searchResultMeetings.isEmpty {
-                noResultsForTab("meetings")
-            } else {
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 0) {
-                        ForEach(appState.searchResultMeetings) { record in
-                            SearchMeetingRow(record: record, query: appState.searchQuery) {
-                                controller.showMeetingDocument(id: record.id)
-                            }
-                        }
-                    }
-                    .padding(.vertical, MuesliTheme.spacing8)
-                }
-            }
+            .padding(.vertical, MuesliTheme.spacing8)
         }
     }
 
@@ -141,77 +78,6 @@ struct SearchResultsView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
-
-    @ViewBuilder
-    private func noResultsForTab(_ name: String) -> some View {
-        VStack(spacing: MuesliTheme.spacing8) {
-            Text("No matching \(name)")
-                .font(MuesliTheme.body())
-                .foregroundStyle(MuesliTheme.textSecondary)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-}
-
-// MARK: - Dictation Row
-
-private struct SearchDictationRow: View {
-    let record: DictationRecord
-    let query: String
-    let onCopy: () -> Void
-    var onCopyTrace: (() -> Void)? = nil
-
-    @State private var isHovered = false
-
-    var body: some View {
-        HStack(alignment: .top, spacing: MuesliTheme.spacing12) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(MeetingBrowserLogic.formatStartTime(record.timestamp))
-                    .font(MuesliTheme.caption())
-                    .foregroundStyle(MuesliTheme.textTertiary)
-                snippetText(from: record.rawText, highlighting: query)
-                    .font(MuesliTheme.callout())
-                    .lineLimit(3)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-
-            if let targetAppName = record.targetAppName {
-                TargetApplicationIconView(
-                    appName: targetAppName,
-                    bundleIdentifier: record.targetAppBundleID,
-                    size: 18
-                )
-            }
-
-            HStack(spacing: 8) {
-                if record.computerUseTrace != nil, let onCopyTrace {
-                    Button(action: onCopyTrace) {
-                        Image(systemName: "list.bullet.clipboard")
-                            .font(.system(size: 12))
-                            .foregroundStyle(MuesliTheme.textTertiary)
-                    }
-                    .buttonStyle(.plain)
-                    .help("Copy CUA trace")
-                }
-
-                Button(action: onCopy) {
-                    Image(systemName: "doc.on.doc")
-                        .font(.system(size: 12))
-                        .foregroundStyle(MuesliTheme.textTertiary)
-                }
-                .buttonStyle(.plain)
-            }
-            .opacity(isHovered ? 1 : 0)
-        }
-        .padding(.horizontal, MuesliTheme.spacing20)
-        .padding(.vertical, MuesliTheme.spacing12)
-        .background(isHovered ? MuesliTheme.backgroundHover : Color.clear)
-        .onHover { hovering in
-            withAnimation(.easeInOut(duration: 0.15)) { isHovered = hovering }
-        }
-        .onTapGesture(perform: onCopy)
-    }
-
 }
 
 // MARK: - Meeting Row

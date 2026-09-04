@@ -8,7 +8,6 @@ struct InsightsView: View {
     let backLabel: String
 
     @State private var range: InsightsRange = .twelveMonths
-    @State private var metric: InsightsMetric
     @State private var snapshot: InsightsSnapshot?
     @State private var errorMessage: String?
     @State private var loadGeneration = 0
@@ -26,7 +25,6 @@ struct InsightsView: View {
         self.loadSnapshot = loadSnapshot
         self.onBack = onBack
         self.backLabel = backLabel
-        _metric = State(initialValue: initialSection == .meetings ? .meetings : .words)
     }
 
     var body: some View {
@@ -37,9 +35,8 @@ struct InsightsView: View {
                     Group {
                         if let snapshot {
                             hero(snapshot)
-                            activityPanel(snapshot).id(initialSection == .meetings ? InsightsSection.meetings : .words)
-                            usagePanel(snapshot).id(InsightsSection.pace)
-                            streakPanel(snapshot).id(InsightsSection.streak)
+                            activityPanel(snapshot).id(InsightsSection.meetings)
+                            usagePanel(snapshot)
                             wordClouds(snapshot)
                         } else if let errorMessage {
                             errorState(errorMessage)
@@ -157,12 +154,12 @@ struct InsightsView: View {
                         .font(.system(size: 18, weight: .semibold))
                         .tracking(-0.4)
                         .foregroundStyle(MuesliTheme.textPrimary)
-                    Text(data.lifetime.totalWords.formatted())
+                    Text(data.lifetime.meetingWords.formatted())
                         .font(.system(size: 58, weight: .bold, design: .rounded))
                         .tracking(-2.4)
                         .monospacedDigit()
                         .foregroundStyle(MuesliTheme.textPrimary)
-                    Text("Total words dictated")
+                    Text("Meeting words captured")
                         .font(.system(size: 15, weight: .medium))
                         .foregroundStyle(InsightsPalette.secondaryText)
             }
@@ -171,10 +168,6 @@ struct InsightsView: View {
                 heroDatum("Meetings", value: format(data.lifetime.meetings))
                 divider
                 heroDatum("Average pace", value: "\(Int(data.lifetime.averageWPM.rounded())) WPM")
-                divider
-                heroDatum("Current streak", value: dayCount(data.currentStreakDays))
-                divider
-                heroDatum("Longest streak", value: dayCount(data.longestStreakDays))
             }
         }
         .padding(26)
@@ -196,17 +189,10 @@ struct InsightsView: View {
     private func activityPanel(_ data: InsightsSnapshot) -> some View {
         VStack(alignment: .leading, spacing: 18) {
             HStack(alignment: .firstTextBaseline) {
-                panelTitle("DAILY ACTIVITY", subtitle: "Words and meetings by day")
+                panelTitle("DAILY ACTIVITY", subtitle: "Meetings by day")
                 Spacer()
-                Picker("Activity metric", selection: $metric) {
-                    ForEach(InsightsMetric.allCases, id: \.self) { Text($0.label).tag($0) }
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .accessibilityLabel("Activity metric")
-                .frame(width: 190)
             }
-            ActivityHeatmap(activity: data.dailyActivity, metric: metric)
+            ActivityHeatmap(activity: data.dailyActivity)
                 .frame(minHeight: 156)
             HStack(spacing: 8) {
                 Text("QUIET")
@@ -225,33 +211,24 @@ struct InsightsView: View {
     }
 
     private func usagePanel(_ data: InsightsSnapshot) -> some View {
-        let total = max(data.selected.totalWords, 1)
-        let dictationShare = Double(data.selected.dictationWords) / Double(total)
-        return HStack(spacing: 20) {
+        HStack(spacing: 20) {
             VStack(alignment: .leading, spacing: 20) {
-                panelTitle("DICTATIONS AND MEETINGS", subtitle: "Activity for the selected time period")
+                panelTitle("MEETINGS", subtitle: "Activity for the selected time period")
                 HStack(alignment: .lastTextBaseline, spacing: 8) {
-                    Text(format(data.selected.totalWords))
+                    Text(format(data.selected.meetingWords))
                         .font(.system(size: 40, weight: .bold, design: .rounded))
                         .tracking(-1.5)
                         .monospacedDigit()
                     Text("words")
                         .foregroundStyle(InsightsPalette.tertiaryText)
                 }
-                GeometryReader { geometry in
-                    HStack(spacing: 3) {
-                        RoundedRectangle(cornerRadius: 4)
-                            .fill(MuesliTheme.accent)
-                            .frame(width: max(4, geometry.size.width * dictationShare))
-                        RoundedRectangle(cornerRadius: 4)
-                            .fill(Color.cyan.opacity(0.75))
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack {
+                        usageLegend("Meeting words", data.selected.meetingWords, .cyan)
+                        Spacer()
+                        usageLegend("Completed meetings", data.selected.meetings, MuesliTheme.accent)
                     }
-                }
-                .frame(height: 12)
-                HStack {
-                    usageLegend("Dictation", data.selected.dictationWords, MuesliTheme.accent)
-                    Spacer()
-                    usageLegend("Meetings", data.selected.meetingWords, .cyan)
+                    readout("Average pace", "\(Int(data.selected.averageWPM.rounded())) WPM")
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -260,7 +237,7 @@ struct InsightsView: View {
                 Text("OVERVIEW")
                     .font(.system(size: 10, weight: .bold)).tracking(1.5)
                     .foregroundStyle(InsightsPalette.tertiaryText)
-                readout("Dictation sessions", format(data.selected.dictationSessions))
+                readout("Meeting words", format(data.selected.meetingWords))
                 readout("Completed meetings", format(data.selected.meetings))
                 readout("Average pace", "\(Int(data.selected.averageWPM.rounded())) WPM")
                 readout("Active days", format(data.activeDaysInRange))
@@ -274,39 +251,10 @@ struct InsightsView: View {
         .insightsPanel()
     }
 
-    private func streakPanel(_ data: InsightsSnapshot) -> some View {
-        HStack(spacing: 28) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("\(data.currentStreakDays)")
-                    .font(.system(size: 70, weight: .bold, design: .rounded))
-                    .tracking(-3)
-                    .monospacedDigit()
-                Text("CURRENT STREAK")
-                    .font(.system(size: 11, weight: .bold)).tracking(1.8)
-                    .foregroundStyle(MuesliTheme.accent)
-            }
-            VStack(alignment: .leading, spacing: 14) {
-                panelTitle("STREAKS", subtitle: "Your consecutive dictation days")
-                Text(streakMessage(data))
-                    .font(.system(size: 17, weight: .medium))
-                    .foregroundStyle(InsightsPalette.secondaryText)
-                    .fixedSize(horizontal: false, vertical: true)
-                HStack(spacing: 18) {
-                    Label("Best: \(data.longestStreakDays) days", systemImage: "flag.checkered")
-                    Label("\(data.activeDaysInRange) active days", systemImage: "calendar.badge.checkmark")
-                }
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(InsightsPalette.tertiaryText)
-            }
-        }
-        .insightsPanel()
-    }
-
     private func wordClouds(_ data: InsightsSnapshot) -> some View {
         VStack(alignment: .leading, spacing: 16) {
-            panelTitle("MOST-USED WORDS", subtitle: "Common words from your dictations and meetings")
+            panelTitle("MOST-USED WORDS", subtitle: "Common words from your meetings")
             HStack(alignment: .top, spacing: 16) {
-                WordCloudPanel(title: "DICTATIONS", icon: "waveform", words: data.dictationWords)
                 WordCloudPanel(title: "MEETINGS", icon: "person.2.wave.2", words: data.meetingWords)
             }
         }
@@ -414,15 +362,7 @@ struct InsightsView: View {
         }.font(.system(size: 12, weight: .medium))
     }
 
-    private func streakMessage(_ data: InsightsSnapshot) -> String {
-        guard data.currentStreakDays > 0 else { return "Dictate today to start a new streak." }
-        if data.currentStreakDays == data.longestStreakDays { return "This is your longest streak so far." }
-        return "Your longest streak is \(dayCount(data.longestStreakDays))."
-    }
-
     private func format(_ value: Int) -> String { value.formatted(.number.notation(.compactName)) }
-
-    private func dayCount(_ value: Int) -> String { "\(value) \(value == 1 ? "day" : "days")" }
 }
 
 enum InsightsLoadingCopy {
@@ -430,7 +370,7 @@ enum InsightsLoadingCopy {
         "Calculating your private activity history",
         "Insights are computed on this Mac and never uploaded",
         "Your transcripts and statistics stay under your control",
-        "Hybrid AI works best when you choose what stays local",
+        "Insights cover meetings captured on this Mac",
     ]
 }
 
@@ -489,11 +429,6 @@ struct InsightsInitialScrollGate {
     }
 }
 
-private enum InsightsMetric: CaseIterable {
-    case words, meetings
-    var label: String { self == .words ? "Words" : "Meetings" }
-}
-
 private enum InsightsPalette {
     static let secondaryText = Color.adaptiveAlpha(
         dark: .white, darkAlpha: 0.70,
@@ -543,7 +478,6 @@ enum ActivityHeatmapCalendarLayout {
 
 private struct ActivityHeatmap: View {
     let activity: [InsightsDailyActivity]
-    let metric: InsightsMetric
     private let cell: CGFloat = 14
     private let gap: CGFloat = 4
     private let monthLabelHeight: CGFloat = 14
@@ -600,7 +534,7 @@ private struct ActivityHeatmap: View {
             }
             .onAppear { scrollToLatest(proxy) }
             .onChange(of: activity.last?.date) { _, _ in scrollToLatest(proxy) }
-            .accessibilityLabel("Daily \(metric.label.lowercased()) activity")
+            .accessibilityLabel("Daily meeting activity")
         }
     }
 
@@ -622,7 +556,7 @@ private struct ActivityHeatmap: View {
     }
 
     private func value(_ day: InsightsDailyActivity) -> Int {
-        metric == .words ? day.words : day.meetings
+        day.meetings
     }
 
     private func level(_ count: Int) -> Int {
@@ -636,7 +570,6 @@ private struct ActivityHeatmap: View {
         return ActivityHeatmapCell(
             day: day,
             count: count,
-            metric: metric,
             level: level(count),
             size: cell
         )
@@ -646,7 +579,6 @@ private struct ActivityHeatmap: View {
 private struct ActivityHeatmapCell: View {
     let day: InsightsDailyActivity
     let count: Int
-    let metric: InsightsMetric
     let level: Int
     let size: CGFloat
     @State private var isHovered = false
@@ -656,12 +588,7 @@ private struct ActivityHeatmapCell: View {
     }
 
     private var countText: String {
-        switch metric {
-        case .words:
-            return count == 1 ? "1 word dictated" : "\(count.formatted()) words dictated"
-        case .meetings:
-            return count == 1 ? "1 meeting" : "\(count.formatted()) meetings"
-        }
+        count == 1 ? "1 meeting" : "\(count.formatted()) meetings"
     }
 
     var body: some View {

@@ -3,6 +3,66 @@ import MuesliCore
 @preconcurrency import CoreML
 import Foundation
 
+/// Streaming ASR backend protocol used by the Nemotron 3.5 transcriber.
+/// (Previously declared in the removed dictation StreamingDictationController.)
+@available(macOS 15, *)
+protocol NemotronStreamingTranscribing: AnyObject {
+    func makeStreamState() async throws -> RNNTStreamState
+    func transcribeChunk(
+        samples: [Float],
+        state: inout RNNTStreamState
+    ) async throws -> String
+}
+
+/// Serializes shared-model inference across callers. Each caller retains its
+/// own stream state, but Core ML predictions on the shared models must not
+/// interleave. (Previously declared in the removed Qwen3PostProcessor.swift.)
+actor InferenceGate {
+    private struct Waiter {
+        let id: UUID
+        let continuation: CheckedContinuation<Bool, Never>
+    }
+
+    private var isProcessing = false
+    private var waiters: [Waiter] = []
+
+    func acquire() async throws {
+        try Task.checkCancellation()
+        if !isProcessing {
+            isProcessing = true
+            return
+        }
+
+        let id = UUID()
+        let acquired = await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                waiters.append(Waiter(id: id, continuation: continuation))
+            }
+        } onCancel: {
+            Task { await self.cancelWaiter(id) }
+        }
+        guard acquired else { throw CancellationError() }
+    }
+
+    func release() {
+        if waiters.isEmpty {
+            isProcessing = false
+            return
+        }
+
+        waiters.removeFirst().continuation.resume(returning: true)
+    }
+
+    func queuedWaiterCount() -> Int {
+        waiters.count
+    }
+
+    private func cancelWaiter(_ id: UUID) {
+        guard let index = waiters.firstIndex(where: { $0.id == id }) else { return }
+        waiters.remove(at: index).continuation.resume(returning: false)
+    }
+}
+
 /// Native RNNT streaming ASR backend for NVIDIA Nemotron 3.5 ASR Streaming (multilingual).
 /// Runs entirely on Apple Neural Engine via CoreML.
 ///

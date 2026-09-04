@@ -38,13 +38,9 @@ enum FeatureTourTarget: String, Hashable {
     case quillSettings
     case dictationProviderSetting
     case parakeetFamilyCard
-    case timelineSidebar
-    case timelineApplications
     case appleSpeechCard
     case meetingPeople
-    case timelineFilters
     case modelLibrary
-    case insightsEntry
     case dictionarySuggestions
     case meetingsSidebar
     case liveCaptionsSetting
@@ -55,13 +51,11 @@ enum FeatureTourTarget: String, Hashable {
     var navigationRoute: FeatureTourNavigationRoute {
         switch self {
         case .quillSettings, .dictationProviderSetting, .cloudCleanupSetting:
-            return .settings(.dictation)
+            // Retained only while their removed-feature settings rows are still
+            // being stripped centrally; the empty catalog never routes to them.
+            return .settings(.general)
         case .liveCaptionsSetting:
             return .settings(.meetings)
-        case .timelineSidebar, .timelineFilters, .insightsEntry:
-            return .tab(.timeline)
-        case .timelineApplications:
-            return .timelineApplications
         case .dictionarySuggestions:
             return .tab(.dictionary)
         case .meetingsSidebar:
@@ -69,7 +63,7 @@ enum FeatureTourTarget: String, Hashable {
         case .meetingPeople:
             return .meetingPeople
         case .modelLibrary, .appleSpeechCard, .parakeetFamilyCard, .experimentalModels:
-            return .models(.dictation)
+            return .models(.transcription)
         case .streamingModels:
             return .models(.streaming)
         }
@@ -85,7 +79,6 @@ enum FeatureTourNavigationRoute: Equatable {
     case settings(SettingsPane)
     case tab(DashboardTab)
     case models(ModelsCategory)
-    case timelineApplications
     case meetingsBrowser
     case meetingPeople
 }
@@ -122,41 +115,12 @@ extension AppState {
 }
 
 enum FeatureTourCatalog {
+    /// The app is meetings-only; the remaining FeatureTourTarget cases are
+    /// kept alive only for views the central pass still references. No
+    /// meetings-only tour steps exist yet, so the catalog is empty and no
+    /// automatic/manual tour is offered.
     static var latest: FeatureTour {
-        FeatureTour(version: "0.8.4", steps: [
-            FeatureTourStep(
-                id: "quill",
-                eyebrow: "QUILL MODE",
-                title: "Edit text with your voice",
-                message: "Highlight text or place the cursor, activate Quill, and say what you want changed. Use a configured AI provider, or download Gemma 4 for a private, on-device workflow.",
-                systemImage: "pencil.and.scribble",
-                target: .quillSettings
-            ),
-            FeatureTourStep(
-                id: "apple-shortcuts",
-                eyebrow: "APPLE SHORTCUTS",
-                title: "Control Muesli with Command-Space",
-                message: "Press Command-Space, then type Start Dictation, Stop Dictation, Start Meeting, or Stop Meeting.",
-                systemImage: "command",
-                target: nil
-            ),
-            FeatureTourStep(
-                id: "hosted-dictation",
-                eyebrow: "OPTIONAL CLOUD TRANSCRIPTION",
-                title: "Choose OpenAI or OpenRouter for dictation",
-                message: "Use a hosted transcription model when you want one. Local remains the default, and audio is sent only after you choose OpenAI or OpenRouter as your provider.",
-                systemImage: "cloud",
-                target: .dictationProviderSetting
-            ),
-            FeatureTourStep(
-                id: "parakeet-unified",
-                eyebrow: "ON-DEVICE ENGLISH",
-                title: "Meet the best English STT model",
-                message: "Parakeet Unified balances speed and accuracy for fast, reliable English transcription on your Mac. For other languages, choose multilingual Parakeet v3.",
-                systemImage: "waveform",
-                target: .parakeetFamilyCard
-            ),
-        ])
+        FeatureTour(version: "0.8.4", steps: [])
     }
 }
 

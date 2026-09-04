@@ -40,149 +40,25 @@ enum SettingsPermissionRefreshReason {
     }
 }
 
-struct ICloudLinkedDevicePresentation: Equatable {
-    let name: String
-    let platformLabel: String
-    let systemImage: String
-
-    init(name: String, platform: String?) {
-        self.name = name
-        switch platform?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
-        case "ipados":
-            platformLabel = "iPad"
-            systemImage = "ipad"
-        case "ios":
-            platformLabel = "iPhone"
-            systemImage = "iphone.gen3"
-        default:
-            platformLabel = "Device"
-            systemImage = "iphone.gen3"
-        }
-    }
-}
-
-private struct ICloudLinkedDeviceRow: View {
-    let device: ICloudLinkedDevicePresentation
-
-    var body: some View {
-        HStack(spacing: MuesliTheme.spacing8) {
-            Image(systemName: device.systemImage)
-                .font(.system(size: 16, weight: .medium))
-                .foregroundStyle(MuesliTheme.accent)
-                .frame(width: 30, height: 30)
-                .background(MuesliTheme.accentSubtle)
-                .clipShape(Circle())
-
-            VStack(alignment: .leading, spacing: 1) {
-                Text(device.name)
-                    .font(MuesliTheme.captionMedium())
-                    .foregroundStyle(MuesliTheme.textPrimary)
-                    .lineLimit(1)
-                Text("\(device.platformLabel) · Linked")
-                    .font(.system(size: 11, weight: .regular))
-                    .foregroundStyle(MuesliTheme.textSecondary)
-            }
-
-            Image(systemName: "checkmark.circle.fill")
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(MuesliTheme.success)
-                .accessibilityHidden(true)
-        }
-        .padding(.horizontal, MuesliTheme.spacing8)
-        .padding(.vertical, 6)
-        .background(MuesliTheme.success.opacity(0.08))
-        .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
-        .overlay {
-            RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall)
-                .strokeBorder(MuesliTheme.success.opacity(0.18), lineWidth: 1)
-        }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(device.platformLabel) \(device.name), linked")
-    }
-}
-
-private enum OnDeviceCleanupModel: Identifiable {
-    case gguf(PostProcessorOption)
-    case gemma4(Gemma4LiteRTModel)
-
-    var id: String {
-        switch self {
-        case let .gguf(option): option.id
-        case let .gemma4(model): model.repoID
-        }
-    }
-
-    var label: String {
-        switch self {
-        case let .gguf(option): option.label
-        case let .gemma4(model): model.label
-        }
-    }
-
-    var quilLabel: String {
-        switch self {
-        case let .gguf(option): option.quilLabel
-        case let .gemma4(model): model.label
-        }
-    }
-
-    var quilBackend: TranscriptCleanupBackendOption {
-        switch self {
-        case .gguf: .local
-        case .gemma4: .gemma4LiteRT
-        }
-    }
-
-    var quilModelID: String {
-        switch self {
-        case let .gguf(option): option.id
-        case let .gemma4(model): model.repoID
-        }
-    }
-}
-
 struct SettingsView: View {
     private enum PendingDataDestruction {
-        case dictations
         case meetings
 
         var title: String {
-            switch self {
-            case .dictations:
-                return "Clear dictation history?"
-            case .meetings:
-                return "Clear meeting history?"
-            }
+            "Clear meeting history?"
         }
 
         var message: String {
-            switch self {
-            case .dictations:
-                return "This will permanently remove all saved dictations. This cannot be undone."
-            case .meetings:
-                return "This will permanently remove all saved meetings, notes, transcripts, and retained audio recordings. This cannot be undone."
-            }
+            "This will permanently remove all saved meetings, notes, transcripts, and retained audio recordings. This cannot be undone."
         }
 
         var confirmLabel: String {
-            switch self {
-            case .dictations:
-                return "Clear Dictations"
-            case .meetings:
-                return "Clear Meetings"
-            }
+            "Clear Meetings"
         }
     }
 
     let appState: AppState
     let controller: MuesliController
-
-    private enum OpenAIConnectionTestState: Equatable {
-        case idle
-        case testing
-        case success
-        case failed(String)
-    }
 
     @State private var chatGPTSignInError: String?
     @State private var isSigningInChatGPT = false
@@ -193,16 +69,13 @@ struct SettingsView: View {
     @State private var googleCalSignInError: String?
     @State private var isSigningInGoogleCal = false
     @State private var pendingDataDestruction: PendingDataDestruction?
-    @State private var isShowingDictionaryAccessibilityPrompt = false
     @State private var isPreviewingClip = false
     @State private var selectedPane: SettingsPane
     @State private var downloadedBackendOptions: [BackendOption] = []
-    @State private var downloadedPostProcOptions: [PostProcessorOption] = []
     @State private var downloadedMeetingLiveCaptionBackends: [MeetingLiveCaptionBackend] = []
     @State private var audioInputDevices: [AudioInputDeviceInfo] = []
     @State private var audioInputDeviceRefreshTask: Task<Void, Never>?
     @State private var permissionPollTimer: Timer?
-    @State private var isCleanupPromptManagerPresented = false
     @State private var micGranted = false
     @State private var accessibilityGranted = false
     @State private var inputMonitoringGranted = false
@@ -212,13 +85,7 @@ struct SettingsView: View {
     @State private var systemAudioGranted = false
     @State private var isCheckingSystemAudioPermission = false
     @State private var isUsingCustomOpenRouterModel = false
-    @State private var isUsingCustomOpenRouterDictationModel = false
     @State private var hasRefreshedMeetingCalendarSources = false
-    @State private var isShowingICloudSyncReconnectConfirmation = false
-    @State private var isShowingICloudSyncResetConfirmation = false
-    @State private var isShowingIPhoneBridgeQRCode = false
-    @State private var openAIDictationAPIKey: String = ""
-    @State private var openAITestState: OpenAIConnectionTestState = .idle
 
     init(appState: AppState, controller: MuesliController) {
         self.appState = appState
@@ -243,27 +110,6 @@ struct SettingsView: View {
         MeetingDetectionAppOption(bundleID: "com.apple.FaceTime", name: "FaceTime", icon: "video.fill"),
         MeetingDetectionAppOption(bundleID: "net.whatsapp.WhatsApp", name: "WhatsApp", icon: "phone.fill"),
     ]
-
-    private var dictationBackendOptions: [BackendOption] {
-        guard appState.dictationProvider.isHosted else {
-            return backendOptions(including: appState.selectedBackend)
-        }
-        return downloadedBackendOptions.filter(\.supportsHostedDictationFallback)
-    }
-
-    private var displayedDictationBackend: BackendOption? {
-        guard appState.dictationProvider.isHosted else { return appState.selectedBackend }
-        return BackendOption.resolveHostedDictationFallback(
-            selected: appState.selectedBackend,
-            available: dictationBackendOptions
-        )
-    }
-
-    private var disabledDictationBackendLabels: Set<String> {
-        guard !appState.selectedPostProcessorBackend.isCompatible(with: .gemma4E2BLiteRT),
-              dictationBackendOptions.contains(where: { $0.backend == "gemma4-litert" }) else { return [] }
-        return Set(dictationBackendOptions.filter { $0.backend == "gemma4-litert" }.map(\.label))
-    }
 
     private var meetingBackendOptions: [BackendOption] {
         downloadedBackendOptions.filter(\.supportsMeetingTranscription)
@@ -303,93 +149,6 @@ struct SettingsView: View {
         return meetingBackendOptions.first?.label ?? "No downloaded models"
     }
 
-    private var cleanupPromptPresets: [TranscriptCleanupPromptPreset] {
-        TranscriptCleanupPrompts.presets(custom: appState.config.customTranscriptCleanupPrompts)
-    }
-
-    private var cleanupBackendOptions: [TranscriptCleanupBackendOption] {
-        TranscriptCleanupBackendOption.all.filter { !$0.isGemma4LiteRT }
-    }
-
-    private var selectedQuilBackend: TranscriptCleanupBackendOption {
-        TranscriptCleanupBackendOption.resolved(appState.config.quilBackend)
-    }
-
-    private var selectedQuilModelSource: QuilModelSourceOption {
-        QuilModelSourceOption.resolved(for: selectedQuilBackend)
-    }
-
-    private var quilLocalModels: [OnDeviceCleanupModel] {
-        var models = downloadedPostProcOptions
-            .filter(\.supportsQuil)
-            .map(OnDeviceCleanupModel.gguf)
-        for model in Gemma4LiteRTModel.allCases where Gemma4LiteRTModelStore.isAvailableLocally(model: model) {
-            models.append(.gemma4(model))
-        }
-        return models
-    }
-
-    private var selectedQuilLocalModelLabel: String {
-        if selectedQuilBackend == .gemma4LiteRT {
-            return Gemma4LiteRTModel.resolved(appState.config.quilModel).label
-        }
-        return quilLocalModels.first(where: { $0.id == appState.config.quilModel })?.quilLabel
-            ?? quilLocalModels.first?.quilLabel
-            ?? "No compatible model"
-    }
-
-    private var selectedCleanupBackendLabel: String {
-        appState.selectedPostProcessorBackend.isOnDevice
-            ? TranscriptCleanupBackendOption.local.label
-            : appState.selectedPostProcessorBackend.label
-    }
-
-    private var onDeviceCleanupModels: [OnDeviceCleanupModel] {
-        var models = downloadedPostProcOptions
-            .filter { $0.isCompatible(with: appState.selectedBackend) }
-            .map(OnDeviceCleanupModel.gguf)
-        if TranscriptCleanupBackendOption.gemma4LiteRT.isCompatible(with: appState.selectedBackend) {
-            for model in Gemma4LiteRTModel.allCases where Gemma4LiteRTModelStore.isAvailableLocally(model: model) {
-                models.append(.gemma4(model))
-            }
-        }
-        return models
-    }
-
-    private var selectedOnDeviceCleanupModelLabel: String {
-        if appState.selectedPostProcessorBackend == .gemma4LiteRT {
-            return Gemma4LiteRTModel.resolved(appState.config.postProcessorGemmaModel).label
-        }
-        let selectedID = appState.activePostProcessor.id
-        return onDeviceCleanupModels.first(where: { $0.id == selectedID })?.label
-            ?? onDeviceCleanupModels.first?.label
-            ?? ""
-    }
-
-    private var selectedCleanupPromptName: String {
-        cleanupPromptPresets.first { $0.id == appState.config.activeTranscriptCleanupPromptId }?.name
-            ?? TranscriptCleanupPrompts.builtIns[0].name
-    }
-
-    private var cleanupModelUsesFixedPrompt: Bool {
-        appState.selectedPostProcessorBackend == .local
-            && appState.activePostProcessor.inputFormat == .s1Mini
-    }
-
-    private var gemmaCleanupIsUnavailable: Bool {
-        Gemma4LiteRTModel.allCases.contains { Gemma4LiteRTModelStore.isAvailableLocally(model: $0) }
-            && !TranscriptCleanupBackendOption.gemma4LiteRT.isCompatible(with: appState.selectedBackend)
-    }
-
-    private var cleanupBackendDescription: String {
-        if appState.selectedPostProcessorBackend.isOnDevice {
-            return onDeviceCleanupModels.isEmpty
-                ? "Download a cleanup model from Models to refine dictations on this Mac."
-                : "Refines dictated text on this Mac."
-        }
-        return "Sends dictated text to \(appState.selectedPostProcessorBackend.label) and may add latency."
-    }
-
     private var selectedCohereLanguage: CohereTranscribeLanguage {
         appState.config.resolvedCohereLanguage
     }
@@ -407,15 +166,6 @@ struct SettingsView: View {
     }
     private var selectedWhisperLanguage: WhisperKitLanguage {
         appState.config.resolvedWhisperLanguage
-    }
-
-    private var dictationMicrophoneOptions: [MicrophoneOption] {
-        microphoneOptions(selectedUID: appState.config.dictationInputDeviceUID)
-    }
-
-    private var selectedDictationMicrophoneLabel: String {
-        let selectedUID = appState.config.dictationInputDeviceUID
-        return dictationMicrophoneOptions.first(where: { $0.uid == selectedUID })?.label ?? "Automatic"
     }
 
     private var meetingMicrophoneOptions: [MicrophoneOption] {
@@ -463,10 +213,6 @@ struct SettingsView: View {
                 if appState.selectedMeetingSummaryBackend == .openRouter {
                     loadOpenRouterFreeModelsIfNeeded()
                 }
-                if appState.dictationProvider == .openRouter,
-                   controller.hostedDictationModelVisibility.shows(.openRouter) {
-                    loadOpenRouterTranscriptionModelsIfNeeded()
-                }
                 scrollToFeatureTourTarget(activeFeatureTourTarget, using: scrollProxy)
             }
             .onDisappear {
@@ -489,7 +235,7 @@ struct SettingsView: View {
             }
             .onChange(of: selectedPane) { _, pane in
                 appState.selectedSettingsPane = pane
-                if pane == .dictation || pane == .meetings {
+                if pane == .meetings {
                     loadCachedAudioInputDevices()
                 }
                 scrollToFeatureTourTarget(activeFeatureTourTarget, using: scrollProxy)
@@ -524,78 +270,17 @@ struct SettingsView: View {
                     pendingDataDestruction = nil
                 }
                 Button(pendingDataDestruction?.confirmLabel ?? "Delete", role: .destructive) {
-                    switch pendingDataDestruction {
-                    case .dictations:
-                        controller.clearDictationHistory()
-                    case .meetings:
-                        controller.clearMeetingHistory()
-                    case nil:
-                        break
-                    }
+                    controller.clearMeetingHistory()
                     pendingDataDestruction = nil
                 }
             } message: {
                 Text(pendingDataDestruction?.message ?? "")
             }
-            .alert(
-                "Enable Accessibility?",
-                isPresented: $isShowingDictionaryAccessibilityPrompt
-            ) {
-                Button("Cancel", role: .cancel) {
-                    controller.cancelDictionaryCorrectionAccessibilityEnableRequest()
-                }
-                Button("Enable") {
-                    controller.requestDictionaryCorrectionAccessibilityEnable()
-                }
-            } message: {
-                Text("Dictionary suggestions briefly read focused app text via Accessibility after dictation. Grant access, then relaunch Muesli to turn suggestions on.")
-            }
-            .alert("Reconnect iCloud sync?", isPresented: $isShowingICloudSyncReconnectConfirmation) {
-                Button("Cancel", role: .cancel) {}
-                Button("Reconnect") {
-                    controller.reconnectICloudSyncToCurrentAccount()
-                }
-            } message: {
-                Text("Reconnect with this iCloud account. Local history and audio stay on this Mac.")
-            }
-            .alert("Reset iCloud sync?", isPresented: $isShowingICloudSyncResetConfirmation) {
-                Button("Cancel", role: .cancel) {}
-                Button("Reset sync", role: .destructive) {
-                    controller.resetICloudSync()
-                }
-            } message: {
-                Text("Clear this Mac's sync connection and set it up again. Local history, audio, and CloudKit data won't be deleted.")
-            }
-            .sheet(isPresented: $isShowingIPhoneBridgeQRCode, onDismiss: {
-                controller.cancelIPhoneBridgeDeviceDiscovery()
-            }) {
-                IPhoneBridgeQRCodeSheet(
-                    deepLinkURL: IPhoneBridgeLinks.iOSSyncDeepLinkURL,
-                    installURL: IPhoneBridgeLinks.installURL,
-                    isWaitingForDevice: appState.iCloudBridgeCompanionDiscoveryState == .waiting
-                )
-            }
-            .onChange(of: syncQRCodePresentationPhase) { _, phase in
-                guard phase == .dismiss else { return }
-                isShowingIPhoneBridgeQRCode = false
-                TelemetryDeck.signal("bridge_qr_auto_dismissed", parameters: ["platform": "macos_settings"])
-            }
-            .sheet(isPresented: $isCleanupPromptManagerPresented) {
-                TranscriptCleanupPromptsManagerView(
-                    appState: appState,
-                    controller: controller,
-                    onClose: { isCleanupPromptManagerPresented = false }
-                )
-            }
         }
     }
 
     private func scrollToFeatureTourTarget(_ target: FeatureTourTarget?, using proxy: ScrollViewProxy) {
-        guard let target,
-              target == .liveCaptionsSetting
-                || target == .cloudCleanupSetting
-                || target == .dictationProviderSetting
-                || target == .quillSettings else { return }
+        guard let target, target == .liveCaptionsSetting else { return }
         DispatchQueue.main.async {
             withAnimation(.easeInOut(duration: 0.2)) {
                 proxy.scrollTo(target.rawValue, anchor: .center)
@@ -606,7 +291,6 @@ struct SettingsView: View {
     private func refreshDownloadedModelOptions() {
         controller.refreshMeetingTranscriptionSelectionForAvailability()
         downloadedBackendOptions = BackendOption.downloaded
-        downloadedPostProcOptions = PostProcessorOption.downloaded
         downloadedMeetingLiveCaptionBackends = MeetingLiveCaptionBackend.allCases.filter(\.isDownloaded)
     }
 
@@ -624,14 +308,6 @@ struct SettingsView: View {
         audioInputDevices = controller.cachedDictationInputDevices()
     }
 
-    private func backendOptions(including selection: BackendOption) -> [BackendOption] {
-        var options = downloadedBackendOptions
-        if !options.contains(where: { $0 == selection }) {
-            options.insert(selection, at: 0)
-        }
-        return options
-    }
-
     private static let accentPresets: [(hex: String, name: String)] = [
         ("2563eb", "Blue"),
         ("ef4444", "Red"),
@@ -647,22 +323,12 @@ struct SettingsView: View {
             return "Grant Accessibility, then toggle again if needed."
         }
         if includesScreenOCR, !screenRecordingGranted {
-            return "Adds nearby app text for post-processing. Screen Recording enables OCR context."
+            return "Adds nearby app text for meeting context. Screen Recording enables OCR context."
         }
         if includesScreenOCR {
             return "Adds nearby app text and OCR context."
         }
-        return "Adds nearby app text for post-processing."
-    }
-
-    private var dictationOCRContextDescription: String {
-        if !appState.config.enableScreenContext {
-            return "Turn on App context first."
-        }
-        if !screenRecordingGranted {
-            return "Grant Screen Recording to add frontmost-window OCR text."
-        }
-        return "Adds frontmost-window OCR text. Cloud cleanup may send this text to the selected provider."
+        return "Adds nearby app text for meeting context."
     }
 
     @ViewBuilder
@@ -695,32 +361,6 @@ struct SettingsView: View {
         .frame(minHeight: 52)
     }
 
-    @ViewBuilder
-    private var dictationOCRContextRow: some View {
-        let width = controlWidth
-        HStack(alignment: .top, spacing: 20) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Screen OCR context")
-                    .font(MuesliTheme.body())
-                    .foregroundStyle(MuesliTheme.textPrimary)
-                Text(dictationOCRContextDescription)
-                    .font(MuesliTheme.caption())
-                    .foregroundStyle(MuesliTheme.textTertiary)
-                    .lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .layoutPriority(1)
-
-            Spacer(minLength: 20)
-
-            ZStack(alignment: .trailing) {
-                Color.clear.frame(width: width, height: 1)
-                dictationOCRContextControl(width: width)
-            }
-        }
-        .frame(minHeight: 52)
-    }
-
     private let customIndicatorPositionLabel = "Custom (drag to reposition)"
 
     private var settingsPanePicker: some View {
@@ -743,12 +383,6 @@ struct SettingsView: View {
         switch selectedPane {
         case .general:
             generalSettingsPane
-        case .sync:
-            syncSettingsPane
-        case .dictation:
-            dictationSettingsPane
-        case .computerUse:
-            computerUseSettingsPane
         case .meetings:
             meetingsSettingsPane
         case .appearance:
@@ -781,9 +415,6 @@ struct SettingsView: View {
 
             settingsSection("Data") {
                 HStack(spacing: MuesliTheme.spacing12) {
-                    actionButton("Clear dictation history", role: .destructive) {
-                        pendingDataDestruction = .dictations
-                    }
                     actionButton("Clear meeting history", role: .destructive) {
                         pendingDataDestruction = .meetings
                     }
@@ -824,191 +455,6 @@ struct SettingsView: View {
         .padding(.leading, MuesliTheme.spacing16)
         .padding(.trailing, MuesliTheme.spacing16)
         .padding(.bottom, MuesliTheme.spacing8)
-    }
-
-    private var syncSettingsPane: some View {
-        VStack(alignment: .leading, spacing: MuesliTheme.spacing24) {
-            settingsSection("iCloud Sync") {
-                HStack(spacing: MuesliTheme.spacing12) {
-                    VStack(alignment: .leading, spacing: MuesliTheme.spacing4) {
-                        Text("Sync with iPhone or iPad")
-                            .font(MuesliTheme.body())
-                            .foregroundStyle(MuesliTheme.textPrimary)
-                        Text(syncStatusText)
-                            .font(MuesliTheme.caption())
-                            .foregroundStyle(MuesliTheme.textTertiary)
-                            .fixedSize(horizontal: false, vertical: true)
-                        if let lastSyncedText = syncLastSyncedText {
-                            Text("Last synced: \(lastSyncedText)")
-                                .font(MuesliTheme.caption())
-                                .foregroundStyle(MuesliTheme.textTertiary)
-                        }
-                        if let linkedDevice = syncLinkedDevice {
-                            ICloudLinkedDeviceRow(device: linkedDevice)
-                                .padding(.top, MuesliTheme.spacing4)
-                        } else if let unlinkedDeviceText = syncUnlinkedDeviceText {
-                            Text(unlinkedDeviceText)
-                                .font(MuesliTheme.caption())
-                                .foregroundStyle(MuesliTheme.textTertiary)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                    }
-                    Spacer(minLength: MuesliTheme.spacing16)
-                    syncFlowControls
-                        .frame(width: controlWidth)
-                }
-
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var syncFlowControls: some View {
-        VStack(spacing: MuesliTheme.spacing8) {
-            switch syncFlowAction {
-            case .setUp:
-                actionButton("Set up sync", systemImage: "icloud") {
-                    showSyncSetupQRCode(source: "macos_settings_setup")
-                    controller.enableIPhoneBridgeSync()
-                }
-            case .continueSetup:
-                actionButton("Continue setup", systemImage: "qrcode") {
-                    showSyncSetupQRCode(source: "macos_settings_continue")
-                    controller.enableIPhoneBridgeSync()
-                }
-            case .connectDevice:
-                actionButton("Connect device", systemImage: "qrcode") {
-                    showSyncSetupQRCode(source: "macos_settings")
-                }
-            case .waitingForDevice:
-                actionButton("Checking…", systemImage: "arrow.triangle.2.circlepath") {}
-                    .disabled(true)
-            case .syncNow:
-                actionButton("Sync now", systemImage: "arrow.triangle.2.circlepath") {
-                    controller.performICloudSync()
-                }
-            case .reconnect:
-                actionButton("Reconnect", systemImage: "arrow.triangle.2.circlepath") {
-                    isShowingICloudSyncReconnectConfirmation = true
-                }
-            case .reset:
-                actionButton("Reset sync", systemImage: "arrow.counterclockwise.icloud") {
-                    isShowingICloudSyncResetConfirmation = true
-                }
-            case .retry:
-                actionButton("Try again", systemImage: "arrow.triangle.2.circlepath") {
-                    controller.enableIPhoneBridgeSync()
-                }
-            case .working:
-                actionButton("Working…", systemImage: "arrow.triangle.2.circlepath") {}
-                    .disabled(true)
-            }
-
-            if shouldOfferICloudSyncReset {
-                actionButton("Reset sync", systemImage: "arrow.counterclockwise.icloud") {
-                    isShowingICloudSyncResetConfirmation = true
-                }
-            }
-        }
-    }
-
-    private func showSyncSetupQRCode(source: String) {
-        isShowingIPhoneBridgeQRCode = true
-        controller.beginIPhoneBridgeDeviceDiscovery()
-        TelemetryDeck.signal("bridge_qr_shown", parameters: ["platform": source])
-    }
-
-    private var syncFlowAction: ICloudSyncFlowAction {
-        ICloudSyncFlowPolicy.action(
-            for: displayedICloudBridgeState,
-            isEnabled: appState.config.iCloudSyncEnabled,
-            hasCompanionDevice: appState.iCloudBridgeCompanionDeviceName != nil,
-            companionDiscoveryState: appState.iCloudBridgeCompanionDiscoveryState
-        )
-    }
-
-    private var syncQRCodePresentationPhase: ICloudSyncQRCodePresentationPhase {
-        ICloudSyncQRCodePresentationPolicy.phase(
-            isPresented: isShowingIPhoneBridgeQRCode,
-            hasCompanionDevice: appState.iCloudBridgeCompanionDeviceName != nil
-        )
-    }
-
-    private var displayedICloudBridgeState: ICloudBridgeState {
-        appState.iCloudBridgeState
-    }
-
-    private var syncStatusText: String {
-        switch displayedICloudBridgeState {
-        case .checkingICloud:
-            return "Checking iCloud…"
-        case .syncing:
-            if appState.isICloudBridgeActivationPending {
-                return appState.iCloudBridgeCompanionDeviceName == nil
-                    ? "Setting up sync…"
-                    : "Device linked. Finishing sync…"
-            }
-            return "Syncing…"
-        case .needsICloud:
-            return "Sign in to iCloud to sync."
-        case .needsReconnection:
-            if ICloudSyncRecoveryPolicy.action(for: appState.iCloudBridgeState) == .resetAccountLink {
-                return "Reset sync to start again."
-            }
-            return "Reconnect to keep syncing."
-        case .needsAccountReplacement:
-            return "Reset sync to use this iCloud account."
-        case .error:
-            return appState.iCloudBridgeCompanionDeviceName == nil
-                ? "Setup was interrupted. Continue to pair your device."
-                : "Sync couldn't finish. Try again."
-        case .active:
-            guard appState.config.iCloudSyncEnabled else { return "Sync is off." }
-            if appState.iCloudBridgeCompanionDeviceName != nil {
-                return "Sync is on. Audio stays on this Mac."
-            }
-            switch appState.iCloudBridgeCompanionDiscoveryState {
-            case .waiting:
-                return "Finishing device setup…"
-            case .timedOut:
-                return "Couldn't find your device. Open Muesli there, then try again."
-            case .idle:
-                return "Ready to connect. Audio stays on this Mac."
-            }
-        case .notConfigured:
-            return "Set up private iCloud text sync."
-        }
-    }
-
-    private var syncLastSyncedText: String? {
-        guard let date = appState.iCloudLastSyncedAt else { return nil }
-        return DateFormatter.localizedString(from: date, dateStyle: .medium, timeStyle: .short)
-    }
-
-    private var syncLinkedDevice: ICloudLinkedDevicePresentation? {
-        guard let remoteDeviceName = appState.iCloudBridgeCompanionDeviceName else { return nil }
-        return ICloudLinkedDevicePresentation(
-            name: remoteDeviceName,
-            platform: appState.iCloudBridgeRemoteDevicePlatform
-        )
-    }
-
-    private var syncUnlinkedDeviceText: String? {
-        guard appState.config.iCloudSyncEnabled else { return nil }
-        switch appState.iCloudBridgeCompanionDiscoveryState {
-        case .waiting:
-            return "Waiting for iPhone or iPad…"
-        case .timedOut:
-            return "No device found yet."
-        case .idle:
-            return "No linked device yet."
-        }
-    }
-
-    private var shouldOfferICloudSyncReset: Bool {
-        appState.config.iCloudSyncEnabled
-            && displayedICloudBridgeState == .active
-            && (syncFlowAction == .syncNow || syncFlowAction == .connectDevice)
     }
 
     private var dictationModelSettingsSection: some View {

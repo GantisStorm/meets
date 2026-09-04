@@ -121,7 +121,6 @@ actor TranscriptionCoordinator {
     private let parakeetUnifiedTranscriber = ParakeetUnifiedTranscriber()
     private let whisperTranscriber = WhisperKitTranscriber()
     private var _qwen3Transcriber: Any?
-    private var _qwen3PostProcessor: Any?
     private var _cohereTranscriber: Any?
     private var _indicASRTranscriber: Any?
     private var _gemma4LiteRTTranscriber: Any?
@@ -140,7 +139,6 @@ actor TranscriptionCoordinator {
     private let vadLoader: VADLoader
     private let diarizerLoadOperationTimeout: Duration
     private let diarizerDiagnostics: DiarizerPreloadDiagnostics
-    private var activeBackend: String?
 
     init(
         diarizerModelLoader: @escaping DiarizerModelLoader = { policy in
@@ -169,9 +167,10 @@ actor TranscriptionCoordinator {
         return _nemotron35Transcriber as! Nemotron35StreamingTranscriber
     }
 
-    /// Loaded accessor for production dictation paths. Preload normally warms the
-    /// model, but direct hold-to-talk or early double-tap after relaunch must not
-    /// reach the actor while its CoreML models are still unloaded.
+    /// Loaded accessor for the live meeting caption path (Nemotron 3.5 unified
+    /// live+final backend). Preload normally warms the model, but the live
+    /// meeting flow must not reach the actor while its CoreML models are still
+    /// unloaded.
     @available(macOS 15, *)
     func getLoadedNemotron35Transcriber(
         progress: ((Double, String?) -> Void)? = nil,
@@ -243,202 +242,6 @@ actor TranscriptionCoordinator {
             _qwen3Transcriber = Qwen3AsrTranscriber()
         }
         return _qwen3Transcriber as! Qwen3AsrTranscriber
-    }
-
-    private var postProcessorModelURL: URL = PostProcessorOption.defaultOption.modelURL
-    private var postProcessorSystemPrompt: String = PostProcessorOption.defaultSystemPrompt
-    private var postProcessorInputFormat: PostProcessorOption.InputFormat = PostProcessorOption.defaultOption.inputFormat
-    private var postProcessorModelId: String = PostProcessorOption.defaultOption.id
-    private var postProcessorBackend: TranscriptCleanupBackendOption = .local
-    private var postProcessorConfig: AppConfig = AppConfig()
-
-    private struct PostProcessorSnapshot {
-        let backend: TranscriptCleanupBackendOption
-        let modelURL: URL
-        let systemPrompt: String
-        let modelId: String
-        let inputFormat: PostProcessorOption.InputFormat
-        let config: AppConfig
-    }
-
-    @available(macOS 15, *)
-    private var qwen3PostProcessor: Qwen3PostProcessor {
-        if _qwen3PostProcessor == nil {
-            _qwen3PostProcessor = Qwen3PostProcessor(
-                modelURL: postProcessorModelURL,
-                systemPrompt: postProcessorSystemPrompt,
-                inputFormat: postProcessorInputFormat
-            )
-        }
-        return _qwen3PostProcessor as! Qwen3PostProcessor
-    }
-
-    @available(macOS 15, *)
-    func setActivePostProcessor(option: PostProcessorOption, systemPrompt: String) async {
-        await configurePostProcessor(
-            backend: .local,
-            option: option,
-            systemPrompt: systemPrompt,
-            config: postProcessorConfig
-        )
-    }
-
-    func configurePostProcessor(
-        backend: TranscriptCleanupBackendOption,
-        option: PostProcessorOption?,
-        systemPrompt: String,
-        config: AppConfig
-    ) async {
-        postProcessorBackend = backend
-        postProcessorSystemPrompt = systemPrompt
-        postProcessorConfig = config
-
-        if backend == .gemma4LiteRT {
-            postProcessorModelId = Gemma4LiteRTModel.resolved(config.postProcessorGemmaModel).repoID
-        } else if let option {
-            postProcessorModelURL = option.modelURL
-            postProcessorModelId = option.id
-            postProcessorInputFormat = option.inputFormat
-            let effectiveSystemPrompt = option.effectiveSystemPrompt(configuredSystemPrompt: systemPrompt)
-            postProcessorSystemPrompt = effectiveSystemPrompt
-            if #available(macOS 15, *), let existing = _qwen3PostProcessor as? Qwen3PostProcessor {
-                await existing.reconfigure(
-                    modelURL: option.modelURL,
-                    systemPrompt: effectiveSystemPrompt,
-                    inputFormat: option.inputFormat
-                )
-            }
-        } else if backend.llmBackend != nil {
-            postProcessorModelId = TranscriptCleanupClient.configuredModel(for: backend, config: config)
-        }
-    }
-
-    func transformSelectedTextForQuil(
-        selectedText: String,
-        instruction: String,
-        appContext: String?,
-        backend: TranscriptCleanupBackendOption,
-        model: String,
-        config: AppConfig
-    ) async throws -> String {
-        let trimmedInstruction = instruction.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedInstruction.isEmpty else { throw QuilTransformationError.emptyInstruction }
-        let resolvedModel = model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            ? (backend == .local
-                ? PostProcessorOption.defaultQuilOption.id
-                : TranscriptCleanupClient.defaultModel(for: backend))
-            : model
-        try QuilModelPolicy.validate(selectedText: selectedText, backend: backend, model: resolvedModel)
-        let userPrompt = QuilTransformationPrompt.userPrompt(
-            selectedText: selectedText,
-            instruction: trimmedInstruction,
-            appContext: appContext,
-            maxAppContextCharacters: QuilModelPolicy.appContextCharacterLimit(for: backend)
-        )
-        let raw = try await generateQuilReplacement(
-            userPrompt: userPrompt,
-            backend: backend,
-            resolvedModel: resolvedModel,
-            config: config
-        )
-        do {
-            return try QuilTransformationOutput.validated(raw)
-        } catch QuilTransformationError.nonReplacementResponse {
-            let correctivePrompt = QuilTransformationPrompt.correctiveUserPrompt(userPrompt)
-            let correctedRaw = try await generateQuilReplacement(
-                userPrompt: correctivePrompt,
-                backend: backend,
-                resolvedModel: resolvedModel,
-                config: config
-            )
-            return try QuilTransformationOutput.validated(correctedRaw)
-        }
-    }
-
-    private func generateQuilReplacement(
-        userPrompt: String,
-        backend: TranscriptCleanupBackendOption,
-        resolvedModel: String,
-        config: AppConfig
-    ) async throws -> String {
-        switch backend {
-        case .local:
-            guard #available(macOS 15, *) else {
-                throw QuilTransformationError.unsupportedModel
-            }
-            let option = PostProcessorOption.resolve(id: resolvedModel)
-            guard option.supportsQuil else { throw QuilTransformationError.unsupportedModel }
-            guard option.isDownloaded || Qwen3PostProcessorConfig.devOverrideURL() != nil else {
-                throw QuilTransformationError.modelUnavailable
-            }
-            let configuration = Qwen3PostProcessor.Configuration(
-                modelURL: option.modelURL,
-                systemPrompt: QuilTransformationPrompt.system,
-                inputFormat: .configurable,
-                maxTokenCount: Qwen3PostProcessorConfig.quilMaxContextTokens
-            )
-            return try await qwen3PostProcessor.generate(userPrompt, configuration: configuration)
-        case .gemma4LiteRT:
-            guard #available(macOS 15, *) else { throw QuilTransformationError.unsupportedModel }
-            let gemmaModel = Gemma4LiteRTModel.resolved(resolvedModel)
-            guard Gemma4LiteRTModelStore.isAvailableLocally(model: gemmaModel) else {
-                throw QuilTransformationError.modelUnavailable
-            }
-            return try await gemma4LiteRTTranscriber.generateText(
-                systemPrompt: QuilTransformationPrompt.system,
-                userPrompt: userPrompt,
-                model: gemmaModel,
-                maxOutputTokens: QuilModelPolicy.gemmaMaximumOutputTokens
-            )
-        default:
-            return try await TranscriptCleanupClient.generate(
-                systemPrompt: QuilTransformationPrompt.system,
-                userPrompt: userPrompt,
-                backend: backend,
-                model: resolvedModel,
-                config: config,
-                maxOutputTokens: QuilModelPolicy.remoteMaximumOutputTokens,
-                logCategory: "quil"
-            )
-        }
-    }
-
-    private struct PostProcPairLogEntry: Encodable {
-        let ts: String
-        let raw: String
-        let processed: String
-        let model: String
-        let asr: String
-    }
-
-    private func logPostProcPair(raw: String, processed: String, model: String, asr: String) {
-        guard Qwen3PostProcessorLogging.isPairLoggingEnabled else { return }
-        let logURL = AppIdentity.supportDirectoryURL.appendingPathComponent("postproc-pairs.jsonl")
-        let iso8601 = ISO8601DateFormatter()
-        iso8601.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        let ts = iso8601.string(from: Date())
-        let entry = PostProcPairLogEntry(
-            ts: ts,
-            raw: raw,
-            processed: processed,
-            model: model,
-            asr: asr
-        )
-        guard var data = try? JSONEncoder().encode(entry) else { return }
-        data.append(0x0A)
-        try? FileManager.default.createDirectory(
-            at: logURL.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        if FileManager.default.fileExists(atPath: logURL.path) {
-            if let fh = try? FileHandle(forWritingTo: logURL) {
-                defer { try? fh.close() }
-                fh.seekToEndOfFile()
-                fh.write(data)
-            }
-        } else {
-            try? data.write(to: logURL, options: .atomic)
-        }
     }
 
     @available(macOS 15, *)
@@ -518,7 +321,6 @@ actor TranscriptionCoordinator {
 
     func preload(
         backend: BackendOption,
-        enablePostProcessor: Bool = false,
         includeMeetingHelpers: Bool = true,
         meetingHelperTrigger: DiarizerPreloadTrigger = .unspecified,
         appleSpeechLanguage: String = AppleSpeechLanguageOption.systemIdentifier,
@@ -528,7 +330,6 @@ actor TranscriptionCoordinator {
         do {
             try await preloadRequired(
                 backend: backend,
-                enablePostProcessor: enablePostProcessor,
                 includeMeetingHelpers: includeMeetingHelpers,
                 meetingHelperTrigger: meetingHelperTrigger,
                 appleSpeechLanguage: appleSpeechLanguage,
@@ -542,15 +343,12 @@ actor TranscriptionCoordinator {
 
     func preloadRequired(
         backend: BackendOption,
-        enablePostProcessor: Bool = false,
         includeMeetingHelpers: Bool = true,
         meetingHelperTrigger: DiarizerPreloadTrigger = .unspecified,
         appleSpeechLanguage: String = AppleSpeechLanguageOption.systemIdentifier,
         progress: ((Double, String?) -> Void)? = nil,
         progressSnapshot: ModelDownloadProgressHandler? = nil
     ) async throws {
-        activeBackend = backend.backend
-
         if includeMeetingHelpers {
             await preloadMeetingHelpers(trigger: meetingHelperTrigger)
         }
@@ -575,7 +373,7 @@ actor TranscriptionCoordinator {
                 progress: progress,
                 progressSnapshot: progressSnapshot
             )
-            // Warmup ANE/GPU so first dictation doesn't pay CoreML compilation cost
+            // Warmup ANE/GPU so the first transcription doesn't pay CoreML compilation cost
             fputs("[muesli-native] WhisperKit warmup: running silent audio for CoreML compilation...\n", stderr)
             let warming = ModelDownloadProgress.preparing(
                 modelID: backend.model,
@@ -590,7 +388,7 @@ actor TranscriptionCoordinator {
         case "nemotron35":
             if #available(macOS 15, *) {
                 let transcriber = try await getLoadedNemotron35Transcriber(progress: progress, progressSnapshot: progressSnapshot)
-                // Warmup ANE so first dictation starts instantly
+                // Warmup ANE so the first transcription starts instantly
                 fputs("[muesli-native] Nemotron 3.5 warmup: running silent chunk for ANE compilation...\n", stderr)
                 var state = try await transcriber.makeStreamState()
                 let silence = [Float](repeating: 0, count: transcriber.chunkSamples)
@@ -660,8 +458,6 @@ actor TranscriptionCoordinator {
                 NSLocalizedDescriptionKey: "Unknown transcription backend: \(backend.backend)",
             ])
         }
-
-        await preloadPostProcessorIfNeeded(enabled: enablePostProcessor, transcriptionBackend: backend)
     }
 
     func preloadMeetingHelpers(trigger: DiarizerPreloadTrigger = .unspecified) async {
@@ -864,103 +660,6 @@ actor TranscriptionCoordinator {
     }
     #endif
 
-    func preloadPostProcessorIfNeeded(
-        enabled: Bool,
-        transcriptionBackend: BackendOption? = nil
-    ) async {
-        guard enabled,
-              transcriptionBackend.map({ postProcessorBackend.isCompatible(with: $0) }) ?? true,
-              #available(macOS 15, *) else { return }
-        do {
-            switch postProcessorBackend {
-            case .local:
-                try await qwen3PostProcessor.prepare()
-            case .gemma4LiteRT:
-                try await gemma4LiteRTTranscriber.prepare(
-                    model: Gemma4LiteRTModel.resolved(postProcessorModelId)
-                )
-            default:
-                return
-            }
-        } catch {
-            if postProcessorBackend == .local {
-                Qwen3PostProcessorLogging.logVerbose("Qwen3 post-processor preload failed: \(error)")
-            } else {
-                Gemma4LiteRTLogging.log("Gemma cleanup preload failed: \(error)")
-            }
-        }
-    }
-
-    private func currentPostProcessorSnapshot() -> PostProcessorSnapshot {
-        PostProcessorSnapshot(
-            backend: postProcessorBackend,
-            modelURL: postProcessorModelURL,
-            systemPrompt: postProcessorSystemPrompt,
-            modelId: postProcessorModelId,
-            inputFormat: postProcessorInputFormat,
-            config: postProcessorConfig
-        )
-    }
-
-    func transcribeDictation(
-        at url: URL,
-        backend: BackendOption,
-        cohereLanguage: CohereTranscribeLanguage = CohereTranscribeLanguage.defaultLanguage,
-        indicASRLanguage: IndicASRLanguage = IndicASRLanguage.defaultLanguage,
-        whisperLanguage: WhisperKitLanguage = WhisperKitLanguage.defaultLanguage,
-        qwen3AsrLanguage: Qwen3AsrLanguage = Qwen3AsrLanguage.defaultLanguage,
-        parakeetLanguage: ParakeetLanguage = ParakeetLanguage.defaultLanguage,
-        appleSpeechLanguage: String = AppleSpeechLanguageOption.systemIdentifier,
-        enablePostProcessor: Bool = false,
-        customWords: [[String: Any]] = [],
-        appContext: String? = nil
-    ) async throws -> SpeechTranscriptionResult {
-        // Qwen3 post-processing is intentionally dictation-only. Meeting transcription should keep raw backend/Parakeet output.
-        // Cohere decodes hallucinated text from silence — skip if VAD detects no speech
-        if backend.backend == "cohere", let vadManager {
-            do {
-                let vadResults = try await vadManager.process(url)
-                let hasSpeech = vadResults.contains { $0.probability > 0.5 }
-                if !hasSpeech {
-                    fputs("[muesli-native] VAD: dictation is silent, skipping Cohere transcription\n", stderr)
-                    return SpeechTranscriptionResult(text: "", segments: [])
-                }
-            } catch {
-                fputs("[muesli-native] VAD check failed, transcribing anyway: \(error)\n", stderr)
-            }
-        }
-        var result = try await route(
-            url: url,
-            backend: backend,
-            cohereLanguage: cohereLanguage,
-            indicASRLanguage: indicASRLanguage,
-            whisperLanguage: whisperLanguage,
-            qwen3AsrLanguage: qwen3AsrLanguage,
-            parakeetLanguage: parakeetLanguage,
-            appleSpeechLanguage: appleSpeechLanguage
-        )
-        result = removeArtifacts(result)
-        if !result.text.isEmpty {
-            Qwen3PostProcessorLogging.logVerbose("Dictation raw transcript after artifact cleanup: \(result.text)")
-        }
-        // Capture this after ASR awaits. The snapshot is then passed through the
-        // complete cleanup path, so a model switch cannot change the model or
-        // empty-output policy for this dictation.
-        let postProcessorSnapshot = currentPostProcessorSnapshot()
-        result = await postProcessDictationIfNeeded(
-            result,
-            backend: backend,
-            enabled: enablePostProcessor,
-            postProcessorSnapshot: postProcessorSnapshot,
-            appContext: appContext
-        ) ?? removeFillersWithLogging(result)
-        let final = applyCustomWords(result, customWords: customWords)
-        if !final.text.isEmpty {
-            Qwen3PostProcessorLogging.logVerbose("Dictation final transcript: \(final.text)")
-        }
-        return final
-    }
-
     func transcribeMeeting(
         at url: URL,
         backend: BackendOption,
@@ -1052,9 +751,6 @@ actor TranscriptionCoordinator {
                 await nemotron35.shutdown()
             }
             await qwen3Transcriber.shutdown()
-            if let postProcessor = _qwen3PostProcessor as? Qwen3PostProcessor {
-                await postProcessor.shutdown()
-            }
             await cohereTranscriber.shutdown()
             await indicASRTranscriber.shutdown()
             if let gemma4 = _gemma4LiteRTTranscriber as? Gemma4LiteRTTranscriber {
@@ -1068,18 +764,6 @@ actor TranscriptionCoordinator {
         return SpeechTranscriptionResult(text: filtered, segments: result.segments)
     }
 
-    private func removeFillersWithLogging(_ result: SpeechTranscriptionResult) -> SpeechTranscriptionResult {
-        let start = CFAbsoluteTimeGetCurrent()
-        let filtered = removeFillers(result)
-        let elapsedMs = (CFAbsoluteTimeGetCurrent() - start) * 1000
-        if filtered.text != result.text {
-            Qwen3PostProcessorLogging.logVerbose("FillerWordFilter applied in \(String(format: "%.1f", elapsedMs))ms -> \(filtered.text)")
-        } else {
-            Qwen3PostProcessorLogging.logVerbose("FillerWordFilter skipped effective changes (\(String(format: "%.1f", elapsedMs))ms)")
-        }
-        return filtered
-    }
-
     private func cleanMeetingTranscript(_ result: SpeechTranscriptionResult) -> SpeechTranscriptionResult {
         removeFillers(removeArtifacts(result))
     }
@@ -1087,264 +771,6 @@ actor TranscriptionCoordinator {
     private func removeArtifacts(_ result: SpeechTranscriptionResult) -> SpeechTranscriptionResult {
         let filtered = TranscriptionEngineArtifactsFilter.apply(result.text)
         return SpeechTranscriptionResult(text: filtered, segments: filtered.isEmpty ? [] : result.segments)
-    }
-
-    private func postProcessDictationIfNeeded(
-        _ result: SpeechTranscriptionResult,
-        backend: BackendOption,
-        enabled: Bool,
-        postProcessorSnapshot: PostProcessorSnapshot,
-        appContext: String? = nil
-    ) async -> SpeechTranscriptionResult? {
-        guard enabled else {
-            Qwen3PostProcessorLogging.logVerbose("Qwen3 post-processor disabled for dictation")
-            return nil
-        }
-        guard backend.backend != "indicasr" else {
-            Qwen3PostProcessorLogging.logVerbose("Qwen3 post-processor skipped: Indic ASR output is not English post-processor safe")
-            return nil
-        }
-        guard !result.text.isEmpty else {
-            Qwen3PostProcessorLogging.logVerbose("Post-processor skipped: empty transcript")
-            return nil
-        }
-        guard postProcessorSnapshot.backend.isCompatible(with: backend) else {
-            Gemma4LiteRTLogging.log("Gemma cleanup skipped because Gemma is the transcription backend")
-            return nil
-        }
-        if postProcessorSnapshot.backend.isGemma4LiteRT {
-            return await postProcessDictationWithGemma4(
-                result,
-                backend: backend,
-                postProcessorSnapshot: postProcessorSnapshot,
-                appContext: appContext
-            )
-        }
-        if postProcessorSnapshot.backend.llmBackend != nil {
-            return await postProcessDictationWithHostedBackend(
-                result,
-                backend: backend,
-                postProcessorSnapshot: postProcessorSnapshot,
-                appContext: appContext
-            )
-        }
-        guard #available(macOS 15, *) else {
-            Qwen3PostProcessorLogging.logVerbose("Qwen3 post-processor skipped: requires macOS 15+")
-            return nil
-        }
-
-        do {
-            // The explicit toggle means "always try cleanup" for dictation.
-            // Trigger heuristics were removed; the only remaining heuristic here preserves deletion-cue empty output.
-            Qwen3PostProcessorLogging.logVerbose("Qwen3 post-processor forced by toggle")
-            let start = CFAbsoluteTimeGetCurrent()
-            let processed = try await qwen3PostProcessor.process(
-                result.text,
-                appContext: appContext,
-                configuration: Qwen3PostProcessor.Configuration(
-                    modelURL: postProcessorSnapshot.modelURL,
-                    systemPrompt: postProcessorSnapshot.systemPrompt,
-                    inputFormat: postProcessorSnapshot.inputFormat
-                )
-            )
-            let elapsedMs = (CFAbsoluteTimeGetCurrent() - start) * 1000
-            let trimmed = processed.trimmingCharacters(in: .whitespacesAndNewlines)
-            if trimmed.isEmpty,
-               postProcessorSnapshot.inputFormat != .s1Mini,
-               !Qwen3DeletionCueDetector.containsDeletionCue(result.text) {
-                Qwen3PostProcessorLogging.logVerbose("Qwen3 post-processor returned empty output in \(String(format: "%.1f", elapsedMs))ms; falling back")
-                TranscriptCleanupDebugLogger.append(
-                    status: "fallback_empty_output",
-                    cleanupBackend: postProcessorSnapshot.backend,
-                    cleanupModel: postProcessorSnapshot.modelId,
-                    asrBackend: backend.backend,
-                    appContextText: appContext,
-                    rawASRText: result.text,
-                    rawCleanupOutputText: processed,
-                    cleanupOutputText: trimmed,
-                    elapsedMs: elapsedMs
-                )
-                return nil
-            }
-            Qwen3PostProcessorLogging.logVerbose("Qwen3 post-processor applied to \(backend.label) in \(String(format: "%.1f", elapsedMs))ms (chars=\(trimmed.count))")
-            Qwen3PostProcessorLogging.logVerbose("Qwen3 post-processor final output: \(trimmed)")
-            logPostProcPair(raw: result.text, processed: trimmed, model: postProcessorSnapshot.modelId, asr: backend.backend)
-            TranscriptCleanupDebugLogger.append(
-                status: "applied",
-                cleanupBackend: postProcessorSnapshot.backend,
-                cleanupModel: postProcessorSnapshot.modelId,
-                asrBackend: backend.backend,
-                appContextText: appContext,
-                rawASRText: result.text,
-                rawCleanupOutputText: processed,
-                cleanupOutputText: trimmed,
-                elapsedMs: elapsedMs
-            )
-            return SpeechTranscriptionResult(
-                text: trimmed,
-                // Original ASR segments describe pre-cleanup text. Keep them only for debug diagnostics.
-                segments: Qwen3PostProcessorLogging.isVerboseEnabled && !trimmed.isEmpty ? result.segments : []
-            )
-        } catch {
-            Qwen3PostProcessorLogging.logVerbose("Qwen3 post-processor failed, falling back: \(error)")
-            TranscriptCleanupDebugLogger.append(
-                status: "fallback_error",
-                cleanupBackend: postProcessorSnapshot.backend,
-                cleanupModel: postProcessorSnapshot.modelId,
-                asrBackend: backend.backend,
-                appContextText: appContext,
-                rawASRText: result.text,
-                errorDescription: String(describing: error)
-            )
-            return nil
-        }
-    }
-
-    private func postProcessDictationWithGemma4(
-        _ result: SpeechTranscriptionResult,
-        backend: BackendOption,
-        postProcessorSnapshot: PostProcessorSnapshot,
-        appContext: String?
-    ) async -> SpeechTranscriptionResult? {
-        guard #available(macOS 15, *) else {
-            Gemma4LiteRTLogging.log("Gemma cleanup skipped: requires macOS 15+")
-            return nil
-        }
-        do {
-            let cleanup = try await gemma4LiteRTTranscriber.cleanTranscript(
-                result.text,
-                systemPrompt: postProcessorSnapshot.systemPrompt,
-                appContext: appContext,
-                model: Gemma4LiteRTModel.resolved(postProcessorSnapshot.modelId)
-            )
-            let elapsedMs = cleanup.processingTime * 1000
-            let trimmed = cleanup.text.trimmingCharacters(in: .whitespacesAndNewlines)
-            Qwen3PostProcessorLogging.logVerbose(
-                "Gemma 4 post-processor applied to \(backend.label) in \(String(format: "%.1f", elapsedMs))ms " +
-                    "(chars=\(trimmed.count))"
-            )
-            logPostProcPair(
-                raw: result.text,
-                processed: trimmed,
-                model: postProcessorSnapshot.modelId,
-                asr: backend.backend
-            )
-            TranscriptCleanupDebugLogger.append(
-                status: "applied",
-                cleanupBackend: postProcessorSnapshot.backend,
-                cleanupModel: postProcessorSnapshot.modelId,
-                asrBackend: backend.backend,
-                appContextText: appContext,
-                rawASRText: result.text,
-                rawCleanupOutputText: cleanup.rawOutput,
-                cleanupOutputText: trimmed,
-                elapsedMs: elapsedMs
-            )
-            return SpeechTranscriptionResult(
-                text: trimmed,
-                segments: Qwen3PostProcessorLogging.isVerboseEnabled && !trimmed.isEmpty ? result.segments : []
-            )
-        } catch {
-            Gemma4LiteRTLogging.log("Gemma cleanup failed, falling back: \(error)")
-            TranscriptCleanupDebugLogger.append(
-                status: "fallback_error",
-                cleanupBackend: postProcessorSnapshot.backend,
-                cleanupModel: postProcessorSnapshot.modelId,
-                asrBackend: backend.backend,
-                appContextText: appContext,
-                rawASRText: result.text,
-                errorDescription: String(describing: error)
-            )
-            return nil
-        }
-    }
-
-    private func postProcessDictationWithHostedBackend(
-        _ result: SpeechTranscriptionResult,
-        backend: BackendOption,
-        postProcessorSnapshot: PostProcessorSnapshot,
-        appContext: String?
-    ) async -> SpeechTranscriptionResult? {
-        do {
-            let start = CFAbsoluteTimeGetCurrent()
-            let cleanup = try await TranscriptCleanupClient.clean(
-                text: result.text,
-                systemPrompt: postProcessorSnapshot.systemPrompt,
-                appContext: appContext,
-                backend: postProcessorSnapshot.backend,
-                config: postProcessorSnapshot.config
-            )
-            let elapsedMs = (CFAbsoluteTimeGetCurrent() - start) * 1000
-            let trimmed = cleanup.cleanedOutput.trimmingCharacters(in: .whitespacesAndNewlines)
-            if trimmed.isEmpty, !Qwen3DeletionCueDetector.containsDeletionCue(result.text) {
-                Qwen3PostProcessorLogging.logVerbose("\(postProcessorSnapshot.backend.label) post-processor returned empty output in \(String(format: "%.1f", elapsedMs))ms; falling back")
-                TranscriptCleanupDebugLogger.append(
-                    status: "fallback_empty_output",
-                    cleanupBackend: postProcessorSnapshot.backend,
-                    cleanupModel: cleanup.model,
-                    asrBackend: backend.backend,
-                    appContextText: appContext,
-                    rawASRText: result.text,
-                    rawCleanupOutputText: cleanup.rawOutput,
-                    cleanupOutputText: trimmed,
-                    elapsedMs: elapsedMs
-                )
-                return nil
-            }
-            Qwen3PostProcessorLogging.logVerbose("\(postProcessorSnapshot.backend.label) post-processor applied to \(backend.label) in \(String(format: "%.1f", elapsedMs))ms (chars=\(trimmed.count))")
-            logPostProcPair(raw: result.text, processed: trimmed, model: cleanup.model, asr: backend.backend)
-            TranscriptCleanupDebugLogger.append(
-                status: "applied",
-                cleanupBackend: postProcessorSnapshot.backend,
-                cleanupModel: cleanup.model,
-                asrBackend: backend.backend,
-                appContextText: appContext,
-                rawASRText: result.text,
-                rawCleanupOutputText: cleanup.rawOutput,
-                cleanupOutputText: trimmed,
-                elapsedMs: elapsedMs
-            )
-            return SpeechTranscriptionResult(
-                text: trimmed,
-                segments: Qwen3PostProcessorLogging.isVerboseEnabled && !trimmed.isEmpty ? result.segments : []
-            )
-        } catch TranscriptCleanupError.rejectedOutput {
-            Qwen3PostProcessorLogging.logVerbose("\(postProcessorSnapshot.backend.label) post-processor output rejected, falling back")
-            TranscriptCleanupDebugLogger.append(
-                status: "fallback_rejected_output",
-                cleanupBackend: postProcessorSnapshot.backend,
-                cleanupModel: postProcessorSnapshot.modelId,
-                asrBackend: backend.backend,
-                appContextText: appContext,
-                rawASRText: result.text,
-                errorDescription: TranscriptCleanupError.rejectedOutput.localizedDescription
-            )
-            return nil
-        } catch {
-            Qwen3PostProcessorLogging.logVerbose("\(postProcessorSnapshot.backend.label) post-processor failed, falling back: \(error)")
-            TranscriptCleanupDebugLogger.append(
-                status: "fallback_error",
-                cleanupBackend: postProcessorSnapshot.backend,
-                cleanupModel: postProcessorSnapshot.modelId,
-                asrBackend: backend.backend,
-                appContextText: appContext,
-                rawASRText: result.text,
-                errorDescription: String(describing: error)
-            )
-            return nil
-        }
-    }
-
-    private func applyCustomWords(_ result: SpeechTranscriptionResult, customWords: [[String: Any]]) -> SpeechTranscriptionResult {
-        guard !customWords.isEmpty, !result.text.isEmpty else { return result }
-        let entries = customWords.compactMap { dict -> CustomWord? in
-            guard let word = dict["word"] as? String else { return nil }
-            let threshold = dict["matchingThreshold"] as? Double ?? 0.85
-            return CustomWord(word: word, replacement: dict["replacement"] as? String, matchingThreshold: threshold)
-        }
-        guard !entries.isEmpty else { return result }
-        let correctedText = CustomWordMatcher.apply(text: result.text, customWords: entries)
-        return SpeechTranscriptionResult(text: correctedText, segments: result.segments)
     }
 
     private func route(

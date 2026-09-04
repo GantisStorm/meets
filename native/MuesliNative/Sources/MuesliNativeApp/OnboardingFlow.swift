@@ -146,6 +146,6 @@ enum OnboardingFlow {
     }
 
     static func completionTab(for useCase: OnboardingUseCase) -> DashboardTab {
-        useCase.includesMeetings && !useCase.includesPushToTalk ? .meetings : .dictations
+        .meetings
     }
 }
