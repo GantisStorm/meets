@@ -266,24 +266,31 @@ private struct InsightsShareCard: View {
 
                 Spacer(minLength: 34)
 
-                Text(showsNumbers ? snapshot.selected.meetingWords.formatted() : "—")
+                Text(showsNumbers ? snapshot.lifetimeMeetingStats.totalMeetings.formatted() : "—")
                     .font(.system(size: 108, weight: .bold, design: .rounded))
                     .tracking(-5)
                     .monospacedDigit()
                     .foregroundStyle(pale)
-                Text("MEETING WORDS CAPTURED")
+                Text("MEETINGS RECORDED")
                     .font(.system(size: 18, weight: .bold))
                     .tracking(2.8)
                     .foregroundStyle(muted)
+                if showsNumbers, snapshot.lifetimeMeetingStats.totalDurationSeconds > 0 {
+                    Text(shareDurationLine)
+                        .font(.system(size: 16, weight: .medium))
+                        .tracking(0.4)
+                        .foregroundStyle(pale.opacity(0.82))
+                        .padding(.top, 6)
+                }
 
                 Spacer(minLength: 36)
 
                 HStack(spacing: 0) {
-                    shareDatum(value: showsNumbers ? snapshot.selected.meetings.formatted() : "—", label: "MEETINGS")
+                    shareDatum(value: showsNumbers ? formatShare(snapshot.lifetimeMeetingStats.meetingsWithRecording) : "—", label: "WITH RECORDING")
                     shareDivider
-                    shareDatum(value: showsNumbers ? "\(Int(snapshot.selected.averageWPM.rounded()))" : "—", label: "AVERAGE WPM")
+                    shareDatum(value: showsNumbers ? "\(sharePercent(snapshot.lifetimeMeetingStats.meetingsLinkedToCalendar, of: snapshot.lifetimeMeetingStats.totalMeetings))" : "—", label: "CALENDAR-LINKED")
                     shareDivider
-                    shareDatum(value: showsNumbers ? "\(snapshot.activeDaysInRange)" : "—", label: "ACTIVE DAYS")
+                    shareDatum(value: showsNumbers ? formatShare(snapshot.lifetimeMeetingStats.followUpMeetings) : "—", label: "FOLLOW-UPS")
                 }
                 .padding(.vertical, 24)
                 .background(Color(red: 0.035, green: 0.050, blue: 0.068).opacity(0.48))
@@ -306,6 +313,23 @@ private struct InsightsShareCard: View {
             }
             .padding(54)
         }
+    }
+
+    private var shareDurationLine: String {
+        let seconds = snapshot.lifetimeMeetingStats.totalDurationSeconds
+        let hours = Int(seconds) / 3600
+        let minutes = Int(seconds) % 3600 / 60
+        if hours > 0 { return "\(hours)h \(minutes)m of meetings recorded" }
+        return "\(minutes)m of meetings recorded"
+    }
+
+    private func sharePercent(_ part: Int, of total: Int) -> String {
+        guard total > 0 else { return "0%" }
+        return "\(Int((Double(part) / Double(total) * 100).rounded()))%"
+    }
+
+    private func formatShare(_ value: Int) -> String {
+        value.formatted(.number.notation(.compactName))
     }
 
     private func shareDatum(value: String, label: String) -> some View {
