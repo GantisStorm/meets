@@ -72,6 +72,8 @@ final class MeetingDetector {
         "com.webex.meetingmanager": "Webex",
         "com.cisco.webexmeetingsapp": "Webex",
         "net.whatsapp.WhatsApp": "WhatsApp",
+        "com.hnc.discord": "Discord",
+        "com.hnc.discordcanary": "Discord Canary",
     ]
 
     /// Apps that can host calls, but should not trigger from generic

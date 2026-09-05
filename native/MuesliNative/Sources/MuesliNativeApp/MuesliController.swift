@@ -523,6 +523,9 @@ public final class MuesliController: NSObject {
         meetingMonitor.mutedDetectionBundleIDsProvider = { [weak self] in
             Set(self?.config.mutedMeetingDetectionAppBundleIDs ?? [])
         }
+        meetingMonitor.customMeetingAppsProvider = { [weak self] in
+            self?.customMeetingDetectionAppTable() ?? [:]
+        }
         meetingMonitor.isRecordingProvider = { [weak self] in
             guard let self else { return false }
             return self.isMeetingRecording()
@@ -2281,6 +2284,34 @@ public final class MuesliController: NSObject {
 
     private var shouldRunCalendarMonitor: Bool {
         config.resolvedOnboardingUseCase.includesMeetings || shouldRunMeetingFeatureMonitors
+    }
+
+    /// Parses the persisted "bundleID|Display Name" entries into a lookup
+    /// table for the meeting detector.
+    func customMeetingDetectionAppTable() -> [String: String] {
+        var table: [String: String] = [:]
+        for entry in config.customMeetingDetectionApps {
+            let parts = entry.split(separator: "|", maxSplits: 1, omittingEmptySubsequences: false)
+            let bundleID = parts.first.map { String($0).trimmingCharacters(in: .whitespaces) } ?? ""
+            let name = parts.count > 1 ? String(parts[1]).trimmingCharacters(in: .whitespaces) : bundleID
+            guard !bundleID.isEmpty else { continue }
+            table[bundleID] = name.isEmpty ? bundleID : name
+        }
+        return table
+    }
+
+    /// Adds or replaces a custom meeting app entry; removes when `name` is empty.
+    func setCustomMeetingApp(bundleID: String, name: String) {
+        let trimmedID = bundleID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedID.isEmpty else { return }
+        var entries = config.customMeetingDetectionApps.filter {
+            !$0.hasPrefix(trimmedID + "|") && $0 != trimmedID
+        }
+        if !trimmedName.isEmpty {
+            entries.append("\(trimmedID)|\(trimmedName)")
+        }
+        updateConfig { $0.customMeetingDetectionApps = entries.sorted() }
     }
 
     private func syncMeetingDetectionMonitor() {

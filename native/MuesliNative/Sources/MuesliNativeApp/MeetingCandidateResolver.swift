@@ -9,6 +9,7 @@ struct MeetingCandidate: Equatable {
         case facetime
         case slack
         case whatsApp
+        case discord
         case unknown
 
         var displayName: String {
@@ -20,6 +21,7 @@ struct MeetingCandidate: Equatable {
             case .facetime: return "FaceTime"
             case .slack: return "Slack"
             case .whatsApp: return "WhatsApp"
+            case .discord: return "Discord"
             case .unknown: return "Meeting"
             }
         }
@@ -253,7 +255,17 @@ final class MeetingCandidateResolver {
         "com.webex.meetingmanager": ("Webex", .webex),
         "com.cisco.webexmeetingsapp": ("Webex", .webex),
         "net.whatsapp.WhatsApp": ("WhatsApp", .whatsApp),
+        "com.hnc.discord": ("Discord", .discord),
+        "com.hnc.discordcanary": ("Discord Canary", .discord),
     ]
+
+    /// User-configured call/meeting apps (Settings > Meeting Notifications >
+    /// Custom meeting apps). Bundle ID -> display name; treated as an
+    /// unknown-platform dedicated app so mic-active detection fires for them.
+    var customDedicatedApps: [String: (name: String, platform: MeetingCandidate.Platform)] = [:] {
+        didSet { customDedicatedAppsDidChange?() }
+    }
+    var customDedicatedAppsDidChange: (() -> Void)?
 
     static let weakDedicatedAppBundleIDs: Set<String> = [
         "com.tinyspeck.slackmacgap",
@@ -459,7 +471,7 @@ final class MeetingCandidateResolver {
         return snapshot.runningApps
             .filter { $0.bundleID != selfBundleID && $0.bundleID == snapshot.foregroundBundleID && $0.isActive }
             .compactMap { app -> (bundleID: String, name: String, platform: MeetingCandidate.Platform)? in
-                guard let match = Self.dedicatedApps[app.bundleID] else {
+                guard let match = match(for: app.bundleID) else {
                     return nil
                 }
                 return (app.bundleID, match.name, match.platform)
@@ -481,7 +493,7 @@ final class MeetingCandidateResolver {
         // Calendar-backed prompts keep legacy app attribution; the stricter
         // full-duplex gate is only for opportunistic no-calendar detection.
         for app in apps.sorted(by: { $0.isActive && !$1.isActive }) where app.bundleID != selfBundleID {
-            guard let match = Self.dedicatedApps[app.bundleID] else { continue }
+            guard let match = match(for: app.bundleID) else { continue }
             if Self.calendarFullDuplexAudioRequiredBundleIDs.contains(app.bundleID) { continue }
             return (app.bundleID, match.name, match.platform)
         }
@@ -492,7 +504,7 @@ final class MeetingCandidateResolver {
         let candidates = processes.filter { process in
             guard process.bundleID != selfBundleID else { return false }
             guard process.isRunningInput else { return false }
-            guard Self.dedicatedApps[process.bundleID] != nil else { return false }
+            guard match(for: process.bundleID) != nil else { return false }
             if !Self.weakDedicatedAppBundleIDs.contains(process.bundleID) {
                 return true
             }
@@ -514,7 +526,7 @@ final class MeetingCandidateResolver {
         let candidates = processes.filter { process in
             guard process.bundleID != selfBundleID else { return false }
             guard process.isRunningInput else { return false }
-            guard Self.dedicatedApps[process.bundleID] != nil else { return false }
+            guard match(for: process.bundleID) != nil else { return false }
             return process.isRunningOutput
         }
 
@@ -604,7 +616,15 @@ final class MeetingCandidateResolver {
     }
 
     private func platform(for bundleID: String) -> MeetingCandidate.Platform? {
-        Self.dedicatedApps[bundleID]?.platform
+        Self.dedicatedApps[bundleID]?.platform ?? customDedicatedApps[bundleID]?.platform
+    }
+
+    /// Resolves a bundle ID to its display identity — built-in dedicated apps
+    /// first, then user-configured custom meeting apps.
+    private func match(
+        for bundleID: String
+    ) -> (name: String, platform: MeetingCandidate.Platform)? {
+        Self.dedicatedApps[bundleID] ?? customDedicatedApps[bundleID]
     }
 
     private func validSourcePID(_ pid: pid_t) -> pid_t? {

@@ -111,6 +111,7 @@ struct SettingsView: View {
         MeetingDetectionAppOption(bundleID: "com.microsoft.teams2", name: "Teams", icon: "person.2.fill"),
         MeetingDetectionAppOption(bundleID: "com.apple.FaceTime", name: "FaceTime", icon: "video.fill"),
         MeetingDetectionAppOption(bundleID: "net.whatsapp.WhatsApp", name: "WhatsApp", icon: "phone.fill"),
+        MeetingDetectionAppOption(bundleID: "com.hnc.discord", name: "Discord", icon: "bubble.left.fill"),
     ]
 
     private var meetingBackendOptions: [BackendOption] {
@@ -1071,6 +1072,8 @@ struct SettingsView: View {
                 if appState.config.showMeetingDetectionNotification {
                     Divider().background(MuesliTheme.surfaceBorder)
                     mutedMeetingDetectionAppsControl
+                    Divider().background(MuesliTheme.surfaceBorder)
+                    customMeetingDetectionAppsControl
                 }
             }
 
@@ -2336,6 +2339,116 @@ struct SettingsView: View {
                 muted.remove(bundleID)
             }
             config.mutedMeetingDetectionAppBundleIDs = muted.sorted()
+        }
+    }
+
+    // MARK: - Custom meeting apps
+
+    @State private var customAppBundleID = ""
+    @State private var customAppName = ""
+
+    /// Editor for user-configured call apps (bundle ID + display name) that
+    /// the meeting detector treats like built-in dedicated apps. Lets users
+    /// add call-capable apps that aren't in the built-in list (Discord is
+    /// built in; Telegram, Signal, Session, ... can be added here).
+    private var customMeetingDetectionAppsControl: some View {
+        let customApps = controller.customMeetingDetectionAppTable()
+        return VStack(alignment: .leading, spacing: 10) {
+            Text("Custom meeting apps — detect calls in other apps:")
+                .font(MuesliTheme.body())
+                .foregroundStyle(MuesliTheme.textPrimary)
+
+            if customApps.isEmpty {
+                Text("No custom apps yet. Add one below — e.g. Telegram, Signal, or any app you take calls in.")
+                    .font(MuesliTheme.caption())
+                    .foregroundStyle(MuesliTheme.textTertiary)
+            } else {
+                ForEach(customApps.sorted(by: { $0.value < $1.value }), id: \.key) { bundleID, name in
+                    HStack(spacing: 8) {
+                        Image(systemName: "bubble.left.and.bubble.right.fill")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(MuesliTheme.textTertiary)
+                            .frame(width: 14)
+                        Text(name)
+                            .font(.system(size: 12))
+                            .foregroundStyle(MuesliTheme.textSecondary)
+                            .lineLimit(1)
+                        Text(bundleID)
+                            .font(.system(size: 10, design: .monospaced))
+                            .foregroundStyle(MuesliTheme.textTertiary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        Spacer(minLength: 4)
+                        Button {
+                            controller.setCustomMeetingApp(bundleID: bundleID, name: "")
+                        } label: {
+                            Image(systemName: "minus.circle.fill")
+                                .font(.system(size: 13))
+                                .foregroundStyle(MuesliTheme.recording.opacity(0.8))
+                        }
+                        .buttonStyle(.plain)
+                        .help("Remove \(name)")
+                        .accessibilityLabel("Remove \(name)")
+                    }
+                    .padding(.horizontal, 8)
+                    .frame(height: 26)
+                    .background(MuesliTheme.surfacePrimary)
+                    .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall)
+                            .strokeBorder(MuesliTheme.surfaceBorder, lineWidth: 1)
+                    )
+                }
+            }
+
+            HStack(spacing: 8) {
+                TextField("Bundle ID (com.example.app)", text: $customAppBundleID)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 11, design: .monospaced))
+                    .padding(.horizontal, 8)
+                    .frame(height: 24)
+                    .background(MuesliTheme.surfacePrimary)
+                    .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall)
+                            .strokeBorder(MuesliTheme.surfaceBorder, lineWidth: 1)
+                    )
+                TextField("Name", text: $customAppName)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 11))
+                    .frame(width: 90)
+                    .padding(.horizontal, 8)
+                    .frame(height: 24)
+                    .background(MuesliTheme.surfacePrimary)
+                    .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall)
+                            .strokeBorder(MuesliTheme.surfaceBorder, lineWidth: 1)
+                    )
+                Button {
+                    let id = customAppBundleID.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !id.isEmpty else { return }
+                    controller.setCustomMeetingApp(bundleID: id, name: customAppName)
+                    customAppBundleID = ""
+                    customAppName = ""
+                } label: {
+                    Image(systemName: "plus")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(MuesliTheme.accentContent)
+                        .frame(width: 22, height: 22)
+                        .background(MuesliTheme.accent)
+                        .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
+                }
+                .buttonStyle(.plain)
+                .disabled(customAppBundleID.trimmingCharacters(in: .whitespaces).isEmpty)
+                .help("Add custom meeting app")
+            }
+        }
+        .padding(.leading, MuesliTheme.spacing16)
+        .overlay(alignment: .leading) {
+            Rectangle()
+                .fill(MuesliTheme.surfaceBorder)
+                .frame(width: 2)
         }
     }
 

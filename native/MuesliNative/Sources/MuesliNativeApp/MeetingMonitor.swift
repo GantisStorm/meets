@@ -12,6 +12,9 @@ final class MeetingMonitor {
     var isCalendarNotificationVisibleProvider: (() -> Bool)?
     var promptVisibilityProvider: (() -> MeetingPromptVisibility)?
     var mutedDetectionBundleIDsProvider: (() -> Set<String>)?
+    /// User-configured call apps: bundleID -> display name. Consulted by the
+    /// resolver alongside the built-in dedicated meeting apps.
+    var customMeetingAppsProvider: (() -> [String: String])?
     var onActivityCandidateChanged: ((MeetingCandidate?) -> Void)?
     var onPromptCandidateChanged: ((MeetingCandidate?) -> Void)?
 
@@ -162,6 +165,7 @@ final class MeetingMonitor {
             promptVisibility: promptVisibilityProvider?()
                 ?? MeetingPromptVisibility(isVisible: false, currentPromptID: nil, shownAt: nil),
             mutedBundleIDs: mutedDetectionBundleIDsProvider?() ?? [],
+            customMeetingApps: customMeetingAppsProvider?() ?? [:],
             runningApps: runningApplicationState.runningApps,
             foregroundBundleID: runningApplicationState.foregroundBundleID
         )
@@ -268,6 +272,7 @@ private struct MeetingDetectionEvaluationContext {
     let isCalendarNotificationVisible: Bool
     let promptVisibility: MeetingPromptVisibility
     let mutedBundleIDs: Set<String>
+    let customMeetingApps: [String: String]
     let runningApps: [RunningAppSnapshot]
     let foregroundBundleID: String?
 
@@ -282,6 +287,7 @@ private struct MeetingDetectionEvaluationContext {
         isCalendarNotificationVisible: false,
         promptVisibility: MeetingPromptVisibility(isVisible: false, currentPromptID: nil, shownAt: nil),
         mutedBundleIDs: [],
+        customMeetingApps: [:],
         runningApps: [],
         foregroundBundleID: nil
     )
@@ -608,6 +614,13 @@ private actor MeetingDetectionService {
             foregroundBundleID: collectedSignals.foregroundBundleID,
             now: now
         )
+
+        // Keep the resolver's user-configured app table current with the
+        // latest context (cheap dictionary replace; evaluate runs on signal
+        // changes, not per-frame).
+        resolver.customDedicatedApps = context.customMeetingApps.reduce(into: [:]) {
+            $0[$1.key] = (name: $1.value, platform: .unknown)
+        }
 
         let resolverStart = Date()
         let resolvedActivityCandidate = resolver.resolve(snapshot)
