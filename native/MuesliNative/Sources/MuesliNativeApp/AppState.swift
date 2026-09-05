@@ -145,6 +145,10 @@ final class AppState {
 
     // Navigation
     var selectedTab: DashboardTab = .meetings
+    /// Set by the Insights Calendar segment to deep-link the Calendar page
+    /// into a filtered list state ("recorded" | "missed" | "upcoming" |
+    /// "all"). CalendarPageView consumes + clears it.
+    var calendarDeepLinkFilter: String?
     var insightsBackLabel: String {
         "Back to Meetings"
     }

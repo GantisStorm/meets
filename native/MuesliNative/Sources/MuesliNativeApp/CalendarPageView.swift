@@ -49,6 +49,14 @@ struct CalendarPageView: View {
                 Task { await controller.refreshCalendarEvents() }
             }
         }
+        .onChange(of: appState.calendarDeepLinkFilter) { _, filter in
+            guard let filter else { return }
+            pageMode = .list
+            if let mapped = CalendarListFilter(rawValue: filter) {
+                listFilter = mapped
+            }
+            appState.calendarDeepLinkFilter = nil
+        }
         .sheet(item: $selectedEvent) { event in
             CalendarEventDetailView(
                 appState: appState,

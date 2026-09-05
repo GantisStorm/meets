@@ -6,6 +6,9 @@ struct InsightsView: View {
     let loadSnapshot: (InsightsRange) async throws -> InsightsSnapshot
     let onBack: () -> Void
     let backLabel: String
+    /// Opens the Calendar dashboard page with a list filter applied
+    /// ("all" | "upcoming" | "past" | "recorded" | "unrecorded").
+    let onOpenCalendar: (String) -> Void
 
     private enum Segment: String, CaseIterable {
         case meetings
@@ -48,12 +51,14 @@ struct InsightsView: View {
         initialSection: InsightsSection,
         loadSnapshot: @escaping (InsightsRange) async throws -> InsightsSnapshot,
         onBack: @escaping () -> Void,
-        backLabel: String
+        backLabel: String,
+        onOpenCalendar: @escaping (String) -> Void = { _ in }
     ) {
         self.initialSection = initialSection
         self.loadSnapshot = loadSnapshot
         self.onBack = onBack
         self.backLabel = backLabel
+        self.onOpenCalendar = onOpenCalendar
         let segment = Segment.initial(for: initialSection)
         self.initialSegment = segment
         _segment = State(initialValue: segment)
@@ -524,23 +529,75 @@ struct InsightsView: View {
         let stats = data.calendarStats
         return VStack(alignment: .leading, spacing: 18) {
             HStack(alignment: .firstTextBaseline) {
-                panelTitle("CALENDAR INSIGHTS", subtitle: "Activity for the selected time period")
+                panelTitle("CALENDAR INSIGHTS", subtitle: "Meetings vs your calendar for the selected time period")
                 Spacer()
             }
-            emptyState(
-                icon: "calendar.badge.clock",
-                message: "Calendar insights arrive with calendar sync."
-            )
-            .frame(minHeight: 160)
-            if stats.eventsInRange > 0 {
-                VStack(alignment: .leading, spacing: 12) {
-                    readout("Events in range", format(stats.eventsInRange))
-                    readout("Recorded", format(stats.recordedEvents))
-                    readout("Missed", format(stats.missedEvents))
+            if stats.eventsInRange == 0 {
+                emptyState(
+                    icon: "calendar.badge.clock",
+                    message: "No calendar events in this window. Events from your enabled calendars appear here."
+                )
+                .frame(minHeight: 160)
+            } else {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(format(stats.eventsInRange))
+                        .font(.system(size: 40, weight: .bold, design: .rounded))
+                        .tracking(-1.5)
+                        .monospacedDigit()
+                    Text("events")
+                        .foregroundStyle(InsightsPalette.tertiaryText)
                 }
+                let recordedPct = Int((Double(stats.recordedEvents) / Double(stats.eventsInRange) * 100).rounded())
+                let missedPct = Int((Double(stats.missedEvents) / Double(stats.eventsInRange) * 100).rounded())
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack {
+                        usageLegend("Recorded", stats.recordedEvents, .cyan)
+                        Spacer()
+                        Text("\(recordedPct)%")
+                            .font(.system(size: 12, weight: .semibold))
+                            .monospacedDigit()
+                            .foregroundStyle(InsightsPalette.secondaryText)
+                    }
+                    HStack {
+                        usageLegend("Missed", stats.missedEvents, MuesliTheme.accent)
+                        Spacer()
+                        Text("\(missedPct)%")
+                            .font(.system(size: 12, weight: .semibold))
+                            .monospacedDigit()
+                            .foregroundStyle(InsightsPalette.secondaryText)
+                    }
+                    readout("Upcoming", format(stats.upcomingEvents))
+                    readout("Cancelled", format(stats.cancelledEvents))
+                }
+                HStack(spacing: 10) {
+                    deepLinkButton("See recorded", filter: "recorded")
+                    deepLinkButton("See missed", filter: "past")
+                    deepLinkButton("See upcoming", filter: "upcoming")
+                }
+                .padding(.top, 6)
             }
         }
         .insightsPanel()
+    }
+
+    private func deepLinkButton(_ title: String, filter: String) -> some View {
+        Button {
+            onOpenCalendar(filter)
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: "arrow.up.right.square")
+                    .font(.system(size: 10, weight: .semibold))
+                Text(title)
+                    .font(.system(size: 11, weight: .semibold))
+            }
+            .foregroundStyle(MuesliTheme.accent)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(MuesliTheme.accent.opacity(0.12))
+            .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
+        }
+        .buttonStyle(.plain)
+        .help("Open the Calendar page with this filter")
     }
 
     private func emptyState(icon: String, message: String) -> some View {

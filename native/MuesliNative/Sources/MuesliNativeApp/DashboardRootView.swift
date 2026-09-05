@@ -225,7 +225,8 @@ struct DashboardRootView: View {
                     initialSection: appState.insightsInitialSection,
                     loadSnapshot: { range in try await controller.insightsSnapshot(range: range) },
                     onBack: { controller.closeInsights() },
-                    backLabel: appState.insightsBackLabel
+                    backLabel: appState.insightsBackLabel,
+                    onOpenCalendar: { filter in controller.openCalendarWithFilter(filter) }
                 )
             case .meetings:
                 MeetingsView(appState: appState, controller: controller)

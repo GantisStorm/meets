@@ -680,6 +680,17 @@ public final class MuesliController: NSObject {
         appState.selectedTab = .insights
     }
 
+    /// Deep-links from the Insights Calendar segment into the Calendar page
+    /// in List mode with the given filter applied ("all" | "upcoming" |
+    /// "past" | "recorded" | "unrecorded").
+    func openCalendarWithFilter(_ filter: String) {
+        if appState.isSearchActive {
+            clearSearch()
+        }
+        appState.calendarDeepLinkFilter = filter
+        appState.selectedTab = .calendar
+    }
+
     func showModels(category: ModelsCategory) {
         if appState.isSearchActive {
             clearSearch()
@@ -848,10 +859,64 @@ public final class MuesliController: NSObject {
 
     func insightsSnapshot(range: InsightsRange) async throws -> InsightsSnapshot {
         let databaseURL = dictationStore.resolvedDatabaseURL
-        return try await Task.detached(priority: .utility) {
+        // Compute calendar linkage on the main actor (appState is
+        // MainActor-isolated); the store cannot see live calendars.
+        let now = Date()
+        let calendar = Calendar.current
+        let startDate = range.startDate(now: now, calendar: calendar)
+        let events = appState.calendarEvents
+        let meetings = appState.meetingRows
+        let disabled = Set(config.disabledCalendarIDs)
+        let calendarStats: MeetingCalendarLinkageStats = {
+            let filtered = events.filter { event in
+                guard let cid = event.calendarID else { return true }
+                return !disabled.contains(cid)
+            }
+            let inWindow = filtered.filter { event in
+                if let startDate {
+                    return event.endDate >= startDate
+                }
+                return true
+            }
+            var recorded = 0
+            var missed = 0
+            var upcoming = 0
+            var cancelled = 0
+            for event in inWindow {
+                if event.isCancelled || event.isDeclined {
+                    cancelled += 1
+                    continue
+                }
+                let linkage = MeetingEventLinkage.derive(
+                    event: event,
+                    meetings: meetings,
+                    now: now
+                )
+                switch linkage.state {
+                case .recording, .processing, .completed:
+                    recorded += 1
+                case .missed:
+                    missed += 1
+                case .upcoming, .now:
+                    upcoming += 1
+                case .cancelledEvent, .noEvent:
+                    break
+                }
+            }
+            return MeetingCalendarLinkageStats(
+                eventsInRange: inWindow.count,
+                recordedEvents: recorded,
+                missedEvents: missed,
+                upcomingEvents: upcoming,
+                cancelledEvents: cancelled
+            )
+        }()
+
+        let snapshot = try await Task.detached(priority: .utility) {
             try Task.checkCancellation()
             return try DictationStore(databaseURL: databaseURL).insightsSnapshot(range: range)
         }.value
+        return snapshot.replacing(calendarStats: calendarStats)
     }
 
     func truncate(_ text: String, limit: Int) -> String {

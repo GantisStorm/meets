@@ -595,4 +595,28 @@ public struct InsightsSnapshot: Codable, Sendable, Equatable {
         self.llmStats = llmStats
         self.llmUsageByDay = llmUsageByDay
     }
+
+    /// Returns a copy with replaced calendar linkage stats (computed in the
+    /// app layer from live EventKit state; the store cannot see calendars).
+    public func replacing(calendarStats newStats: MeetingCalendarLinkageStats) -> InsightsSnapshot {
+        InsightsSnapshot(
+            range: range,
+            generatedAt: generatedAt,
+            lifetime: lifetime,
+            selected: selected,
+            dailyActivity: dailyActivity,
+            currentStreakDays: currentStreakDays,
+            longestStreakDays: longestStreakDays,
+            activeDaysInRange: activeDaysInRange,
+            meetingWords: meetingWords,
+            meetingStats: meetingStats,
+            lifetimeMeetingStats: lifetimeMeetingStats,
+            meetingBuckets: meetingBuckets,
+            folderStats: folderStats,
+            recurringMeetings: recurringMeetings,
+            calendarStats: newStats,
+            llmStats: llmStats,
+            llmUsageByDay: llmUsageByDay
+        )
+    }
 }
