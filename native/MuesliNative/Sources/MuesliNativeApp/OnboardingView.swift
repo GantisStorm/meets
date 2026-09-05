@@ -962,7 +962,12 @@ struct OnboardingView: View {
         .frame(width: 640)
     }
 
-    /// Per-backend config below the tabs (mirrors summaryProviderConfig).
+    /// Per-backend config below the tabs — renders the same component views
+    /// and styles as the Meeting Summaries per-backend configs. ChatGPT /
+    /// OpenAI / OpenRouter / Ollama / Agent (ACP) reuse the summary config
+    /// verbatim (same account, key, agent settings). LM Studio and Custom LLM
+    /// mirror the summary rows but write the cleanup model fields, matching
+    /// Settings' separate per-feature model.
     @ViewBuilder
     private var cleanupBackendConfig: some View {
         VStack(alignment: .leading, spacing: MuesliTheme.spacing8) {
@@ -972,33 +977,110 @@ struct OnboardingView: View {
                     .foregroundStyle(MuesliTheme.textTertiary)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, MuesliTheme.spacing4)
-            } else if cleanupBackend.backend == "acp_agent" {
-                Text("Uses your ACP agent — command, model, and reasoning configured on the Meeting Summaries step.")
-                    .font(MuesliTheme.caption())
-                    .foregroundStyle(MuesliTheme.textTertiary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, MuesliTheme.spacing4)
             } else {
-                configFieldRow("Model", controlWidth: 320) {
-                    PastableTextField(
-                        text: cleanupConfiguredModel,
-                        placeholder: TranscriptCleanupClient.defaultModel(for: cleanupBackend),
-                        onChange: { newModel in
-                            controller.updateConfig { config in
-                                switch cleanupBackend.backend {
-                                case "chatgpt": config.postProcessorChatGPTModel = newModel
-                                case "openai": config.postProcessorOpenAIModel = newModel
-                                case "openrouter": config.postProcessorOpenRouterModel = newModel
-                                case "ollama": config.postProcessorOllamaModel = newModel
-                                case "lmstudio": config.postProcessorLMStudioModel = newModel
-                                default: config.postProcessorCustomLLMModel = newModel
-                                }
-                            }
-                        }
-                    )
-                    .frame(height: 24)
+                switch cleanupBackend.backend {
+                case "chatgpt":
+                    summaryChatGPTConfig
+                case "openai":
+                    summaryOpenAIConfig
+                case "openrouter":
+                    summaryOpenRouterConfig
+                case "ollama":
+                    summaryOllamaConfig
+                case "lmstudio":
+                    cleanupLMStudioConfig
+                case "custom_llm":
+                    cleanupCustomLLMConfig
+                case "acp_agent":
+                    summaryACPAgentConfig
+                default:
+                    EmptyView()
                 }
-                .padding(.horizontal, MuesliTheme.spacing4)
+            }
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    /// LM Studio config mirroring summaryLMStudioConfig but persisting the
+    /// transcript-cleanup model field.
+    private var cleanupLMStudioConfig: some View {
+        VStack(alignment: .leading, spacing: MuesliTheme.spacing8) {
+            Text("Run models from LM Studio on this Mac. Add the server URL and model.")
+                .font(MuesliTheme.caption())
+                .foregroundStyle(MuesliTheme.textSecondary)
+
+            configFieldRow("Server URL", controlWidth: 320) {
+                PastableTextField(
+                    text: appState.config.lmStudioURL,
+                    placeholder: "http://localhost:1234",
+                    onChange: { val in controller.updateConfig { $0.lmStudioURL = val } }
+                )
+                .frame(height: 26)
+            }
+
+            configFieldRow("Model", controlWidth: 320) {
+                PastableTextField(
+                    text: cleanupConfiguredModel,
+                    placeholder: TranscriptCleanupClient.defaultModel(for: cleanupBackend),
+                    onChange: { newModel in
+                        controller.updateConfig { $0.postProcessorLMStudioModel = newModel }
+                    }
+                )
+                .frame(height: 26)
+            }
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    /// Custom LLM config mirroring summaryCustomLLMConfig but persisting the
+    /// transcript-cleanup model field.
+    private var cleanupCustomLLMConfig: some View {
+        VStack(alignment: .leading, spacing: MuesliTheme.spacing8) {
+            Text("Connect any OpenAI-compatible or Anthropic endpoint.")
+                .font(MuesliTheme.caption())
+                .foregroundStyle(MuesliTheme.textSecondary)
+
+            configFieldRow("API Format", controlWidth: 320) {
+                wizardMenu(
+                    selection: CustomLLMFormat(rawValue: appState.config.customLLMFormat)?.label ?? CustomLLMFormat.openAI.label,
+                    options: CustomLLMFormat.allCases.map(\.label)
+                ) { label in
+                    guard let format = CustomLLMFormat.allCases.first(where: { $0.label == label }) else { return }
+                    controller.updateConfig { $0.customLLMFormat = format.rawValue }
+                }
+            }
+
+            configFieldRow("URL", controlWidth: 320) {
+                PastableTextField(
+                    text: appState.config.customLLMURL,
+                    placeholder: CustomLLMFormat(rawValue: appState.config.customLLMFormat) == .anthropic
+                        ? "https://api.anthropic.com"
+                        : "http://localhost:8080/v1",
+                    onChange: { val in controller.updateConfig { $0.customLLMURL = val } }
+                )
+                .frame(height: 26)
+            }
+
+            configFieldRow("API Key", controlWidth: 320) {
+                PastableSecureField(
+                    text: appState.config.customLLMAPIKey,
+                    placeholder: CustomLLMFormat(rawValue: appState.config.customLLMFormat) == .anthropic
+                        ? "Required for Anthropic API"
+                        : "Optional for local servers",
+                    onChange: { val in controller.updateConfig { $0.customLLMAPIKey = val } }
+                )
+                .frame(height: 26)
+            }
+
+            configFieldRow("Model", controlWidth: 320) {
+                PastableTextField(
+                    text: cleanupConfiguredModel,
+                    placeholder: TranscriptCleanupClient.defaultModel(for: cleanupBackend),
+                    onChange: { newModel in
+                        controller.updateConfig { $0.postProcessorCustomLLMModel = newModel }
+                    }
+                )
+                .frame(height: 26)
             }
         }
         .frame(maxWidth: .infinity)
