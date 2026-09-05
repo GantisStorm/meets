@@ -10,7 +10,7 @@ let package = Package(
         .library(name: "MuesliCore", targets: ["MuesliCore"]),
         .library(name: "MuesliNativeAppCore", targets: ["MuesliNativeApp"]),
         .executable(name: "MuesliNativeApp", targets: ["MuesliNativeAppShell"]),
-        .executable(name: "muesli-cli", targets: ["MuesliCLI"]),
+        .executable(name: "meets-cli", targets: ["MuesliCLI"]),
     ],
     dependencies: [
         .package(url: "https://github.com/apple/swift-argument-parser", from: "1.3.0"),

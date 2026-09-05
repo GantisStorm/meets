@@ -9,10 +9,10 @@ DIST_DIR="$ROOT/dist-native"
 INSTALL_DIR="${MUESLI_INSTALL_DIR:-/Applications}"
 BUILD_CONFIG="${1:-release}"
 APP_BINARY="MuesliNativeApp"
-CLI_BINARY="muesli-cli"
-APP_NAME="${MUESLI_APP_NAME:-Muesli}"
+CLI_BINARY="meets-cli"
+APP_NAME="${MUESLI_APP_NAME:-Meets}"
 APP_DISPLAY_NAME="${MUESLI_DISPLAY_NAME:-$APP_NAME}"
-APP_BUNDLE_NAME="${MUESLI_APP_BUNDLE_NAME:-$APP_NAME.app}"
+APP_BUNDLE_NAME="${MUESLI_APP_BUNDLE_NAME:-Meets.app}"
 APP_EXECUTABLE_NAME="${MUESLI_EXECUTABLE_NAME:-Muesli}"
 APP_SUPPORT_DIR_NAME="${MUESLI_SUPPORT_DIR_NAME:-$APP_DISPLAY_NAME}"
 BUNDLE_ID="${MUESLI_BUNDLE_ID:-com.muesli.app}"
@@ -376,9 +376,9 @@ cat > "$STAGED_APP_DIR/Contents/Info.plist" <<PLIST
   <key>LSMinimumSystemVersion</key>
   <string>14.2</string>
   <key>NSMicrophoneUsageDescription</key>
-  <string>$APP_DISPLAY_NAME records microphone audio for dictation.</string>
+  <string>$APP_DISPLAY_NAME records microphone audio for meeting transcription.</string>
   <key>NSInputMonitoringUsageDescription</key>
-  <string>$APP_DISPLAY_NAME monitors keyboard events to trigger push-to-talk dictation.</string>
+  <string>$APP_DISPLAY_NAME monitors keyboard events to trigger the meeting recording hotkey.</string>
   <key>NSAudioCaptureUsageDescription</key>
   <string>$APP_DISPLAY_NAME captures system audio from other applications during meeting recordings.</string>
   <key>NSScreenCaptureUsageDescription</key>
@@ -461,7 +461,7 @@ if [[ "$SKIP_SIGN" != "1" ]]; then
 
   codesign --force --options runtime "$CODESIGN_TIMESTAMP" \
     --sign "$SIGN_IDENTITY" \
-    "$APP_DIR/Contents/MacOS/muesli-cli"
+    "$APP_DIR/Contents/MacOS/meets-cli"
 
   # Sign the app bundle with hardened runtime, secure timestamp, and entitlements
   ENTITLEMENTS="${MUESLI_ENTITLEMENTS:-$ROOT/scripts/Muesli.entitlements}"
@@ -645,8 +645,8 @@ else
     fi
   done
 
-  if [[ -f "$APP_DIR/Contents/MacOS/muesli-cli" ]]; then
-    codesign --force --sign "$LOCAL_SIGN_IDENTITY" "$APP_DIR/Contents/MacOS/muesli-cli"
+  if [[ -f "$APP_DIR/Contents/MacOS/meets-cli" ]]; then
+    codesign --force --sign "$LOCAL_SIGN_IDENTITY" "$APP_DIR/Contents/MacOS/meets-cli"
   fi
 
   # Sign the bundle last so the Info.plist binding / identity stick.

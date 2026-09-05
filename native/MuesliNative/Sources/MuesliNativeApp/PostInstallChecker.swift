@@ -96,7 +96,7 @@ enum PostInstallChecker {
         if FileManager.default.fileExists(atPath: destinationURL.path, isDirectory: &isDir), isDir.boolValue {
             guard runAlert(
                 message: String(format: NSLocalizedString("Replace existing %@?",
-                    comment: "Alert title: an older Muesli.app is already in Applications"),
+                    comment: "Alert title: an older Meets.app is already in Applications"),
                     appName),
                 info: String(format: NSLocalizedString("An older version of %@ is already in Applications. Replace it?",
                     comment: "Alert body: confirms replacing existing install"),

@@ -118,7 +118,7 @@ struct DictionaryView: View {
 
     private func importDictionary() {
         let panel = NSOpenPanel()
-        panel.title = "Import Muesli Dictionary"
+        panel.title = "Import Meets Dictionary"
         panel.message = "Choose a JSON dictionary file"
         panel.prompt = "Import"
         panel.allowedContentTypes = [.json]
@@ -156,7 +156,7 @@ struct DictionaryView: View {
 
     private func exportDictionary() {
         let panel = NSSavePanel()
-        panel.title = "Export Muesli Dictionary"
+        panel.title = "Export Meets Dictionary"
         panel.prompt = "Export"
         panel.nameFieldStringValue = "muesli-dictionary.json"
         panel.allowedContentTypes = [.json]

@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#101e48"/>
+      <stop offset="1" stop-color="#0a0f2e"/>
+    </linearGradient>
+    <linearGradient id="front" x1="0" y1="0" x2="0.8" y2="1">
+      <stop offset="0" stop-color="#5b8cff"/>
+      <stop offset="1" stop-color="#3b5fd9"/>
+    </linearGradient>
+    <linearGradient id="back" x1="0.2" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2fc4b2"/>
+      <stop offset="1" stop-color="#1c8f82"/>
+    </linearGradient>
+  </defs>
+
+  <!-- macOS tile background -->
+  <rect x="0" y="0" width="1024" height="1024" rx="225" fill="url(#tile)"/>
+
+  <!-- Two overlapping rounded panels on an even diagonal cascade -->
+  <!-- Back panel (teal): offset up-right by equal amounts -->
+  <rect x="392" y="196" width="440" height="440" rx="104" fill="url(#back)"/>
+  <!-- Front panel (blue): below-left -->
+  <rect x="192" y="388" width="440" height="440" rx="104" fill="url(#front)"/>
+
+  <!-- Waveform inside front panel, centered on panel, deliberate heights -->
+  <g>
+    <rect x="312" y="566" width="52" height="144" rx="26" fill="#dce8ff" opacity="0.9"/>
+    <rect x="386" y="504" width="52" height="206" rx="26" fill="#ffffff"/>
+    <rect x="460" y="544" width="52" height="166" rx="26" fill="#dce8ff" opacity="0.85"/>
+  </g>
+
+  <!-- Small flat orange recording dot, balanced top-right of the teal panel -->
+  <circle cx="716" cy="310" r="40" fill="#ffb64d"/>
+</svg>

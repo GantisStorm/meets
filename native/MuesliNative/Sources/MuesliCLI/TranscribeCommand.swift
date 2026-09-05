@@ -101,7 +101,7 @@ struct TranscribeJSONPayload: Encodable {
 struct TranscribeCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "transcribe",
-        abstract: "Transcribe a local audio file with Muesli's bundled local ASR models."
+        abstract: "Transcribe a local audio file with Meets's bundled local ASR models."
     )
 
     @OptionGroup var global: GlobalOptions
@@ -111,9 +111,9 @@ struct TranscribeCommand: AsyncParsableCommand {
     var format: TranscribeOutputFormat = .text
     @Option(name: .long, help: "Transcription model: parakeet-v3, parakeet-v2, parakeet-unified, parakeet-eou-320ms (streaming), sensevoice, qwen3-asr, nemotron35, whisper-tiny, whisper-tiny-english, whisper-small, whisper-small-english, whisper-medium-english, or whisper-large-turbo.")
     var model: TranscribeModel = .parakeetUnified
-    @Flag(name: .long, help: "Generate meeting notes using the configured Muesli summary backend when available.")
+    @Flag(name: .long, help: "Generate meeting notes using the configured Meets summary backend when available.")
     var summarize = false
-    @Flag(name: .long, help: "Save the transcript as an imported Muesli meeting.")
+    @Flag(name: .long, help: "Save the transcript as an imported Meets meeting.")
     var saveMeeting = false
     @Option(name: .long, help: "Optional title override for saved meetings and markdown output.")
     var title: String?
@@ -158,7 +158,7 @@ struct TranscribeCommand: AsyncParsableCommand {
         case .json:
             let payload = TranscribeJSONPayload(result)
             let envelope = SuccessEnvelope(
-                command: "muesli-cli transcribe",
+                command: "meets-cli transcribe",
                 data: payload,
                 meta: MetaBody(
                     schemaVersion: 1,
@@ -293,7 +293,7 @@ struct MuesliAudioTranscriptionPipeline {
             customWords = nil
         }
 
-        fputs("[muesli-cli] preparing audio...\n", stderr)
+        fputs("[meets-cli] preparing audio...\n", stderr)
         let prepared = try await audioPreparer.prepareAudio(sourceURL: request.sourceURL)
         defer {
             if prepared.deleteWhenDone {
@@ -301,12 +301,12 @@ struct MuesliAudioTranscriptionPipeline {
             }
         }
 
-        fputs("[muesli-cli] loading \(request.model.rawValue) and transcribing...\n", stderr)
+        fputs("[meets-cli] loading \(request.model.rawValue) and transcribing...\n", stderr)
         let transcription = try await transcriber.transcribe(
             wavURL: prepared.wavURL,
             model: request.model,
             progress: { message in
-                fputs("[muesli-cli] \(message)\n", stderr)
+                fputs("[meets-cli] \(message)\n", stderr)
             }
         )
         var transcript = transcription.text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -333,7 +333,7 @@ struct MuesliAudioTranscriptionPipeline {
             } catch {
                 let message = "Summary failed: \(error.localizedDescription)"
                 warnings.append(message)
-                fputs("[muesli-cli] \(message)\n", stderr)
+                fputs("[meets-cli] \(message)\n", stderr)
                 summary = nil
             }
         } else {
@@ -349,7 +349,7 @@ struct MuesliAudioTranscriptionPipeline {
             } catch {
                 let message = "Saving audio copy failed: \(error.localizedDescription)"
                 warnings.append(message)
-                fputs("[muesli-cli] \(message)\n", stderr)
+                fputs("[meets-cli] \(message)\n", stderr)
                 savedRecordingPath = nil
             }
             let now = Date()
@@ -396,7 +396,7 @@ struct MuesliAudioTranscriptionPipeline {
         if summaryRequested {
             sections.append("## Summary unavailable")
             if warnings.isEmpty {
-                sections.append("Muesli could not generate structured notes from the configured summary backend.")
+                sections.append("Meets could not generate structured notes from the configured summary backend.")
             } else {
                 sections.append(warnings.joined(separator: "\n"))
             }
@@ -546,7 +546,7 @@ struct MuesliAudioFilePreparer: AudioPreparing {
 
     private func temporaryWAVURL() throws -> URL {
         let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("muesli-cli-import", isDirectory: true)
+            .appendingPathComponent("meets-cli-import", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         return directory.appendingPathComponent("import_\(UUID().uuidString).wav")
     }
@@ -588,7 +588,7 @@ struct MuesliAudioFilePreparer: AudioPreparing {
         }
 
         let converter = AudioConverter()
-        let wavURL = try CLIWavWriter.temporaryWAVURL(directoryName: "muesli-cli-import")
+        let wavURL = try CLIWavWriter.temporaryWAVURL(directoryName: "meets-cli-import")
         do {
             let sampleCount = try CLIWavWriter.writeWAV(to: wavURL) { handle in
                 var totalSamples = 0
@@ -665,7 +665,7 @@ actor FluidAudioCLITranscriber: AudioTranscribing {
         guard let asrModelVersion = model.asrModelVersion else {
             throw CLIError.invalidInput(
                 "\(model.rawValue) is a streaming model and cannot be loaded by the batch transcriber.",
-                fix: "This indicates a routing bug in muesli-cli; please file an issue."
+                fix: "This indicates a routing bug in meets-cli; please file an issue."
             )
         }
         progress("loading \(model.rawValue)")
@@ -854,7 +854,7 @@ actor WhisperCLITranscriber: AudioTranscribing {
         guard let modelName = model.whisperKitModelName else {
             throw CLIError.invalidInput(
                 "\(model.rawValue) is not a Whisper model.",
-                fix: "This indicates a routing bug in muesli-cli; please file an issue."
+                fix: "This indicates a routing bug in meets-cli; please file an issue."
             )
         }
         try await load(modelName: modelName, progress: progress)
@@ -1256,7 +1256,7 @@ enum CLISummaryClient {
                 title: title
             )
         default:
-            throw CLISummaryError.unavailable("The configured ChatGPT session summary backend is app-only in headless CLI mode. Select OpenAI, OpenRouter, Ollama, LM Studio, or Custom LLM in Muesli settings for `muesli-cli transcribe --summarize`.")
+            throw CLISummaryError.unavailable("The configured ChatGPT session summary backend is app-only in headless CLI mode. Select OpenAI, OpenRouter, Ollama, LM Studio, or Custom LLM in Muesli settings for `meets-cli transcribe --summarize`.")
         }
     }
 

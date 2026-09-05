@@ -1,6 +1,6 @@
 import Foundation
 
-/// Portable import/export support for Muesli's personal dictionary.
+/// Portable import/export support for Meets's personal dictionary.
 ///
 /// The portable format is a JSON array of `{word, replacement,
 /// matching_threshold}` objects. The decoder also accepts an app `config.json`
@@ -26,7 +26,7 @@ public enum CustomWordDictionaryCodec {
         case invalidFormat
 
         public var errorDescription: String? {
-            "The file is not a valid Muesli dictionary."
+            "The file is not a valid Meets dictionary."
         }
     }
 

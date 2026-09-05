@@ -11,7 +11,7 @@ enum MenuBarIconRenderer {
     static let canonicalMarkMask: CGImage? = loadCanonicalMarkMask()
 
     static let options: [(id: String, label: String)] = [
-        ("muesli", "Muesli Logo"),
+        ("muesli", "Meets Logo"),
         ("mic.fill", "Microphone"),
         ("waveform", "Waveform"),
         ("bubble.left.fill", "Bubble"),
@@ -25,7 +25,7 @@ enum MenuBarIconRenderer {
         ("doc.text", "Document"),
     ]
 
-    /// Returns the configured menu bar/floating indicator icon. The Muesli mark
+    /// Returns the configured menu bar/floating indicator icon. The Meets mark
     /// is drawn as a resolution-independent template so its narrow waveform
     /// gaps stay crisp at menu-bar scale.
     static func make(choice: String = "muesli") -> NSImage? {
@@ -33,7 +33,7 @@ enum MenuBarIconRenderer {
             return makeMuesliMark()
         }
         let config = NSImage.SymbolConfiguration(pointSize: 16, weight: .regular)
-        let image = NSImage(systemSymbolName: choice, accessibilityDescription: "Muesli")?
+        let image = NSImage(systemSymbolName: choice, accessibilityDescription: "Meets")?
             .withSymbolConfiguration(config)
         image?.isTemplate = true
         return image
@@ -223,7 +223,7 @@ enum MenuBarIconRenderer {
 
         let image = NSImage(
             systemSymbolName: "waveform",
-            accessibilityDescription: "Muesli"
+            accessibilityDescription: "Meets"
         ) ?? NSImage(size: displaySize)
         image.size = displaySize
         image.isTemplate = true

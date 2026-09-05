@@ -461,7 +461,7 @@ struct SettingsView: View {
         settingsSection("Transcription") {
             settingsRow(
                 "Microphone",
-                description: "Only affects Muesli. Changes apply immediately.",
+                description: "Only affects Meets. Changes apply immediately.",
                 controlWidth: meetingControlWidth
             ) {
                 let options = meetingMicrophoneOptions
@@ -1247,7 +1247,7 @@ struct SettingsView: View {
                         }
                         .buttonStyle(.plain)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .help("Remove Muesli's local copy of this OpenRouter key")
+                        .help("Remove Meets's local copy of this OpenRouter key")
                     } else {
                         Text("Managed externally")
                             .font(.system(size: 10))
@@ -1503,7 +1503,7 @@ struct SettingsView: View {
 
         do {
             let supportDir = appSupportBase
-                .appendingPathComponent(Bundle.main.infoDictionary?["MuesliSupportDirectoryName"] as? String ?? "Muesli")
+                .appendingPathComponent(Bundle.main.infoDictionary?["MuesliSupportDirectoryName"] as? String ?? "Meets")
             let destPath = try SoundController.importCustomClip(from: url, supportDir: supportDir)
             controller.updateConfig {
                 $0.maraudersMapAudioClip = SoundController.customClipID
@@ -2069,7 +2069,7 @@ struct SettingsView: View {
             groups.append(CalendarSourceGroup(
                 id: "google_oauth",
                 title: "Google Calendar",
-                subtitle: "Connected directly to Muesli",
+                subtitle: "Connected directly to Meets",
                 iconName: "calendar.badge.plus",
                 items: items
             ))
@@ -2098,7 +2098,7 @@ struct SettingsView: View {
             }
 
             if appState.isGoogleCalendarAuthenticated && !appState.availableEventKitCalendars.isEmpty {
-                Text("Google calendars may appear once from macOS Calendar and once from Muesli's Google connection. Turn off both copies to hide that calendar completely.")
+                Text("Google calendars may appear once from macOS Calendar and once from Meets's Google connection. Turn off both copies to hide that calendar completely.")
                     .font(MuesliTheme.caption())
                     .foregroundStyle(MuesliTheme.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)

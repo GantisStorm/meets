@@ -56,7 +56,7 @@ struct MuesliCLITests {
     @Test("summary config reads the app's persisted OpenRouter selection and protected credential")
     func summaryConfigReadsAppOpenRouterSettings() throws {
         let supportDirectory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("muesli-cli-openrouter-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("meets-cli-openrouter-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: supportDirectory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: supportDirectory) }
 
@@ -76,7 +76,7 @@ struct MuesliCLITests {
     @Test("migration runs before a read so a legacy database gains new columns")
     func migrationWarningsUpgradesLegacyDatabase() throws {
         let dir = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("muesli-cli-migrate-\(UUID().uuidString)")
+            .appendingPathComponent("meets-cli-migrate-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
 
@@ -116,7 +116,7 @@ struct MuesliCLITests {
         // A directory in place of the database file: opening it fails, so the
         // migration cannot run and must surface as a warning, not a crash.
         let dir = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("muesli-cli-unwritable-\(UUID().uuidString)")
+            .appendingPathComponent("meets-cli-unwritable-\(UUID().uuidString)")
         let dbURL = dir.appendingPathComponent("muesli.db")
         try? FileManager.default.createDirectory(at: dbURL, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -129,7 +129,7 @@ struct MuesliCLITests {
     @Test("a read that fails after a failed migration explains the stale schema")
     func withMigrationAttachesMigrationFailureToReadError() {
         let dir = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("muesli-cli-enrich-\(UUID().uuidString)")
+            .appendingPathComponent("meets-cli-enrich-\(UUID().uuidString)")
         let dbURL = dir.appendingPathComponent("muesli.db")
         try? FileManager.default.createDirectory(at: dbURL, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -151,7 +151,7 @@ struct MuesliCLITests {
     @Test("a successful read still reports a migration warning")
     func withMigrationKeepsWarningOnSuccessfulRead() throws {
         let dir = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("muesli-cli-passthrough-\(UUID().uuidString)")
+            .appendingPathComponent("meets-cli-passthrough-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
 
@@ -170,7 +170,7 @@ struct MuesliCLITests {
     @Test("a read with no migration trouble reports no warnings")
     func withMigrationReportsNoWarningsOnCleanMigration() throws {
         let dir = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("muesli-cli-clean-\(UUID().uuidString)")
+            .appendingPathComponent("meets-cli-clean-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
 
@@ -276,7 +276,7 @@ struct MuesliCLITests {
     @Test("loadCustomWords accepts a plain JSON array")
     func loadCustomWordsAcceptsPlainArray() throws {
         let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("muesli-cli-dictionary-\(UUID().uuidString).json")
+            .appendingPathComponent("meets-cli-dictionary-\(UUID().uuidString).json")
         try Data("""
         [{"word": "museli", "replacement": "muesli", "matching_threshold": 0.85}]
         """.utf8).write(to: url)
@@ -290,7 +290,7 @@ struct MuesliCLITests {
     @Test("loadCustomWords accepts a config.json-shaped object")
     func loadCustomWordsAcceptsConfigShape() throws {
         let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("muesli-cli-dictionary-\(UUID().uuidString).json")
+            .appendingPathComponent("meets-cli-dictionary-\(UUID().uuidString).json")
         try Data("""
         {"custom_words": [{"word": "kubernete", "replacement": "Kubernetes"}], "other_config_key": true}
         """.utf8).write(to: url)
@@ -311,7 +311,7 @@ struct MuesliCLITests {
     @Test("loadCustomWords distinguishes unreadable paths from missing files")
     func loadCustomWordsRejectsUnreadablePath() throws {
         let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("muesli-cli-dictionary-directory-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("meets-cli-dictionary-directory-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: false)
 
         do {
@@ -507,7 +507,7 @@ struct MuesliCLITests {
             )
         )
         let envelope = SuccessEnvelope(
-            command: "muesli-cli transcribe",
+            command: "meets-cli transcribe",
             data: payload,
             meta: MetaBody(schemaVersion: 1, generatedAt: "2026-07-08T00:00:00Z", dbPath: "/tmp/muesli.db", warnings: ["summary warning"])
         )
@@ -515,7 +515,7 @@ struct MuesliCLITests {
         let json = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
 
         #expect(json["ok"] as? Bool == true)
-        #expect(json["command"] as? String == "muesli-cli transcribe")
+        #expect(json["command"] as? String == "meets-cli transcribe")
         let payloadData = try #require(json["data"] as? [String: Any])
         #expect(payloadData["transcript"] as? String == "hello from muesli")
         #expect(payloadData["model"] as? String == "parakeet-v2")
@@ -606,7 +606,7 @@ struct MuesliCLITests {
     @Test("transcribe output writes file content")
     func transcribeOutputWritesFile() throws {
         let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("muesli-cli-output-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("meets-cli-output-\(UUID().uuidString)", isDirectory: true)
         let outputURL = directory.appendingPathComponent("transcript.txt")
         try writeOutput("plain transcript\n", to: outputURL)
 
@@ -622,7 +622,7 @@ private struct TranscribeFixture {
 
     init() throws {
         directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("muesli-cli-test-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("meets-cli-test-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         sourceURL = directory.appendingPathComponent("recording.wav")
         wavURL = directory.appendingPathComponent("prepared.wav")

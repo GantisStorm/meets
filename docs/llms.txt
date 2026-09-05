@@ -1,15 +1,17 @@
-# Muesli
+# Meets
 
-> Local-first AI dictation and meeting transcriber for macOS.
+> Local-first AI meeting transcription for macOS.
 
-Muesli is a free, open-source macOS application that provides hold-to-talk dictation and meeting transcription powered by on-device AI inference. All speech-to-text runs locally on Apple Silicon — no cloud required for core functionality.
+Meets is a free, open-source macOS application — a meetings-only fork of Muesli — that records meetings (mic + system audio) and transcribes them with on-device AI inference. All speech-to-text runs locally on Apple Silicon — no cloud required for core functionality.
 
 ## Features
 
-- **Dictation**: Hold Left Cmd to speak, release to paste transcribed text at your cursor
-- **Meeting Transcription**: Records mic + system audio, merges into a timestamped transcript
-- **Meeting Notes**: Optional AI-generated structured summaries (BYOK OpenAI/OpenRouter)
-- **Local-First**: Core transcription runs entirely on-device via Fluid Audio / CoreML
+- **Meeting Recording**: Records mic + system audio, merges them into a timestamped transcript
+- **Live Meeting Transcripts**: Optional low-latency live captions during the meeting
+- **Meeting Notes**: Optional AI-generated structured summaries (ChatGPT subscription, or BYOK OpenAI/OpenRouter, or local Ollama / LM Studio / custom LLM)
+- **Speaker Diarization**: Identifies individual speakers in system audio
+- **Meeting Insights**: Local analytics over your meeting history
+- **Local-First**: Transcription runs entirely on-device via Fluid Audio / CoreML
 - **Privacy**: Audio never leaves your Mac unless you opt into cloud summarization
 - **Free & Open Source**: MIT licensed, no subscriptions, no usage limits
 
@@ -17,8 +19,8 @@ Muesli is a free, open-source macOS application that provides hold-to-talk dicta
 
 - **Runtime**: Native Swift/AppKit application (not Electron)
 - **Speech Engine**: Fluid Audio SDK (CoreML, Apple Neural Engine)
-- **Storage**: Local SQLite database at ~/Library/Application Support/Muesli/
-- **Audio Capture**: AVAudioRecorder (mic), AudioHardwareCreateProcessTap (system audio)
+- **Storage**: Local SQLite database at ~/Library/Application Support/Meets/
+- **Audio Capture**: Microphone (You) + system audio (Others) via CoreAudio process tap
 - **Platform**: macOS 14.2+ on Apple Silicon (M1/M2/M3/M4)
 
 ## Links
@@ -31,13 +33,14 @@ Muesli is a free, open-source macOS application that provides hold-to-talk dicta
 
 ## Architecture
 
-Muesli is a menu bar app with two modes:
+Meets is a menu bar app whose core mode is meeting transcription:
 
-1. **Dictation Mode**: User holds Left Cmd key → mic records → on release, audio is transcribed locally → text is pasted at the active cursor position via accessibility APIs.
+1. **Start Recording**: User starts recording from the menu bar or the meeting hotkey → mic captures "You" audio, system audio captures "Others".
+2. **Transcription**: Audio is transcribed locally with VAD-driven chunk rotation; diarization labels remote speakers; segments are merged by timestamp.
+3. **Notes**: Optional LLM summarization produces structured notes (ChatGPT subscription or BYOK providers).
+4. **Storage**: Transcripts, notes, and recordings are stored in local SQLite.
 
-2. **Meeting Mode**: User starts recording from menu bar → mic captures "You" audio, system audio captures "Others" → both are transcribed → segments are merged by timestamp → optional LLM summarization produces structured notes → everything stored in local SQLite.
-
-The app uses Fluid Audio's CoreML models running on the Apple Neural Engine for speech-to-text, minimizing CPU/GPU usage. Optional cloud integration (OpenAI, OpenRouter) is available for meeting note summarization only, using bring-your-own-key configuration.
+The app uses Fluid Audio's CoreML models running on the Apple Neural Engine for speech-to-text, minimizing CPU/GPU usage. Optional cloud integration is available for meeting note summarization only, using bring-your-own-key configuration or a ChatGPT subscription.
 
 ## Author
 

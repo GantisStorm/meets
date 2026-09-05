@@ -571,7 +571,7 @@ public enum ManagedASRModelDownloader {
         var fallbackCacheBackup: URL?
         if let mirror = plan.mirror {
             do {
-                report("Checking Muesli model mirror...")
+                report("Checking Meets model mirror...")
                 let manifest = try await mirrorResolver.resolve(
                     modelID: plan.modelID,
                     mirror: mirror,
@@ -598,7 +598,7 @@ public enum ManagedASRModelDownloader {
                     // Hugging Face is unavailable too.
                     fallbackCacheBackup = try moveCacheAside(plan.cacheDirectory)
                 }
-                report("Muesli mirror unavailable; trying Hugging Face...")
+                report("Meets mirror unavailable; trying Hugging Face...")
             }
         } else {
             report("Finding model files...")

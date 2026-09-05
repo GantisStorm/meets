@@ -43,7 +43,7 @@ struct InsightsShareSheet: View {
                         .overlay { ProgressView().controlSize(.small) }
                 }
             }
-            .accessibilityLabel("Preview of your Muesli activity image")
+            .accessibilityLabel("Preview of your Meets activity image")
 
             if let saveErrorMessage {
                 HStack(alignment: .top, spacing: 10) {
@@ -125,7 +125,7 @@ struct InsightsShareSheet: View {
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.png]
         panel.canCreateDirectories = true
-        panel.nameFieldStringValue = "Muesli activity – \(rangeLabel).png"
+        panel.nameFieldStringValue = "Meets activity – \(rangeLabel).png"
         panel.begin { response in
             guard response == .OK, let url = panel.url else { return }
             Task { @MainActor in
@@ -298,7 +298,7 @@ private struct InsightsShareCard: View {
                         .foregroundStyle(pale.opacity(0.88))
                         .shadow(color: Color.black.opacity(0.48), radius: 3, y: 1)
                     Spacer()
-                    Text("muesli.works")
+                    Text("meets")
                         .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(cyan)
                         .shadow(color: Color.black.opacity(0.48), radius: 3, y: 1)
@@ -341,13 +341,13 @@ private struct MuesliShareMark: View {
                     .frame(width: 54, height: 54)
                     .clipShape(RoundedRectangle(cornerRadius: 12))
             }
-            Text("muesli")
+            Text("meets")
                 .font(Font(AppFonts.bold(30)))
                 .tracking(-1.1)
                 .foregroundStyle(color)
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Muesli")
+        .accessibilityLabel("Meets")
     }
 }
 

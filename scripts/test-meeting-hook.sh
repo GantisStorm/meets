@@ -32,14 +32,14 @@ if [[ -z "$MEETING_ID" ]]; then
   exit 1
 fi
 
-if [[ -x "/Applications/MuesliDev.app/Contents/MacOS/muesli-cli" ]]; then
-  CLI_BIN="/Applications/MuesliDev.app/Contents/MacOS/muesli-cli"
-elif [[ -x "/Applications/Muesli.app/Contents/MacOS/muesli-cli" ]]; then
-  CLI_BIN="/Applications/Muesli.app/Contents/MacOS/muesli-cli"
-elif command -v muesli-cli >/dev/null 2>&1; then
-  CLI_BIN="$(command -v muesli-cli)"
+if [[ -x "/Applications/MuesliDev.app/Contents/MacOS/meets-cli" ]]; then
+  CLI_BIN="/Applications/MuesliDev.app/Contents/MacOS/meets-cli"
+elif [[ -x "/Applications/Muesli.app/Contents/MacOS/meets-cli" ]]; then
+  CLI_BIN="/Applications/Muesli.app/Contents/MacOS/meets-cli"
+elif command -v meets-cli >/dev/null 2>&1; then
+  CLI_BIN="$(command -v meets-cli)"
 else
-  echo "Could not find muesli-cli." >&2
+  echo "Could not find meets-cli." >&2
   exit 1
 fi
 

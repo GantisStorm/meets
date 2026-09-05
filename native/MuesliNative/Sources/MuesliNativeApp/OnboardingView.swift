@@ -460,7 +460,7 @@ struct OnboardingView: View {
                 .accessibilityLabel("Muesli")
 
             VStack(spacing: MuesliTheme.spacing8) {
-                Text("Welcome to Muesli")
+                Text("Welcome to Meets")
                     .font(MuesliTheme.title1())
                     .foregroundStyle(MuesliTheme.textPrimary)
 
@@ -1363,7 +1363,7 @@ struct OnboardingView: View {
 
     private func modelPreparationFailureMessage(for backend: BackendOption) -> String {
         backend.isDownloaded
-            ? "Model setup failed. Restart Muesli or retry from Models."
+            ? "Model setup failed. Restart Meets or retry from Models."
             : "Download failed. Check your connection and retry."
     }
 

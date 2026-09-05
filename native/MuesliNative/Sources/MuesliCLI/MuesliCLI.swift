@@ -111,7 +111,7 @@ func appBundlePath() -> String? {
             return bundlePath
         }
     }
-    let defaultPath = "/Applications/Muesli.app"
+    let defaultPath = "/Applications/Meets.app"
     return FileManager.default.fileExists(atPath: defaultPath) ? defaultPath : nil
 }
 
@@ -148,8 +148,8 @@ func emitJSON<T: Encodable>(_ value: T) {
 func ensureDatabaseAvailable(_ context: CLIContext, command: String) throws {
     guard context.store.databaseExists else {
         throw CLIError.databaseUnavailable(
-            "No Muesli database exists at the resolved path.",
-            fix: "Launch Muesli once or pass --db-path/--support-dir to point at the correct data directory."
+            "No Meets database exists at the resolved path.",
+            fix: "Launch Meets once or pass --db-path/--support-dir to point at the correct data directory."
         )
     }
 }
@@ -172,7 +172,7 @@ func migrationWarnings(_ context: CLIContext) -> [String] {
         return []
     } catch {
         return ["Schema migration failed: \(error.localizedDescription). "
-                + "Results may be missing fields added by newer Muesli versions."]
+                + "Results may be missing fields added by newer Meets versions."]
     }
 }
 
@@ -198,7 +198,7 @@ struct GlobalOptions: ParsableArguments {
     @Option(name: .long, help: "Override the absolute path to muesli.db.")
     var dbPath: String?
 
-    @Option(name: .long, help: "Override the Muesli support directory. The CLI will look for muesli.db inside it.")
+    @Option(name: .long, help: "Override the Meets support directory. The CLI will look for muesli.db inside it.")
     var supportDir: String?
 }
 
@@ -293,8 +293,8 @@ struct CommandSpecPayload: Encodable {
 @main
 struct MuesliCLI: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
-        commandName: "muesli-cli",
-        abstract: "Agent-friendly CLI for local Muesli meetings.",
+        commandName: "meets-cli",
+        abstract: "Agent-friendly CLI for local Meets meetings.",
         subcommands: [SpecCommand.self, InfoCommand.self, TranscribeCommand.self, MeetingsCommand.self]
     )
 
@@ -311,7 +311,7 @@ struct MuesliCLI: AsyncParsableCommand {
         if let validation = error as? ValidationError {
             emitFailure(
                 command: CommandLine.arguments.joined(separator: " "),
-                error: ErrorBody(code: "invalid_input", message: validation.message, fix: "Run `muesli-cli spec` for valid usage."),
+                error: ErrorBody(code: "invalid_input", message: validation.message, fix: "Run `meets-cli spec` for valid usage."),
                 dbPath: nil
             )
             Foundation.exit(4)
@@ -320,7 +320,7 @@ struct MuesliCLI: AsyncParsableCommand {
         let code = Int32(Self.exitCode(for: error).rawValue)
         emitFailure(
             command: CommandLine.arguments.joined(separator: " "),
-            error: ErrorBody(code: "usage_error", message: error.localizedDescription, fix: "Run `muesli-cli spec` for valid usage."),
+            error: ErrorBody(code: "usage_error", message: error.localizedDescription, fix: "Run `meets-cli spec` for valid usage."),
             dbPath: nil
         )
         Foundation.exit(code)
@@ -328,17 +328,17 @@ struct MuesliCLI: AsyncParsableCommand {
 
     func run() throws {
         let payload = Self.specPayload()
-        emitSuccess(command: "muesli-cli", data: payload, dbPath: CLIContext(options: .init()).databaseURL)
+        emitSuccess(command: "meets-cli", data: payload, dbPath: CLIContext(options: .init()).databaseURL)
     }
 
     static func specPayload() -> CommandSpecPayload {
         CommandSpecPayload(commands: [
-            .init(name: "spec", usage: "muesli-cli spec", summary: "Dump the command tree and CLI schema metadata.", examples: ["muesli-cli spec"]),
-            .init(name: "info", usage: "muesli-cli info [--db-path <path>] [--support-dir <dir>]", summary: "Show resolved support and database paths.", examples: ["muesli-cli info", "muesli-cli info --support-dir ~/Library/Application\\ Support/Muesli"]),
-            .init(name: "transcribe", usage: "muesli-cli transcribe <file> [--format text|json|markdown] [--model parakeet-v3|parakeet-v2|parakeet-unified|parakeet-eou-320ms|sensevoice|qwen3-asr|nemotron35|whisper-tiny|whisper-tiny-english|whisper-small|whisper-small-english|whisper-medium-english|whisper-large-turbo] [--summarize] [--save-meeting] [--title <title>] [--output <path>] [--dictionary <path>]", summary: "Transcribe a local mp3, mp4, m4a, or wav file with Muesli's bundled local ASR models.", examples: ["muesli-cli transcribe call.mp3", "muesli-cli transcribe call.m4a --format json", "muesli-cli transcribe call.wav --model nemotron35 --dictionary dictionary.json"]),
-            .init(name: "meetings list", usage: "muesli-cli meetings list [--limit <n>] [--folder-id <id>]", summary: "List recent meetings.", examples: ["muesli-cli meetings list --limit 5", "muesli-cli meetings list --folder-id 2"]),
-            .init(name: "meetings get", usage: "muesli-cli meetings get <id>", summary: "Return a full meeting record.", examples: ["muesli-cli meetings get 42"]),
-            .init(name: "meetings update-notes", usage: "muesli-cli meetings update-notes <id> (--stdin | --file <path>)", summary: "Replace stored meeting notes only.", examples: ["muesli-cli meetings update-notes 42 --file notes.md", "cat notes.md | muesli-cli meetings update-notes 42 --stdin"]),
+            .init(name: "spec", usage: "meets-cli spec", summary: "Dump the command tree and CLI schema metadata.", examples: ["meets-cli spec"]),
+            .init(name: "info", usage: "meets-cli info [--db-path <path>] [--support-dir <dir>]", summary: "Show resolved support and database paths.", examples: ["meets-cli info", "meets-cli info --support-dir ~/Library/Application\\ Support/Meets"]),
+            .init(name: "transcribe", usage: "meets-cli transcribe <file> [--format text|json|markdown] [--model parakeet-v3|parakeet-v2|parakeet-unified|parakeet-eou-320ms|sensevoice|qwen3-asr|nemotron35|whisper-tiny|whisper-tiny-english|whisper-small|whisper-small-english|whisper-medium-english|whisper-large-turbo] [--summarize] [--save-meeting] [--title <title>] [--output <path>] [--dictionary <path>]", summary: "Transcribe a local mp3, mp4, m4a, or wav file with Meets's bundled local ASR models.", examples: ["meets-cli transcribe call.mp3", "meets-cli transcribe call.m4a --format json", "meets-cli transcribe call.wav --model nemotron35 --dictionary dictionary.json"]),
+            .init(name: "meetings list", usage: "meets-cli meetings list [--limit <n>] [--folder-id <id>]", summary: "List recent meetings.", examples: ["meets-cli meetings list --limit 5", "meets-cli meetings list --folder-id 2"]),
+            .init(name: "meetings get", usage: "meets-cli meetings get <id>", summary: "Return a full meeting record.", examples: ["meets-cli meetings get 42"]),
+            .init(name: "meetings update-notes", usage: "meets-cli meetings update-notes <id> (--stdin | --file <path>)", summary: "Replace stored meeting notes only.", examples: ["meets-cli meetings update-notes 42 --file notes.md", "cat notes.md | meets-cli meetings update-notes 42 --stdin"]),
         ])
     }
 }
@@ -348,7 +348,7 @@ struct SpecCommand: ParsableCommand {
     @OptionGroup var global: GlobalOptions
     func run() throws {
         let context = CLIContext(options: global)
-        emitSuccess(command: "muesli-cli spec", data: MuesliCLI.specPayload(), dbPath: context.databaseURL)
+        emitSuccess(command: "meets-cli spec", data: MuesliCLI.specPayload(), dbPath: context.databaseURL)
     }
 }
 
@@ -368,7 +368,7 @@ struct InfoCommand: ParsableCommand {
     func run() throws {
         let context = CLIContext(options: global)
         emitSuccess(
-            command: "muesli-cli info",
+            command: "meets-cli info",
             data: Payload(
                 supportDirectory: context.supportDirectory.path,
                 databasePath: context.databaseURL.path,
@@ -382,7 +382,7 @@ struct InfoCommand: ParsableCommand {
 }
 
 struct MeetingsCommand: ParsableCommand {
-    static let configuration = CommandConfiguration(commandName: "meetings", abstract: "Inspect and update Muesli meetings.", subcommands: [MeetingsListCommand.self, MeetingsGetCommand.self, MeetingsUpdateNotesCommand.self])
+    static let configuration = CommandConfiguration(commandName: "meetings", abstract: "Inspect and update Meets meetings.", subcommands: [MeetingsListCommand.self, MeetingsGetCommand.self, MeetingsUpdateNotesCommand.self])
 }
 
 struct MeetingsListCommand: ParsableCommand {
@@ -397,13 +397,13 @@ struct MeetingsListCommand: ParsableCommand {
             throw CLIError.invalidInput("--limit must be greater than zero.", fix: "Pass a positive integer such as --limit 10.")
         }
         if !context.store.databaseExists {
-            emitSuccess(command: "muesli-cli meetings list", data: [MeetingListRow](), dbPath: context.databaseURL, warnings: ["No Muesli database exists at the resolved path."])
+            emitSuccess(command: "meets-cli meetings list", data: [MeetingListRow](), dbPath: context.databaseURL, warnings: ["No Meets database exists at the resolved path."])
             return
         }
         let (rows, warnings) = try withMigration(context) {
             try context.store.recentMeetings(limit: limit, folderID: folderID).map(MeetingListRow.init)
         }
-        emitSuccess(command: "muesli-cli meetings list", data: rows, dbPath: context.databaseURL, warnings: warnings)
+        emitSuccess(command: "meets-cli meetings list", data: rows, dbPath: context.databaseURL, warnings: warnings)
     }
 }
 
@@ -414,12 +414,12 @@ struct MeetingsGetCommand: ParsableCommand {
 
     func run() throws {
         let context = CLIContext(options: global)
-        try ensureDatabaseAvailable(context, command: "muesli-cli meetings get")
+        try ensureDatabaseAvailable(context, command: "meets-cli meetings get")
         let (found, warnings) = try withMigration(context) { try context.store.meeting(id: id) }
         guard let meeting = found else {
-            throw CLIError.notFound("No meeting exists with id \(id).", fix: "Run `muesli-cli meetings list` to find a valid ID.")
+            throw CLIError.notFound("No meeting exists with id \(id).", fix: "Run `meets-cli meetings list` to find a valid ID.")
         }
-        emitSuccess(command: "muesli-cli meetings get", data: MeetingDetailPayload(meeting), dbPath: context.databaseURL, warnings: warnings)
+        emitSuccess(command: "meets-cli meetings get", data: MeetingDetailPayload(meeting), dbPath: context.databaseURL, warnings: warnings)
     }
 }
 
@@ -438,10 +438,10 @@ struct MeetingsUpdateNotesCommand: ParsableCommand {
 
     func run() throws {
         let context = CLIContext(options: global)
-        try ensureDatabaseAvailable(context, command: "muesli-cli meetings update-notes")
+        try ensureDatabaseAvailable(context, command: "meets-cli meetings update-notes")
         let (existing, warnings) = try withMigration(context) { try context.store.meeting(id: id) }
         guard existing != nil else {
-            throw CLIError.notFound("No meeting exists with id \(id).", fix: "Run `muesli-cli meetings list` to find a valid ID.")
+            throw CLIError.notFound("No meeting exists with id \(id).", fix: "Run `meets-cli meetings list` to find a valid ID.")
         }
 
         let notes: String
@@ -465,6 +465,6 @@ struct MeetingsUpdateNotesCommand: ParsableCommand {
         guard let updated = try context.store.meeting(id: id) else {
             throw CLIError.databaseError("The meeting was updated but could not be reloaded.")
         }
-        emitSuccess(command: "muesli-cli meetings update-notes", data: MeetingDetailPayload(updated), dbPath: context.databaseURL, warnings: warnings)
+        emitSuccess(command: "meets-cli meetings update-notes", data: MeetingDetailPayload(updated), dbPath: context.databaseURL, warnings: warnings)
     }
 }

@@ -31,7 +31,7 @@ struct ContributionMilestonePrompt: Equatable, Identifiable {
     }
 
     var message: String {
-        "That is a lot of conversations turned into something useful. If Muesli has been keeping your meetings in order, a GitHub star or a coffee helps keep it moving."
+        "That is a lot of conversations turned into something useful. If Meets has been keeping your meetings in order, a GitHub star or a coffee helps keep it moving."
     }
 }
 

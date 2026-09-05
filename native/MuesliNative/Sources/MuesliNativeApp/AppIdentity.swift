@@ -2,7 +2,7 @@ import Foundation
 import MuesliCore
 
 public enum AppIdentity {
-    private static let defaultName = "Muesli"
+    private static let defaultName = "Meets"
 
     static var bundleName: String {
         stringValue(for: "CFBundleName") ?? defaultName

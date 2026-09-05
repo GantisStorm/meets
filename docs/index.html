@@ -3,25 +3,25 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>free speech · muesli</title>
-  <meta name="description" content="Muesli is a local-first AI dictation and meeting transcriber. Free speech, on device, local inference.">
-  <meta property="og:title" content="muesli — free speech">
-  <meta property="og:description" content="Muesli is a local-first AI dictation and meeting transcriber. Free speech, on device, local inference.">
+  <title>free speech · Meets</title>
+  <meta name="description" content="Meets is a local-first AI meeting transcriber. Free speech, on device, local inference.">
+  <meta property="og:title" content="Meets — free speech">
+  <meta property="og:description" content="Meets is a local-first AI meeting transcriber. Free speech, on device, local inference.">
   <meta property="og:image" content="https://freedspeech.xyz/og.png">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://freedspeech.xyz">
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="muesli — free speech">
-  <meta name="twitter:description" content="Local-first AI dictation and meeting transcriber. Free speech, on device, local inference.">
+  <meta name="twitter:title" content="Meets — free speech">
+  <meta name="twitter:description" content="Local-first AI meeting transcriber. Free speech, on device, local inference.">
   <meta name="twitter:image" content="https://freedspeech.xyz/og.png">
   <meta name="theme-color" content="#111214">
-  <meta name="keywords" content="muesli, dictation, macOS, speech to text, meeting transcription, local inference, on device, AI transcriber, whisper, free, open source, apple silicon, privacy, local-first">
+  <meta name="keywords" content="meets, meeting transcription, macOS, speech to text, meetings, local inference, on device, AI transcriber, free, open source, apple silicon, privacy, local-first">
   <meta name="author" content="Pranav Hari">
   <meta name="robots" content="index, follow">
-  <meta name="application-name" content="Muesli">
-  <meta name="apple-mobile-web-app-title" content="Muesli">
+  <meta name="application-name" content="Meets">
+  <meta name="apple-mobile-web-app-title" content="Meets">
   <link rel="canonical" href="https://freedspeech.xyz">
   <link rel="icon" type="image/png" href="./favicon.png">
   <link rel="apple-touch-icon" href="./icon.png">
@@ -486,8 +486,8 @@
   {
     "@context": "https://schema.org",
     "@type": "SoftwareApplication",
-    "name": "Muesli",
-    "description": "Local-first AI dictation and meeting transcriber for macOS. Free speech, on device, local inference.",
+    "name": "Meets",
+    "description": "Local-first AI meeting transcription for macOS. Free speech, on device, local inference.",
     "url": "https://freedspeech.xyz",
     "applicationCategory": "ProductivityApplication",
     "operatingSystem": "macOS",
@@ -538,9 +538,9 @@
     <!-- center: product identity -->
     <section class="hero">
       <div class="core">
-        <img class="icon" src="./icon.png" alt="Muesli" width="72" height="72">
-        <h1 class="name">muesli</h1>
-        <p class="sub">free speech to text &middot; on-device local inference &middot; auto meeting transcriptions</p>
+        <img class="icon" src="./icon.png" alt="Meets" width="72" height="72">
+        <h1 class="name">Meets</h1>
+        <p class="sub">free speech to text &middot; on-device local inference &middot; auto meeting transcription</p>
         <a class="get" href="https://freedspeech.xyz/download/">download for macOS</a>
         <div class="install-alt">
           <span class="install-label">or install with homebrew</span>
@@ -567,9 +567,9 @@
         <div class="faq-list">
           <article class="faq-item">
             <h2>App won&rsquo;t open?</h2>
-            <p>If macOS says Muesli is damaged, open <b>System Settings &rarr; Privacy &amp; Security</b>, scroll down, and click <b>Open Anyway</b>. If that still doesn&rsquo;t clear it, run in Terminal:
+            <p>If macOS says Meets is damaged, open <b>System Settings &rarr; Privacy &amp; Security</b>, scroll down, and click <b>Open Anyway</b>. If that still doesn&rsquo;t clear it, run in Terminal:
               <span class="command-row">
-                <code id="xattr-cmd">sudo xattr -cr /Applications/Muesli.app</code>
+                <code id="xattr-cmd">sudo xattr -cr /Applications/Meets.app</code>
                 <button aria-label="Copy troubleshooting command" title="Copy command" onclick="navigator.clipboard.writeText(document.getElementById('xattr-cmd').textContent)">
                   <svg viewBox="0 0 24 24" aria-hidden="true">
                     <rect x="9" y="9" width="10" height="12" rx="2"></rect>
@@ -580,24 +580,24 @@
             </p>
           </article>
           <article class="faq-item">
-            <h2>Why isn&rsquo;t my transcription pasting into the input box?</h2>
-            <p>Usually this means Accessibility access is missing, stale, or attached to the wrong copy of Muesli. Open <b>System Settings &rarr; Privacy &amp; Security &rarr; Accessibility</b>, make sure <b>Muesli</b> is enabled, then quit and reopen it from <b>/Applications</b>. If it still fails, remove Muesli from Accessibility, add it back, and relaunch.</p>
+            <h2>Why is my meeting missing context or screen content in the notes?</h2>
+            <p>Usually this means Accessibility access is missing, stale, or attached to the wrong copy of Meets. Open <b>System Settings &rarr; Privacy &amp; Security &rarr; Accessibility</b>, make sure <b>Meets</b> is enabled, then quit and reopen it from <b>/Applications</b>. If it still fails, remove Meets from Accessibility, add it back, and relaunch.</p>
           </article>
           <article class="faq-item">
-            <h2>Why doesn&rsquo;t the hotkey start dictation?</h2>
-            <p>The global hotkey depends on <b>Input Monitoring</b>. Open <b>System Settings &rarr; Privacy &amp; Security &rarr; Input Monitoring</b>, confirm Muesli is allowed, then relaunch the app from <b>/Applications</b>. If you changed the shortcut in Settings, make sure you&rsquo;re using the configured key instead of assuming the default.</p>
+            <h2>Why doesn&rsquo;t the hotkey start a meeting recording?</h2>
+            <p>The global meeting-recording hotkey depends on <b>Input Monitoring</b>. Open <b>System Settings &rarr; Privacy &amp; Security &rarr; Input Monitoring</b>, confirm Meets is allowed, then relaunch the app from <b>/Applications</b>. If you changed the shortcut in Settings, make sure you&rsquo;re using the configured key instead of assuming the default.</p>
           </article>
           <article class="faq-item">
-            <h2>Why did Muesli stop working after an update or reinstall?</h2>
-            <p>macOS permissions are tied to a specific installed app path and signature. If you launch Muesli from Downloads, Desktop, or an older duplicate copy, paste and hotkey permissions can silently stop working. Keep one copy in <b>/Applications</b>, delete duplicates, then re-grant Accessibility and Input Monitoring if needed.</p>
+            <h2>Why did Meets stop working after an update or reinstall?</h2>
+            <p>macOS permissions are tied to a specific installed app path and signature. If you launch Meets from Downloads, Desktop, or an older duplicate copy, recording and hotkey permissions can silently stop working. Keep one copy in <b>/Applications</b>, delete duplicates, then re-grant Accessibility and Input Monitoring if needed.</p>
           </article>
           <article class="faq-item">
             <h2>Why is meeting recording failing or missing system audio?</h2>
-            <p>Muesli needs <b>Screen Recording</b> or <b>Screen &amp; System Audio Recording</b> permission for meeting capture. Open <b>System Settings &rarr; Privacy &amp; Security</b>, enable Muesli under the relevant recording pane, then relaunch. If microphone transcription works but meeting capture doesn&rsquo;t, this is usually the missing permission.</p>
+            <p>Meets needs <b>Screen Recording</b> or <b>Screen &amp; System Audio Recording</b> permission for meeting capture. Open <b>System Settings &rarr; Privacy &amp; Security</b>, enable Meets under the relevant recording pane, then relaunch. If microphone transcription works but meeting capture doesn&rsquo;t, this is usually the missing permission.</p>
           </article>
           <article class="faq-item">
-            <h2>Why isn&rsquo;t Muesli showing upcoming meetings?</h2>
-            <p>Upcoming meetings come from local macOS Calendar access, Google Calendar, or both. If the list is empty, first check Calendar permission. If you rely on Google Calendar, reconnect it in Settings and wait for the next refresh. If you use both, Muesli deduplicates matching events, so you should still only see one entry per meeting.</p>
+            <h2>Why isn&rsquo;t Meets showing upcoming meetings?</h2>
+            <p>Upcoming meetings come from local macOS Calendar access, Google Calendar, or both. If the list is empty, first check Calendar permission. If you rely on Google Calendar, reconnect it in Settings and wait for the next refresh. If you use both, Meets deduplicates matching events, so you should still only see one entry per meeting.</p>
           </article>
         </div>
       </div>
@@ -629,7 +629,7 @@ fetch('https://api.github.com/repos/Muesli-HQ/muesli')
   .catch(() => {});
 
 /* ═══════════════════════════════════════════════════════════
-   free speech · muesli
+   free speech · Meets
    constant brownian drift · cursor reveals quotes
    ═══════════════════════════════════════════════════════════ */
 
