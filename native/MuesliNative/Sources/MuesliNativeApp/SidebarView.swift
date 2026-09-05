@@ -257,10 +257,7 @@ struct SidebarView: View {
     private var sidebarHeader: some View {
         HStack(alignment: .top) {
             VStack(alignment: .leading, spacing: MuesliTheme.spacing4) {
-                Text("Meets.")
-                    .font(MuesliTheme.title2())
-                    .foregroundStyle(MuesliTheme.textPrimary)
-                    .accessibilityLabel("Meets")
+                MeetsWordmark(size: 26, color: MuesliTheme.textPrimary)
                 if !userName.isEmpty {
                     Text("Hi, \(userName)")
                         .font(MuesliTheme.caption())

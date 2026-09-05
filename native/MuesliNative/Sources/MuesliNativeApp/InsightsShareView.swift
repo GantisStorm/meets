@@ -305,9 +305,7 @@ private struct InsightsShareCard: View {
                         .foregroundStyle(pale.opacity(0.88))
                         .shadow(color: Color.black.opacity(0.48), radius: 3, y: 1)
                     Spacer()
-                    Text("Meets.")
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(cyan)
+                    MeetsWordmark(size: 15, color: cyan, periodColor: Color(red: 0.90, green: 0.28, blue: 0.30))
                         .shadow(color: Color.black.opacity(0.48), radius: 3, y: 1)
                 }
             }
@@ -357,10 +355,7 @@ private struct MuesliShareMark: View {
     let color: Color
 
     var body: some View {
-        Text("Meets.")
-            .font(Font(AppFonts.bold(30)))
-            .tracking(-1.1)
-            .foregroundStyle(color)
+        MeetsWordmark(size: 30, color: color, periodColor: Color(red: 0.90, green: 0.28, blue: 0.30))
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("Meets")
     }

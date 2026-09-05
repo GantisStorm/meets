@@ -433,11 +433,7 @@ struct OnboardingView: View {
         VStack(spacing: MuesliTheme.spacing16) {
             Spacer()
 
-            Text("Meets.")
-                .font(.system(size: 44, weight: .bold, design: .rounded))
-                .tracking(-1.6)
-                .foregroundStyle(MuesliTheme.textPrimary)
-                .accessibilityLabel("Meets")
+            MeetsWordmark(size: 52, color: MuesliTheme.textPrimary)
 
             VStack(spacing: MuesliTheme.spacing8) {
                 Text("Welcome to Meets")
