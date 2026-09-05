@@ -228,9 +228,14 @@ struct OnboardingView: View {
                 advancePastPermissions()
             }
         case OnboardingFlow.Step.meetingSummary.rawValue:
-            HStack(spacing: MuesliTheme.spacing12) {
-                skipButton { finishOnboarding(withKey: true) }
-                onboardingButton("Finish", enabled: true) {
+            HStack(spacing: MuesliTheme.spacing16) {
+                Button("Skip for now") {
+                    finishOnboarding(withKey: true)
+                }
+                .buttonStyle(.plain)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(MuesliTheme.textSecondary)
+                onboardingButton("Finish Setup", enabled: true) {
                     finishOnboarding(withKey: true)
                 }
             }
@@ -257,8 +262,8 @@ struct OnboardingView: View {
     private func onboardingButton(_ title: String, enabled: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(title)
-                .font(.system(size: 14, weight: .medium))
-                .foregroundStyle(.white)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(MuesliTheme.accentContent)
                 .padding(.horizontal, MuesliTheme.spacing20)
                 .padding(.vertical, MuesliTheme.spacing8)
                 .background(enabled ? MuesliTheme.accent : MuesliTheme.accent.opacity(0.4))
@@ -266,22 +271,6 @@ struct OnboardingView: View {
         }
         .buttonStyle(.plain)
         .disabled(!enabled)
-    }
-
-    @ViewBuilder
-    private func skipButton(action: @escaping () -> Void) -> some View {
-        Button("Skip", action: action)
-            .buttonStyle(.plain)
-            .font(MuesliTheme.body())
-            .foregroundStyle(MuesliTheme.textSecondary)
-            .padding(.horizontal, MuesliTheme.spacing16)
-            .padding(.vertical, MuesliTheme.spacing8)
-            .background(MuesliTheme.surfacePrimary)
-            .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
-            .overlay(
-                RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall)
-                    .strokeBorder(MuesliTheme.surfaceBorder, lineWidth: 1)
-            )
     }
 
     private var shouldShowModelDownloadIndicator: Bool {
@@ -430,19 +419,21 @@ struct OnboardingView: View {
     // MARK: - Step 1: Welcome
 
     private var welcomeStep: some View {
-        VStack(spacing: MuesliTheme.spacing16) {
+        VStack(spacing: MuesliTheme.spacing24) {
             Spacer()
 
-            MeetsWordmark(size: 52, color: MuesliTheme.textPrimary)
+            MeetsWordmark(size: 56, color: MuesliTheme.textPrimary)
 
             VStack(spacing: MuesliTheme.spacing8) {
-                Text("Welcome to Meets")
-                    .font(MuesliTheme.title1())
+                Text("Record your meetings. Get notes.")
+                    .font(MuesliTheme.title2())
                     .foregroundStyle(MuesliTheme.textPrimary)
 
-                Text("Local-first meeting transcription for macOS.")
+                Text("Local-first transcription, summaries, and calendar sync — all on this Mac.")
                     .font(MuesliTheme.body())
                     .foregroundStyle(MuesliTheme.textSecondary)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 420)
             }
 
             VStack(alignment: .leading, spacing: MuesliTheme.spacing8) {
@@ -458,58 +449,9 @@ struct OnboardingView: View {
                     .frame(width: 280, height: 32)
             }
 
-            useCaseCard(
-                icon: "person.2.fill",
-                title: "Meetings",
-                subtitle: "Notes and summaries",
-                selected: true
-            ) {}
-
             Spacer()
         }
         .frame(maxWidth: .infinity)
-    }
-
-    private func useCaseCard(
-        icon: String,
-        title: String,
-        subtitle: String,
-        selected: Bool,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            VStack(spacing: 5) {
-                Image(systemName: icon)
-                    .font(.system(size: 20, weight: .medium))
-                Text(title)
-                    .font(.system(size: 12, weight: .semibold))
-                Text(subtitle)
-                    .font(.system(size: 10))
-                    .foregroundStyle(selected ? .white.opacity(0.72) : MuesliTheme.textTertiary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
-            }
-            .foregroundStyle(selected ? .white : MuesliTheme.textSecondary)
-            .frame(width: 132, height: 74)
-            .background(selected ? MuesliTheme.accent : MuesliTheme.backgroundRaised)
-            .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
-            .overlay(
-                RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall)
-                    .strokeBorder(selected ? MuesliTheme.accent : MuesliTheme.surfaceBorder, lineWidth: 1)
-            )
-            .overlay(alignment: .topLeading) {
-                if selected {
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .padding(7)
-                        .transition(.scale.combined(with: .opacity))
-                }
-            }
-        }
-        .buttonStyle(.plain)
-        .animation(.easeInOut(duration: 0.18), value: selected)
-        .disabled(true)
     }
 
     // MARK: - Step 2: Model Selection
@@ -693,7 +635,7 @@ struct OnboardingView: View {
                     .font(MuesliTheme.title1())
                     .foregroundStyle(MuesliTheme.textPrimary)
 
-                Text("Muesli records meetings on this Mac. Grant Microphone to continue; you can add System Audio now or later in Settings.")
+                Text("Meets records meetings on this Mac. Grant Microphone to continue; you can add System Audio now or later in Settings.")
                     .font(MuesliTheme.body())
                     .foregroundStyle(MuesliTheme.textSecondary)
                     .multilineTextAlignment(.center)
@@ -952,7 +894,7 @@ struct OnboardingView: View {
                     }
                 }
             } else if summaryBackend == .openRouter {
-                Text("Connect OpenRouter in your browser. Muesli receives a dedicated API key after you approve access.")
+                Text("Connect OpenRouter in your browser. Meets receives a dedicated API key after you approve access.")
                     .font(MuesliTheme.caption())
                     .foregroundStyle(MuesliTheme.textSecondary)
                     .multilineTextAlignment(.center)
