@@ -99,6 +99,14 @@ struct SettingsView: View {
     @State private var isSyncingCloud = false
     @State private var cloudSyncOutcome: String?
     @State private var cloudSyncOutcomeIsError = false
+    /// Live ACP agent config options backing the Model/Reasoning menus in the
+    /// Meeting Summaries section. `nil` = not yet fetched.
+    @State private var acpConfigOptions: [ACPConfigOption]?
+    /// Command the cached `acpConfigOptions` were fetched for; a changed
+    /// command refetches.
+    @State private var acpConfigOptionsCommand = ""
+    @State private var acpConfigOptionsLoadTask: Task<Void, Never>?
+    @State private var acpOptionsUnavailable = false
 
     init(appState: AppState, controller: MuesliController) {
         self.appState = appState
@@ -229,6 +237,9 @@ struct SettingsView: View {
                 if appState.selectedMeetingSummaryBackend == .openRouter {
                     loadOpenRouterFreeModelsIfNeeded()
                 }
+                if selectedPane == .meetings {
+                    loadACPConfigOptionsIfNeeded()
+                }
                 scrollToFeatureTourTarget(activeFeatureTourTarget, using: scrollProxy)
             }
             .onDisappear {
@@ -254,6 +265,7 @@ struct SettingsView: View {
                 appState.selectedSettingsPane = pane
                 if pane == .meetings {
                     loadCachedAudioInputDevices()
+                    loadACPConfigOptionsIfNeeded()
                 }
                 scrollToFeatureTourTarget(activeFeatureTourTarget, using: scrollProxy)
             }
@@ -274,6 +286,21 @@ struct SettingsView: View {
             .onChange(of: appState.selectedMeetingSummaryBackend) { _, backend in
                 if backend == .openRouter {
                     loadOpenRouterFreeModelsIfNeeded()
+                }
+                if backend == .acpAgent {
+                    loadACPConfigOptionsIfNeeded()
+                }
+            }
+            .onChange(of: appState.config.acpAgentCommand) { _, _ in
+                loadACPConfigOptionsIfNeeded()
+            }
+            .onChange(of: selectedPane) { _, pane in
+                if pane != .meetings {
+                    acpConfigOptionsLoadTask?.cancel()
+                    acpConfigOptionsLoadTask = nil
+                    acpConfigOptions = nil
+                    acpConfigOptionsCommand = ""
+                    acpOptionsUnavailable = false
                 }
             }
             .alert(
@@ -342,6 +369,152 @@ struct SettingsView: View {
 
     private func loadCachedAudioInputDevices() {
         refreshAudioInputDevices()
+    }
+
+    /// (Re)fetches the ACP agent's advertised config options whenever the
+    /// Meeting Summaries ACP branch is visible with a non-empty command.
+    /// Failures degrade to "use agent default": a single "Default" entry in
+    /// each menu and a hint that starting the agent surfaces the options.
+    private func loadACPConfigOptionsIfNeeded() {
+        guard appState.selectedMeetingSummaryBackend == .acpAgent else { return }
+        let command = appState.config.acpAgentCommand.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !command.isEmpty else {
+            acpConfigOptionsLoadTask?.cancel()
+            acpConfigOptionsLoadTask = nil
+            acpConfigOptions = nil
+            acpConfigOptionsCommand = ""
+            acpOptionsUnavailable = false
+            return
+        }
+        guard acpConfigOptionsCommand != command else { return }
+        acpConfigOptionsLoadTask?.cancel()
+        acpConfigOptions = nil
+        acpConfigOptionsCommand = command
+        acpOptionsUnavailable = false
+        acpConfigOptionsLoadTask = Task { @MainActor in
+            do {
+                let options = try await ACPClient.availableOptions(command: command, timeout: 20)
+                guard !Task.isCancelled else { return }
+                acpConfigOptions = options
+                acpOptionsUnavailable = options.isEmpty
+            } catch {
+                guard !Task.isCancelled else { return }
+                acpConfigOptions = []
+                acpOptionsUnavailable = true
+            }
+        }
+    }
+
+    private var isACPConfigOptionsLoading: Bool {
+        appState.selectedMeetingSummaryBackend == .acpAgent
+            && !appState.config.acpAgentCommand.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && acpConfigOptions == nil
+            && acpConfigOptionsLoadTask != nil
+            && !acpOptionsUnavailable
+    }
+
+    /// Live option values for an ACP config option id, in the agent's order.
+    private func acpOptionValues(_ id: String) -> [ACPConfigValue] {
+        acpConfigOptions?.first(where: { $0.id == id })?.options ?? []
+    }
+
+    @ViewBuilder
+    private func acpConfigMenuRow(
+        label: String,
+        description: String?,
+        optionID: String,
+        storedValue: String,
+        onSelect: @escaping (String) -> Void
+    ) -> some View {
+        if let description {
+            settingsRow(label, description: description, controlWidth: meetingControlWidth) {
+                acpConfigMenuControl(optionID: optionID, storedValue: storedValue, onSelect: onSelect)
+            }
+        } else {
+            settingsRow(label, controlWidth: meetingControlWidth) {
+                acpConfigMenuControl(optionID: optionID, storedValue: storedValue, onSelect: onSelect)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func acpConfigMenuControl(
+        optionID: String,
+        storedValue: String,
+        onSelect: @escaping (String) -> Void
+    ) -> some View {
+        if isACPConfigOptionsLoading {
+            Text("Loading…")
+                .font(MuesliTheme.body())
+                .foregroundStyle(MuesliTheme.textTertiary)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+        } else {
+            acpConfigMenu(options: acpOptionValues(optionID), storedValue: storedValue, onSelect: onSelect)
+        }
+    }
+
+    @ViewBuilder
+    private func acpConfigMenu(
+        options: [ACPConfigValue],
+        storedValue: String,
+        onSelect: @escaping (String) -> Void
+    ) -> some View {
+        let entries = [("", "Default")] + options.map { ($0.value, $0.name) }
+        let selection = {
+            if storedValue.isEmpty {
+                return "Default"
+            }
+            return entries.first(where: { $0.0 == storedValue })?.1 ?? "Default"
+        }()
+        settingsMenu(
+            selection: selection,
+            options: entries.map(\.1)
+        ) { pickedLabel in
+            guard let entry = entries.first(where: { $0.1 == pickedLabel }) else { return }
+            onSelect(entry.0)
+        }
+    }
+
+    /// True once the fetch finished and the agent offered no config options
+    /// (or the fetch failed); the menus then offer only "Default".
+    private var acpOptionsUnavailableAfterLoad: Bool {
+        acpOptionsUnavailable
+            || (acpConfigOptionsLoadTask == nil && acpConfigOptions?.isEmpty == true)
+    }
+
+    /// Shown under the Model row only while the agent is offline or offers no
+    /// options; live menus speak for themselves.
+    private var acpModelCaption: String? {
+        guard !isACPConfigOptionsLoading else { return nil }
+        return acpOptionsUnavailableAfterLoad || acpOptionValues("model").isEmpty
+            ? "Start the agent to see available models."
+            : nil
+    }
+
+    private static let acpThinkingCaption = "Reasoning effort: off / auto / low / medium / high / xhigh / max."
+
+    @ViewBuilder
+    private var acpModelMenuRow: some View {
+        acpConfigMenuRow(
+            label: "Model",
+            description: acpModelCaption,
+            optionID: "model",
+            storedValue: appState.config.acpAgentModel
+        ) { value in
+            controller.updateConfig { $0.acpAgentModel = value }
+        }
+    }
+
+    @ViewBuilder
+    private var acpThinkingMenuRow: some View {
+        acpConfigMenuRow(
+            label: "Reasoning",
+            description: Self.acpThinkingCaption,
+            optionID: "thinking",
+            storedValue: appState.config.acpAgentThinking
+        ) { value in
+            controller.updateConfig { $0.acpAgentThinking = value }
+        }
     }
 
     private static let accentPresets: [(hex: String, name: String)] = [
@@ -732,6 +905,10 @@ struct SettingsView: View {
                     )
                     .frame(height: 22)
                 }
+                Divider().background(MuesliTheme.surfaceBorder)
+                acpModelMenuRow
+                Divider().background(MuesliTheme.surfaceBorder)
+                acpThinkingMenuRow
             } else {
                 settingsRow("Account", controlWidth: meetingControlWidth) {
                     openRouterAccountControl()

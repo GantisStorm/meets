@@ -1454,6 +1454,10 @@ struct AppConfig: Codable {
     var customLLMModel: String = ""
     var customLLMFormat: String = CustomLLMFormat.openAI.rawValue
     var acpAgentCommand: String = "omp acp"
+    /// ACP agent "model" config option value; empty means the agent default.
+    var acpAgentModel: String = ""
+    /// ACP agent "thinking" config option value; empty means the agent default.
+    var acpAgentThinking: String = ""
     var summaryModel: String = ""
     var meetingSummaryModel: String = ""
     var hasCompletedOnboarding: Bool = false
@@ -1569,6 +1573,8 @@ struct AppConfig: Codable {
         case customLLMModel = "custom_llm_model"
         case customLLMFormat = "custom_llm_format"
         case acpAgentCommand = "acp_agent_command"
+        case acpAgentModel = "acp_agent_model"
+        case acpAgentThinking = "acp_agent_thinking"
         case summaryModel = "summary_model"
         case meetingSummaryModel = "meeting_summary_model"
         case hasCompletedOnboarding = "has_completed_onboarding"
@@ -1720,6 +1726,8 @@ struct AppConfig: Codable {
         let decodedCustomLLMFormat = (try? c.decode(String.self, forKey: .customLLMFormat)) ?? defaults.customLLMFormat
         customLLMFormat = CustomLLMFormat(rawValue: decodedCustomLLMFormat)?.rawValue ?? defaults.customLLMFormat
         acpAgentCommand = (try? c.decode(String.self, forKey: .acpAgentCommand)) ?? defaults.acpAgentCommand
+        acpAgentModel = (try? c.decode(String.self, forKey: .acpAgentModel)) ?? defaults.acpAgentModel
+        acpAgentThinking = (try? c.decode(String.self, forKey: .acpAgentThinking)) ?? defaults.acpAgentThinking
         summaryModel = (try? c.decode(String.self, forKey: .summaryModel)) ?? defaults.summaryModel
         meetingSummaryModel = (try? c.decode(String.self, forKey: .meetingSummaryModel)) ?? defaults.meetingSummaryModel
         hasCompletedOnboarding = (try? c.decode(Bool.self, forKey: .hasCompletedOnboarding)) ?? defaults.hasCompletedOnboarding

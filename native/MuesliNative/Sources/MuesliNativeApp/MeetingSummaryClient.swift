@@ -848,6 +848,8 @@ enum MeetingSummaryClient {
                 instructions: instructions,
                 userPrompt: userPrompt,
                 command: command,
+                model: config.acpAgentModel.isEmpty ? nil : config.acpAgentModel,
+                thinking: config.acpAgentThinking.isEmpty ? nil : config.acpAgentThinking,
                 timeout: acpAgentSummaryTimeout
             )
         } catch {
@@ -869,6 +871,8 @@ enum MeetingSummaryClient {
         return !model.isEmpty && (!customLLMRequiresAPIKey(config: config) || !apiKey.isEmpty)
     }
 
+    /// The command is the only required setting: model/thinking are optional
+    /// agent config overrides and fall back to the agent's own defaults.
     static func acpAgentHasRequiredSettings(config: AppConfig) -> Bool {
         !config.acpAgentCommand.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
