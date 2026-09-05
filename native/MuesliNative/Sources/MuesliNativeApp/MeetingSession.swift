@@ -229,6 +229,22 @@ final class MeetingSession {
         }
         return await manualNotesProvider?()
     }
+    /// Whether this stop's summary should include manual notes. Frozen at
+    /// stop time the same way `stopManualNotesSnapshot` is; when no snapshot
+    /// is set (direct `stop()` callers), the live provider is consulted.
+    var includeNotesInSummarySnapshot: Bool? = nil
+    /// Live provider of the include-notes preference, consulted only when no
+    /// frozen snapshot was set.
+    var includeNotesInSummaryProvider: (() async -> Bool)?
+    /// Manual notes to use during `stop()`: prefers the synchronous stop-time
+    /// snapshot so summary generation, failure notes, and the persisted raw
+    /// notes all agree on the same value.
+    func resolvedIncludeNotesInSummary() async -> Bool {
+        if let snapshot = includeNotesInSummarySnapshot {
+            return snapshot
+        }
+        return await includeNotesInSummaryProvider?() ?? false
+    }
     /// Formatted notes of the predecessor meeting when this session records a
     /// follow-up; injected into the summary prompt for action-item carry-forward.
     var previousMeetingNotes: String?
@@ -694,6 +710,7 @@ final class MeetingSession {
         micChunkCollector.cancelAll()
         systemChunkCollector.cancelAll()
         stopManualNotesSnapshot = nil
+        includeNotesInSummarySnapshot = nil
         fputs("[meeting] recording discarded\n", stderr)
     }
 
@@ -923,6 +940,10 @@ final class MeetingSession {
         fputs("[meeting] visual context drained chars=\(visualContext.count) includedInPrompt=\(!visualContext.isEmpty) useOCR=\(config.useCoreAudioTap)\n", stderr)
         onProgress?(.summarizingNotes)
         let manualNotes = await resolvedStopManualNotes()
+        // Transcript-only summaries by default; manual notes enter the prompt
+        // (and are appended) only when the meeting opted in.
+        let includeNotesInSummary = await resolvedIncludeNotesInSummary()
+        let manualNotesToRetain = includeNotesInSummary ? manualNotes : nil
         let formattedNotes: String
         do {
             formattedNotes = try await MeetingSummaryClient.summarize(
@@ -931,7 +952,7 @@ final class MeetingSession {
                 config: config,
                 template: templateSnapshot,
                 existingNotes: nil,
-                manualNotesToRetain: manualNotes,
+                manualNotesToRetain: manualNotesToRetain,
                 visualContext: visualContext.isEmpty ? nil : visualContext,
                 previousMeetingNotes: previousMeetingNotes
             )
@@ -941,7 +962,7 @@ final class MeetingSession {
                 transcript: rawTranscript,
                 meetingTitle: generatedTitle,
                 error: error,
-                manualNotes: manualNotes
+                manualNotes: includeNotesInSummary ? manualNotes : nil
             )
         }
 

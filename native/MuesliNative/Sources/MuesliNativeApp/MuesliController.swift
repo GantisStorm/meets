@@ -3121,7 +3121,7 @@ public final class MuesliController: NSObject {
                     config: self.config,
                     template: templateSnapshot,
                     existingNotes: self.notesContextForResummary(meeting),
-                    manualNotesToRetain: meeting.manualNotes
+                    manualNotesToRetain: meeting.includeNotesInSummary ? meeting.manualNotes : nil
                 )
                 try self.dictationStore.updateMeetingSummary(
                     id: meeting.id,
@@ -3221,7 +3221,7 @@ public final class MuesliController: NSObject {
                         config: self.config,
                         template: templateSnapshot,
                         existingNotes: self.notesContextForResummary(meeting),
-                        manualNotesToRetain: meeting.manualNotes
+                        manualNotesToRetain: meeting.includeNotesInSummary ? meeting.manualNotes : nil
                     )
                     self.logLLMUsage(
                         kind: "summary",
@@ -3245,7 +3245,7 @@ public final class MuesliController: NSObject {
                         transcript: rawTranscript,
                         meetingTitle: meeting.title,
                         error: error,
-                        manualNotes: meeting.manualNotes
+                        manualNotes: meeting.includeNotesInSummary ? meeting.manualNotes : nil
                     )
                 }
 
@@ -3958,6 +3958,17 @@ public final class MuesliController: NSObject {
             markMeetingManualNotesPersisted(id: id, notes: notes)
         } catch {
             fputs("[muesli-native] failed to update manual notes for \(id): \(error)\n", stderr)
+        }
+        syncAppState()
+    }
+
+    /// Per-meeting preference: include this meeting's written notes when the AI
+    /// summary is generated (prompt input + retained in the generated notes).
+    func setMeetingIncludeNotesInSummary(id: Int64, include: Bool) {
+        do {
+            try dictationStore.updateMeetingIncludeNotesInSummary(id: id, include: include)
+        } catch {
+            fputs("[muesli-native] failed to update include-notes-in-summary for \(id): \(error)\n", stderr)
         }
         syncAppState()
     }
@@ -5049,6 +5060,12 @@ public final class MuesliController: NSObject {
                         return self.manualNotesForLiveMeeting(id: meetingID)
                     }
                 }
+                meetingSession.includeNotesInSummaryProvider = { [weak self] in
+                    await MainActor.run {
+                        guard let self else { return false }
+                        return (try? self.dictationStore.meeting(id: meetingID))?.includeNotesInSummary ?? false
+                    }
+                }
                 meetingSession.liveTitleProvider = { [weak self] in
                     await MainActor.run {
                         guard let self else { return nil }
@@ -5764,6 +5781,9 @@ public final class MuesliController: NSObject {
             // session's stop flow must read one immutable snapshot or the
             // typed notes can vanish from both the summary and the saved row.
             sessionToStop.stopManualNotesSnapshot = manualNotesForLiveMeeting(id: liveMeetingID)
+            // Freeze the include-notes preference at the same moment; the live
+            // meeting's checkbox can still be toggled while transcription runs.
+            sessionToStop.includeNotesInSummarySnapshot = (try? dictationStore.meeting(id: liveMeetingID))?.includeNotesInSummary ?? false
             flushCachedMeetingManualNotes(id: liveMeetingID, sync: false)
             flushCachedMeetingTitle(id: liveMeetingID)
             updateMeetingStatusAndScheduleSync(id: liveMeetingID, status: .processing)
@@ -6058,6 +6078,8 @@ public final class MuesliController: NSObject {
         let originalStart = originalMeeting
             .flatMap { ISO8601DateFormatter().date(from: $0.startTime) }
         let accumulatedDuration = (originalMeeting?.durationSeconds ?? 0) + result.durationSeconds
+        // Include notes only when the persisted meeting opted in.
+        let includeNotes = originalMeeting?.includeNotesInSummary ?? false
         // Persisting the resumed session's context alone would overwrite what
         // earlier sessions of this meeting captured.
         let mergedVisualContext = MeetingResumePolicy.combinedResumeVisualContext(
@@ -6083,7 +6105,7 @@ public final class MuesliController: NSObject {
                 config: config,
                 template: result.templateSnapshot,
                 existingNotes: nil,
-                manualNotesToRetain: manualNotes,
+                manualNotesToRetain: includeNotes ? manualNotes : nil,
                 visualContext: mergedVisualContext
             )
         } catch {
@@ -6092,7 +6114,7 @@ public final class MuesliController: NSObject {
                 transcript: combined,
                 meetingTitle: result.title,
                 error: error,
-                manualNotes: manualNotes
+                manualNotes: includeNotes ? manualNotes : nil
             )
         }
         return result.overriding(

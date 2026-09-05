@@ -127,6 +127,10 @@ public struct MeetingRecord: Identifiable, Codable, Sendable {
     /// Aggregated on-screen context (app text + OCR) captured during the
     /// meeting; nil when screen context was disabled or nothing was captured.
     public let visualContext: String?
+    /// Per-meeting preference: when true, manual notes are included in the AI
+    /// summary prompt and appended to the generated summary; default false
+    /// keeps summaries transcript-only.
+    public let includeNotesInSummary: Bool
 
     public init(
         id: Int64,
@@ -150,7 +154,8 @@ public struct MeetingRecord: Identifiable, Codable, Sendable {
         selectedTemplatePrompt: String? = nil,
         source: MeetingSource = .meeting,
         followUpToID: Int64? = nil,
-        visualContext: String? = nil
+        visualContext: String? = nil,
+        includeNotesInSummary: Bool = false
     ) {
         self.id = id
         self.title = title
@@ -174,6 +179,7 @@ public struct MeetingRecord: Identifiable, Codable, Sendable {
         self.source = source
         self.followUpToID = followUpToID
         self.visualContext = visualContext
+        self.includeNotesInSummary = includeNotesInSummary
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -199,6 +205,7 @@ public struct MeetingRecord: Identifiable, Codable, Sendable {
         case source
         case followUpToID
         case visualContext
+        case includeNotesInSummary = "include_notes_in_summary"
     }
 
     public init(from decoder: Decoder) throws {
@@ -225,7 +232,8 @@ public struct MeetingRecord: Identifiable, Codable, Sendable {
             selectedTemplatePrompt: try c.decodeIfPresent(String.self, forKey: .selectedTemplatePrompt),
             source: (try? c.decode(MeetingSource.self, forKey: .source)) ?? .meeting,
             followUpToID: try c.decodeIfPresent(Int64.self, forKey: .followUpToID),
-            visualContext: try c.decodeIfPresent(String.self, forKey: .visualContext)
+            visualContext: try c.decodeIfPresent(String.self, forKey: .visualContext),
+            includeNotesInSummary: (try? c.decode(Bool.self, forKey: .includeNotesInSummary)) ?? false
         )
     }
 

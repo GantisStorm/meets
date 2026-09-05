@@ -590,6 +590,8 @@ struct MeetingDetailView: View {
                             .background(MuesliTheme.backgroundBase)
                             .manualNotesEditorChrome(compact: usesCompactQuickNotes)
                             .frame(maxHeight: hasPersistedNotes ? 260 : .infinity)
+
+                            includeNotesInSummaryRow(for: meeting)
                         }
                         .frame(maxWidth: 980, maxHeight: hasPersistedNotes ? nil : .infinity, alignment: .topLeading)
                     }
@@ -629,6 +631,8 @@ struct MeetingDetailView: View {
                     .frame(maxWidth: 980, maxHeight: .infinity, alignment: .topLeading)
                     .background(MuesliTheme.backgroundBase)
                     .manualNotesEditorChrome(compact: usesCompactQuickNotes)
+
+                    includeNotesInSummaryRow(for: meeting)
                 }
                 .padding(.horizontal, usesCompactQuickNotes ? 24 : 40)
                 .padding(.top, usesCompactQuickNotes ? 0 : 12)
@@ -757,6 +761,8 @@ struct MeetingDetailView: View {
                             .strokeBorder(MuesliTheme.surfaceBorder, lineWidth: 1)
                     )
             }
+
+            includeNotesInSummaryRow(for: meeting)
         }
     }
 
@@ -1107,6 +1113,23 @@ struct MeetingDetailView: View {
             }
         }
         .frame(maxWidth: 980, alignment: .leading)
+    }
+
+    @ViewBuilder
+    private func includeNotesInSummaryRow(for meeting: MeetingRecord) -> some View {
+        Toggle(isOn: Binding(
+            get: { meeting.includeNotesInSummary },
+            set: { include in
+                controller.setMeetingIncludeNotesInSummary(id: meeting.id, include: include)
+            }
+        )) {
+            Text("Include your written notes when generating the summary.")
+                .font(MuesliTheme.caption())
+                .foregroundStyle(MuesliTheme.textSecondary)
+        }
+        .toggleStyle(.checkbox)
+        .help("When on, your written notes are fed to the AI summary alongside the transcript and retained in the generated notes.")
+        .accessibilityIdentifier("meeting.includeNotesInSummaryToggle")
     }
 
     @ViewBuilder

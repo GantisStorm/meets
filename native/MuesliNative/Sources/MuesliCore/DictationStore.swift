@@ -31,8 +31,14 @@ public final class DictationStore {
     }
 
     private let databaseURL: URL
+
+    /// Thread-confined (MainActor) one-shot overrides of the per-meeting
+    /// include-notes-in-summary preference, written by the UI setter while a
+    /// meeting stop is in flight. `completeLiveMeeting` consumes and clears
+    /// them so a persisted toggle during the stop survives the row update.
+    private var includeNotesInSummaryOverrides: [Int64: Bool] = [:]
     private static let meetingColumns = """
-    id, title, start_time, duration_seconds, raw_transcript, formatted_notes, word_count, folder_id, calendar_event_id, mic_audio_path, system_audio_path, saved_recording_path, meeting_status, manual_notes, selected_template_id, selected_template_name, selected_template_kind, selected_template_prompt, source, follow_up_to_id, calendar_occurrence_key, calendar_source, calendar_id, calendar_series_id, calendar_occurrence_start, visual_context
+    id, title, start_time, duration_seconds, raw_transcript, formatted_notes, word_count, folder_id, calendar_event_id, mic_audio_path, system_audio_path, saved_recording_path, meeting_status, manual_notes, selected_template_id, selected_template_name, selected_template_kind, selected_template_prompt, source, follow_up_to_id, calendar_occurrence_key, calendar_source, calendar_id, calendar_series_id, calendar_occurrence_start, visual_context, include_notes_in_summary
     """
 
     public init() {
@@ -84,6 +90,7 @@ public final class DictationStore {
             updated_at REAL NOT NULL DEFAULT 0,
             follow_up_to_id INTEGER REFERENCES meetings(id) ON DELETE SET NULL,
             visual_context TEXT,
+            include_notes_in_summary INTEGER NOT NULL DEFAULT 0,
             created_at TEXT DEFAULT (datetime('now'))
         );
         CREATE INDEX IF NOT EXISTS idx_meetings_start_time ON meetings(start_time DESC);
@@ -183,6 +190,9 @@ public final class DictationStore {
             // Column may already exist.
         }
         if sqlite3_exec(db, "ALTER TABLE meetings ADD COLUMN visual_context TEXT", nil, nil, nil) != SQLITE_OK {
+            // Column may already exist.
+        }
+        if sqlite3_exec(db, "ALTER TABLE meetings ADD COLUMN include_notes_in_summary INTEGER NOT NULL DEFAULT 0", nil, nil, nil) != SQLITE_OK {
             // Column may already exist.
         }
         // Clean up legacy pre-meeting tables and sync columns from databases
@@ -679,8 +689,8 @@ public final class DictationStore {
 
         let sql = """
         INSERT INTO meetings
-        (title, calendar_event_id, start_time, end_time, duration_seconds, raw_transcript, formatted_notes, mic_audio_path, system_audio_path, saved_recording_path, word_count, selected_template_id, selected_template_name, selected_template_kind, selected_template_prompt, source, updated_at, calendar_occurrence_key, calendar_source, calendar_id, calendar_series_id, calendar_occurrence_start, visual_context)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (title, calendar_event_id, start_time, end_time, duration_seconds, raw_transcript, formatted_notes, mic_audio_path, system_audio_path, saved_recording_path, word_count, selected_template_id, selected_template_name, selected_template_kind, selected_template_prompt, source, updated_at, calendar_occurrence_key, calendar_source, calendar_id, calendar_series_id, calendar_occurrence_start, visual_context, include_notes_in_summary)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """
         var statement: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
@@ -720,6 +730,11 @@ public final class DictationStore {
             sqlite3_bind_null(statement, 22)
         }
         bindOptionalText(visualContext, at: 23, statement: statement)
+        // Honor a toggle persisted while this meeting was still a live draft;
+        // otherwise keep the transcript-only default.
+        let includeNotes = includeNotesInSummaryOverrides.removeValue(forKey: sqlite3_last_insert_rowid(db))
+            ?? false
+        sqlite3_bind_int(statement, 24, includeNotes ? 1 : 0)
 
         guard sqlite3_step(statement) == SQLITE_DONE else {
             throw lastError(db)
@@ -2535,9 +2550,20 @@ public final class DictationStore {
         } else {
             resolvedManualNotes = try manualNotesForMeeting(id: id, db: db)
         }
+        // The include-notes-in-summary preference is never written by this
+        // stop-time update; preserve whatever the row currently holds — except
+        // when this stop's controller already persisted a fresher value, which
+        // always wins for resumed meetings.
+        let storedIncludeNotesInSummary: Bool
+        if let override = includeNotesInSummaryOverrides[id] {
+            storedIncludeNotesInSummary = override
+            includeNotesInSummaryOverrides[id] = nil
+        } else {
+            storedIncludeNotesInSummary = try includeNotesInSummaryForMeeting(id: id, db: db)
+        }
         let sql = """
         UPDATE meetings
-        SET title = ?, calendar_event_id = ?, start_time = ?, end_time = ?, duration_seconds = ?, raw_transcript = ?, formatted_notes = ?, manual_notes = ?, mic_audio_path = ?, system_audio_path = ?, saved_recording_path = ?, meeting_status = ?, word_count = ?, selected_template_id = ?, selected_template_name = ?, selected_template_kind = ?, selected_template_prompt = ?, visual_context = ?, updated_at = ?
+        SET title = ?, calendar_event_id = ?, start_time = ?, end_time = ?, duration_seconds = ?, raw_transcript = ?, formatted_notes = ?, manual_notes = ?, mic_audio_path = ?, system_audio_path = ?, saved_recording_path = ?, meeting_status = ?, word_count = ?, selected_template_id = ?, selected_template_name = ?, selected_template_kind = ?, selected_template_prompt = ?, visual_context = ?, include_notes_in_summary = ?, updated_at = ?
         WHERE id = ?
         """
         var statement: OpaquePointer?
@@ -2570,8 +2596,9 @@ public final class DictationStore {
         bindOptionalText(selectedTemplateKind?.rawValue, at: 16, statement: statement)
         bindOptionalText(selectedTemplatePrompt, at: 17, statement: statement)
         bindOptionalText(visualContext, at: 18, statement: statement)
-        sqlite3_bind_double(statement, 19, Date().timeIntervalSince1970)
-        sqlite3_bind_int64(statement, 20, id)
+        sqlite3_bind_int(statement, 19, storedIncludeNotesInSummary ? 1 : 0)
+        sqlite3_bind_double(statement, 20, Date().timeIntervalSince1970)
+        sqlite3_bind_int64(statement, 21, id)
         guard sqlite3_step(statement) == SQLITE_DONE else {
             throw lastError(db)
         }
@@ -2603,6 +2630,50 @@ public final class DictationStore {
             throw DictationStoreError.meetingNotFound(id: id)
         }
         return stringColumn(statement, index: 0)
+    }
+
+    /// Per-meeting preference controlling whether manual notes are fed to the
+    /// AI summary; defaults to false (transcript-only summaries). Records the
+    /// toggle so an in-flight stop — which re-writes the row after the UI
+    /// persisted it — keeps the fresh value.
+    @MainActor
+    public func updateMeetingIncludeNotesInSummary(id: Int64, include: Bool) throws {
+        includeNotesInSummaryOverrides[id] = include
+        try persistMeetingIncludeNotesInSummary(id: id, include: include)
+    }
+
+    private func persistMeetingIncludeNotesInSummary(id: Int64, include: Bool) throws {
+        let db = try openDatabase()
+        defer { sqlite3_close(db) }
+        let sql = "UPDATE meetings SET include_notes_in_summary = ?, updated_at = ? WHERE id = ?"
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
+            throw lastError(db)
+        }
+        defer { sqlite3_finalize(statement) }
+        sqlite3_bind_int(statement, 1, include ? 1 : 0)
+        sqlite3_bind_double(statement, 2, Date().timeIntervalSince1970)
+        sqlite3_bind_int64(statement, 3, id)
+        guard sqlite3_step(statement) == SQLITE_DONE else {
+            throw lastError(db)
+        }
+        guard sqlite3_changes(db) > 0 else {
+            throw DictationStoreError.meetingNotFound(id: id)
+        }
+    }
+
+    private func includeNotesInSummaryForMeeting(id: Int64, db: OpaquePointer?) throws -> Bool {
+        let sql = "SELECT include_notes_in_summary FROM meetings WHERE id = ? LIMIT 1"
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
+            throw lastError(db)
+        }
+        defer { sqlite3_finalize(statement) }
+        sqlite3_bind_int64(statement, 1, id)
+        guard sqlite3_step(statement) == SQLITE_ROW else {
+            throw DictationStoreError.meetingNotFound(id: id)
+        }
+        return sqlite3_column_int(statement, 0) != 0
     }
 
     private func liveTranscriptCheckpointText(meetingID: Int64, db: OpaquePointer?) throws -> String? {
@@ -3397,7 +3468,8 @@ public final class DictationStore {
             selectedTemplatePrompt: selectedTemplatePrompt,
             source: source,
             followUpToID: followUpToID,
-            visualContext: optionalStringColumn(statement, index: 24)
+            visualContext: optionalStringColumn(statement, index: 25),
+            includeNotesInSummary: sqlite3_column_int(statement, 26) != 0
         )
     }
 
