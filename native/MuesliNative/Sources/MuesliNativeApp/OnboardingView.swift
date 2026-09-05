@@ -21,9 +21,17 @@ struct OnboardingView: View {
     @State private var openRouterSignInError: String?
     @State private var isEnteringOpenRouterAPIKey = false
 
+    // ACP agent config options for the Agent (ACP) summary tab, fetched
+    // asynchronously from the agent command when the tab shows.
+    @State private var acpConfigOptions: [ACPConfigOption]?
+    @State private var acpConfigOptionsCommand = ""
+    @State private var acpConfigOptionsLoadTask: Task<Void, Never>?
+    @State private var acpOptionsUnavailable = false
+
     // Permission states — polled from OS every second
     @State private var micGranted = false
     @State private var systemAudioGranted = false
+    @State private var calendarGranted = false
     @State private var permissionPollTimer: Timer?
     @State private var grantingPermissionName: String?
 
@@ -130,6 +138,7 @@ struct OnboardingView: View {
         _modelDownloadStatus = State(initialValue: initialModelDownloadStatus)
         _micGranted = State(initialValue: initialMicGranted)
         _systemAudioGranted = State(initialValue: initialSystemAudioGranted)
+        _calendarGranted = State(initialValue: appState.calendarAuthorization == .fullAccess)
     }
 
     var body: some View {
@@ -608,7 +617,23 @@ struct OnboardingView: View {
             ("speaker.wave.2.fill", "System Audio", "Captures remote participants' audio in recorded meetings", systemAudioGranted, {
                 requestSystemAudioPermission()
             }),
+            ("calendar", "Calendar", "Syncs your meetings with Apple Calendar — Teams, Exchange, iCloud", calendarGranted, {
+                requestCalendarPermission()
+            }),
         ]
+    }
+
+    private func requestCalendarPermission() {
+        guard !calendarGranted, grantingPermissionName == nil else { return }
+        grantingPermissionName = "Calendar"
+        Task { @MainActor in
+            await controller.refreshCalendarAccess()
+            grantingPermissionName = nil
+            calendarGranted = appState.calendarAuthorization == .fullAccess
+            if calendarGranted {
+                saveProgress(atStep: currentStep)
+            }
+        }
     }
 
     private func requestSystemAudioPermission() {
@@ -651,6 +676,12 @@ struct OnboardingView: View {
                         action: row.action
                     )
                 }
+
+                Text("Calendar and System Audio are optional and can be enabled later in Settings.")
+                    .font(.system(size: 11, weight: .medium, design: .rounded))
+                    .foregroundStyle(MuesliTheme.textTertiary)
+                    .multilineTextAlignment(.center)
+                    .padding(.top, MuesliTheme.spacing4)
             }
             .padding(.horizontal, MuesliTheme.spacing24)
 
@@ -737,6 +768,9 @@ struct OnboardingView: View {
     /// after an explicit request). Microphone is cheap and polls every second.
     private func refreshPermissions(refreshSystemAudio: Bool) {
         micGranted = AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
+        if appState.calendarAuthorization == .fullAccess {
+            calendarGranted = true
+        }
         if refreshSystemAudio, appState.config.useCoreAudioTap || systemAudioGranted {
             systemAudioGranted = CoreAudioSystemRecorder.checkSystemAudioPermission()
         }
@@ -771,155 +805,253 @@ struct OnboardingView: View {
         }
     }
 
-    // MARK: - Step 5: Meeting Summaries
+    // MARK: - Meeting Summaries + Transcript Cleanup
 
     private var meetingSummaryStep: some View {
-        VStack(spacing: MuesliTheme.spacing24) {
-            Spacer()
+        VStack(spacing: 0) {
+            ScrollView {
+                VStack(spacing: MuesliTheme.spacing16) {
+                    VStack(spacing: MuesliTheme.spacing8) {
+                        Text("Meeting Summaries")
+                            .font(MuesliTheme.title1())
+                            .foregroundStyle(MuesliTheme.textPrimary)
 
-            VStack(spacing: MuesliTheme.spacing8) {
-                Text("Meeting Summaries")
-                    .font(MuesliTheme.title1())
-                    .foregroundStyle(MuesliTheme.textPrimary)
+                        Text("Connect an LLM provider to get AI-powered meeting notes.\nYou can set this up later in Settings.")
+                            .font(MuesliTheme.body())
+                            .foregroundStyle(MuesliTheme.textSecondary)
+                            .multilineTextAlignment(.center)
+                    }
+                    .padding(.top, MuesliTheme.spacing24)
 
-                Text("Connect an LLM provider to get AI-powered meeting notes.\nYou can set this up later in Settings.")
-                    .font(MuesliTheme.body())
-                    .foregroundStyle(MuesliTheme.textSecondary)
-                    .multilineTextAlignment(.center)
+                    summaryProviderTabs
+                    summaryProviderConfig
+
+                    Divider()
+                        .background(MuesliTheme.surfaceBorder)
+                        .padding(.vertical, MuesliTheme.spacing8)
+
+                    summaryCleanupSection
+                }
+                .padding(.horizontal, MuesliTheme.spacing32)
+                .padding(.bottom, MuesliTheme.spacing16)
+                .frame(maxWidth: .infinity)
             }
+        }
+        .frame(maxWidth: .infinity)
+        .onAppear {
+            loadACPConfigOptionsIfNeeded()
+        }
+        .onDisappear {
+            acpConfigOptionsLoadTask?.cancel()
+            acpConfigOptionsLoadTask = nil
+        }
+        .onChange(of: summaryBackend) { _, _ in
+            apiKey = ""
+            saveProgress(atStep: currentStep)
+        }
+        .onChange(of: appState.config.acpAgentCommand) { _, _ in
+            loadACPConfigOptionsIfNeeded()
+        }
+        .onChange(of: appState.config.postProcessorBackend) { _, _ in
+            loadACPConfigOptionsIfNeeded()
+        }
+        .onChange(of: currentStep) { _, newStep in
+            if newStep == OnboardingFlow.Step.meetingSummary.rawValue {
+                loadACPConfigOptionsIfNeeded()
+            }
+        }
+    }
 
-            HStack(spacing: 0) {
-                providerTab("ChatGPT", selected: summaryBackend == .chatGPT) {
-                    summaryBackend = .chatGPT
-                    apiKey = ""
-                }
-                providerTab("OpenAI", selected: summaryBackend == .openAI) {
-                    summaryBackend = .openAI
-                    apiKey = ""
-                }
-                providerTab("OpenRouter", selected: summaryBackend == .openRouter) {
-                    summaryBackend = .openRouter
-                    apiKey = ""
-                }
-                providerTab("Ollama", selected: summaryBackend == .ollama) {
-                    summaryBackend = .ollama
-                    apiKey = ""
+    // MARK: Summary Provider Tabs
+
+    private var summaryProviderTabs: some View {
+        HStack(spacing: 0) {
+            ForEach(MeetingSummaryBackendOption.all, id: \.backend) { option in
+                providerTab(option.label, selected: summaryBackend == option) {
+                    summaryBackend = option
                 }
             }
-            .background(MuesliTheme.backgroundRaised)
-            .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
-            .overlay(
-                RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall)
-                    .strokeBorder(MuesliTheme.surfaceBorder, lineWidth: 1)
-            )
-            .frame(width: 320)
+        }
+        .background(MuesliTheme.backgroundRaised)
+        .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
+        .overlay(
+            RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall)
+                .strokeBorder(MuesliTheme.surfaceBorder, lineWidth: 1)
+        )
+        .frame(width: 560)
+    }
 
-            if summaryBackend == .chatGPT {
-                Text("Use your ChatGPT Plus or Pro subscription.")
-                    .font(MuesliTheme.caption())
-                    .foregroundStyle(MuesliTheme.textSecondary)
+    @ViewBuilder
+    private var summaryProviderConfig: some View {
+        if summaryBackend == .chatGPT {
+            summaryChatGPTConfig
+        } else if summaryBackend == .openAI {
+            summaryOpenAIConfig
+        } else if summaryBackend == .ollama {
+            summaryOllamaConfig
+        } else if summaryBackend == .openRouter {
+            summaryOpenRouterConfig
+        } else if summaryBackend == .lmStudio {
+            summaryLMStudioConfig
+        } else if summaryBackend == .customLLM {
+            summaryCustomLLMConfig
+        } else {
+            summaryACPAgentConfig
+        }
+    }
 
-                if appState.isChatGPTAuthenticated || chatGPTSignInDone {
+    // MARK: Per-backend config
+
+    private var summaryChatGPTConfig: some View {
+        VStack(spacing: MuesliTheme.spacing8) {
+            Text("Use your ChatGPT Plus or Pro subscription.")
+                .font(MuesliTheme.caption())
+                .foregroundStyle(MuesliTheme.textSecondary)
+
+            if appState.isChatGPTAuthenticated || chatGPTSignInDone {
+                HStack(spacing: 6) {
+                    OpenAILogoShape()
+                        .fill(.white)
+                        .frame(width: 14, height: 14)
+                    Text("Signed in with ChatGPT")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(.white)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+                .background(MuesliTheme.success)
+                .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
+            } else if isSigningInChatGPT {
+                HStack(spacing: 8) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Signing in...")
+                        .font(.system(size: 12))
+                        .foregroundStyle(MuesliTheme.textSecondary)
+                }
+            } else {
+                Button {
+                    isSigningInChatGPT = true
+                    chatGPTSignInError = nil
+                    Task {
+                        let error = await controller.signInWithChatGPT()
+                        isSigningInChatGPT = false
+                        chatGPTSignInDone = ChatGPTAuthManager.shared.isAuthenticated
+                        chatGPTSignInError = error
+                    }
+                } label: {
                     HStack(spacing: 6) {
                         OpenAILogoShape()
-                            .fill(.white)
+                            .fill(MuesliTheme.accentContent)
                             .frame(width: 14, height: 14)
-                        Text("Signed in with ChatGPT")
+                        Text("Sign in with ChatGPT")
                             .font(.system(size: 13, weight: .medium))
-                            .foregroundStyle(.white)
+                            .foregroundStyle(MuesliTheme.accentContent)
                     }
                     .padding(.horizontal, 16)
                     .padding(.vertical, 8)
-                    .background(MuesliTheme.success)
+                    .background(MuesliTheme.accent)
                     .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
-                } else if isSigningInChatGPT {
-                    HStack(spacing: 8) {
-                        ProgressView()
-                            .controlSize(.small)
-                        Text("Signing in...")
-                            .font(.system(size: 12))
-                            .foregroundStyle(MuesliTheme.textSecondary)
-                    }
-                } else {
-                    Button {
-                        isSigningInChatGPT = true
-                        chatGPTSignInError = nil
-                        Task {
-                            let error = await controller.signInWithChatGPT()
-                            isSigningInChatGPT = false
-                            chatGPTSignInDone = ChatGPTAuthManager.shared.isAuthenticated
-                            chatGPTSignInError = error
-                        }
-                    } label: {
-                        HStack(spacing: 6) {
-                            OpenAILogoShape()
-                                .fill(MuesliTheme.accentContent)
-                                .frame(width: 14, height: 14)
-                            Text("Sign in with ChatGPT")
-                                .font(.system(size: 13, weight: .medium))
-                                .foregroundStyle(MuesliTheme.accentContent)
-                        }
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 8)
-                        .background(MuesliTheme.accent)
-                        .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
-                    }
-                    .buttonStyle(.plain)
-
-                    if let chatGPTSignInError {
-                        Text(chatGPTSignInError)
-                            .font(.system(size: 11))
-                            .foregroundStyle(.red)
-                            .lineLimit(2)
-                    }
                 }
-            } else if summaryBackend == .ollama {
-                Text("Run AI models locally on your device with Ollama.\nNo API key needed — just install Ollama and pull a model.")
-                    .font(MuesliTheme.caption())
-                    .foregroundStyle(MuesliTheme.textSecondary)
-                    .multilineTextAlignment(.center)
+                .buttonStyle(.plain)
 
-                VStack(alignment: .leading, spacing: MuesliTheme.spacing8) {
-                    Text("Ollama is served by default at http://localhost:11434")
+                if let chatGPTSignInError {
+                    Text(chatGPTSignInError)
                         .font(.system(size: 11))
-                        .foregroundStyle(MuesliTheme.textTertiary)
-
-                    HStack(spacing: 4) {
-                        Circle()
-                            .fill(MuesliTheme.success)
-                            .frame(width: 6, height: 6)
-                        Text("No authentication required")
-                            .font(.system(size: 11))
-                            .foregroundStyle(MuesliTheme.success)
-                    }
+                        .foregroundStyle(.red)
+                        .lineLimit(2)
                 }
-            } else if summaryBackend == .openRouter {
-                Text("Connect OpenRouter in your browser. Meets receives a dedicated API key after you approve access.")
-                    .font(MuesliTheme.caption())
-                    .foregroundStyle(MuesliTheme.textSecondary)
-                    .multilineTextAlignment(.center)
+            }
+        }
+        .frame(maxWidth: .infinity)
+    }
 
-                if appState.isOpenRouterAuthenticated || openRouterSignInDone {
-                    HStack(spacing: 6) {
-                        Image(systemName: "network")
-                            .font(.system(size: 13, weight: .semibold))
-                        Text("OpenRouter connected")
-                            .font(.system(size: 13, weight: .medium))
-                    }
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
-                    .background(MuesliTheme.success)
-                    .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
-                } else if isSigningInOpenRouter {
-                    HStack(spacing: 8) {
-                        ProgressView()
-                            .controlSize(.small)
-                        Text("Connecting...")
-                            .font(.system(size: 12))
-                            .foregroundStyle(MuesliTheme.textSecondary)
-                    }
-                } else {
+    private var summaryOpenAIConfig: some View {
+        VStack(alignment: .leading, spacing: MuesliTheme.spacing8) {
+            Text("Use your OpenAI API key.")
+                .font(MuesliTheme.caption())
+                .foregroundStyle(MuesliTheme.textSecondary)
+
+            VStack(alignment: .leading, spacing: MuesliTheme.spacing8) {
+                Text("API Key")
+                    .font(MuesliTheme.caption())
+                    .foregroundStyle(MuesliTheme.textTertiary)
+
+                PastableSecureField(
+                    text: apiKey,
+                    placeholder: "sk-...",
+                    onChange: { apiKey = $0 }
+                )
+                .frame(width: 320, height: 28)
+
+                HStack(spacing: 4) {
+                    Circle()
+                        .fill(apiKey.isEmpty ? MuesliTheme.textTertiary : MuesliTheme.success)
+                        .frame(width: 6, height: 6)
+                    Text(apiKey.isEmpty ? "No API key" : "Key entered")
+                        .font(.system(size: 11))
+                        .foregroundStyle(apiKey.isEmpty ? MuesliTheme.textTertiary : MuesliTheme.success)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private var summaryOllamaConfig: some View {
+        VStack(spacing: MuesliTheme.spacing8) {
+            Text("Run AI models locally on your device with Ollama.\nNo API key needed — just install Ollama and pull a model.")
+                .font(MuesliTheme.caption())
+                .foregroundStyle(MuesliTheme.textSecondary)
+                .multilineTextAlignment(.center)
+
+            VStack(alignment: .leading, spacing: MuesliTheme.spacing8) {
+                Text("Ollama is served by default at http://localhost:11434")
+                    .font(.system(size: 11))
+                    .foregroundStyle(MuesliTheme.textTertiary)
+
+                HStack(spacing: 4) {
+                    Circle()
+                        .fill(MuesliTheme.success)
+                        .frame(width: 6, height: 6)
+                    Text("No authentication required")
+                        .font(.system(size: 11))
+                        .foregroundStyle(MuesliTheme.success)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private var summaryOpenRouterConfig: some View {
+        VStack(spacing: MuesliTheme.spacing8) {
+            Text("Connect OpenRouter in your browser. Meets receives a dedicated API key after you approve access.")
+                .font(MuesliTheme.caption())
+                .foregroundStyle(MuesliTheme.textSecondary)
+                .multilineTextAlignment(.center)
+
+            if appState.isOpenRouterAuthenticated || openRouterSignInDone {
+                HStack(spacing: 6) {
+                    Image(systemName: "network")
+                        .font(.system(size: 13, weight: .semibold))
+                    Text("OpenRouter connected")
+                        .font(.system(size: 13, weight: .medium))
+                }
+                .foregroundStyle(.white)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+                .background(MuesliTheme.success)
+                .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
+            } else if isSigningInOpenRouter {
+                HStack(spacing: 8) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Connecting...")
+                        .font(.system(size: 12))
+                        .foregroundStyle(MuesliTheme.textSecondary)
+                }
+            } else {
+                VStack(spacing: MuesliTheme.spacing8) {
                     Button {
                         isSigningInOpenRouter = true
                         openRouterSignInError = nil
@@ -970,33 +1102,352 @@ struct OnboardingView: View {
                             .lineLimit(2)
                     }
                 }
-            } else {
-                VStack(alignment: .leading, spacing: MuesliTheme.spacing8) {
-                    Text("API Key")
-                        .font(MuesliTheme.caption())
-                        .foregroundStyle(MuesliTheme.textTertiary)
+            }
+        }
+        .frame(maxWidth: .infinity)
+    }
 
-                    PastableSecureField(
-                        text: apiKey,
-                        placeholder: "sk-...",
-                        onChange: { apiKey = $0 }
-                    )
-                    .frame(width: 320, height: 28)
+    private var summaryLMStudioConfig: some View {
+        VStack(alignment: .leading, spacing: MuesliTheme.spacing8) {
+            Text("Run models from LM Studio on this Mac. Add the server URL and model.")
+                .font(MuesliTheme.caption())
+                .foregroundStyle(MuesliTheme.textSecondary)
 
-                    HStack(spacing: 4) {
-                        Circle()
-                            .fill(apiKey.isEmpty ? MuesliTheme.textTertiary : MuesliTheme.success)
-                            .frame(width: 6, height: 6)
-                        Text(apiKey.isEmpty ? "No API key" : "Key entered")
-                            .font(.system(size: 11))
-                            .foregroundStyle(apiKey.isEmpty ? MuesliTheme.textTertiary : MuesliTheme.success)
-                    }
+            configFieldRow("Server URL", controlWidth: 320) {
+                PastableTextField(
+                    text: appState.config.lmStudioURL,
+                    placeholder: "http://localhost:1234",
+                    onChange: { val in controller.updateConfig { $0.lmStudioURL = val } }
+                )
+                .frame(height: 26)
+            }
+
+            configFieldRow("Model", controlWidth: 320) {
+                PastableTextField(
+                    text: appState.config.lmStudioModel,
+                    placeholder: "Select a loaded LM Studio model",
+                    onChange: { val in controller.updateConfig { $0.lmStudioModel = val } }
+                )
+                .frame(height: 26)
+            }
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private var summaryCustomLLMConfig: some View {
+        VStack(alignment: .leading, spacing: MuesliTheme.spacing8) {
+            Text("Connect any OpenAI-compatible or Anthropic endpoint.")
+                .font(MuesliTheme.caption())
+                .foregroundStyle(MuesliTheme.textSecondary)
+
+            configFieldRow("API Format", controlWidth: 320) {
+                wizardMenu(
+                    selection: CustomLLMFormat(rawValue: appState.config.customLLMFormat)?.label ?? CustomLLMFormat.openAI.label,
+                    options: CustomLLMFormat.allCases.map(\.label)
+                ) { label in
+                    guard let format = CustomLLMFormat.allCases.first(where: { $0.label == label }) else { return }
+                    controller.updateConfig { $0.customLLMFormat = format.rawValue }
                 }
             }
 
-            Spacer()
+            configFieldRow("URL", controlWidth: 320) {
+                PastableTextField(
+                    text: appState.config.customLLMURL,
+                    placeholder: CustomLLMFormat(rawValue: appState.config.customLLMFormat) == .anthropic
+                        ? "https://api.anthropic.com"
+                        : "http://localhost:8080/v1",
+                    onChange: { val in controller.updateConfig { $0.customLLMURL = val } }
+                )
+                .frame(height: 26)
+            }
+
+            configFieldRow("API Key", controlWidth: 320) {
+                PastableSecureField(
+                    text: appState.config.customLLMAPIKey,
+                    placeholder: CustomLLMFormat(rawValue: appState.config.customLLMFormat) == .anthropic
+                        ? "Required for Anthropic API"
+                        : "Optional for local servers",
+                    onChange: { val in controller.updateConfig { $0.customLLMAPIKey = val } }
+                )
+                .frame(height: 26)
+            }
+
+            configFieldRow("Model", controlWidth: 320) {
+                PastableTextField(
+                    text: appState.config.customLLMModel,
+                    placeholder: CustomLLMFormat(rawValue: appState.config.customLLMFormat) == .anthropic
+                        ? "claude-3-5-sonnet-20241022"
+                        : "custom-model-id",
+                    onChange: { val in controller.updateConfig { $0.customLLMModel = val } }
+                )
+                .frame(height: 26)
+            }
         }
         .frame(maxWidth: .infinity)
+    }
+
+    private var summaryACPAgentConfig: some View {
+        VStack(alignment: .leading, spacing: MuesliTheme.spacing8) {
+            Text("Runs your installed agent (omp, Claude Code, Codex…) over ACP. No API key.")
+                .font(MuesliTheme.caption())
+                .foregroundStyle(MuesliTheme.textSecondary)
+
+            configFieldRow("Command", controlWidth: 320) {
+                PastableTextField(
+                    text: appState.config.acpAgentCommand,
+                    placeholder: "omp acp",
+                    onChange: { val in controller.updateConfig { $0.acpAgentCommand = val } }
+                )
+                .frame(height: 26)
+            }
+
+            acpWizardMenuRow(
+                label: "Model",
+                caption: acpWizardModelCaption,
+                optionID: "model",
+                storedValue: appState.config.acpAgentModel
+            ) { value in
+                controller.updateConfig { $0.acpAgentModel = value }
+            }
+
+            acpWizardMenuRow(
+                label: "Reasoning",
+                caption: Self.acpWizardThinkingCaption,
+                optionID: "thinking",
+                storedValue: appState.config.acpAgentThinking
+            ) { value in
+                controller.updateConfig { $0.acpAgentThinking = value }
+            }
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private static let acpWizardThinkingCaption = "Reasoning effort: off / auto / low / medium / high / xhigh / max."
+
+    private var acpWizardModelCaption: String? {
+        guard !isACPConfigOptionsLoading else { return nil }
+        return acpOptionsUnavailable || (acpConfigOptions?.first(where: { $0.id == "model" })?.options.isEmpty ?? true)
+            ? "Start the agent to see available models."
+            : nil
+    }
+
+    private var isACPConfigOptionsLoading: Bool {
+        !appState.config.acpAgentCommand.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && acpConfigOptions == nil
+            && acpConfigOptionsLoadTask != nil
+            && !acpOptionsUnavailable
+    }
+
+    private var isShowingACPConfigOptions: Bool {
+        let summaryIsACP = summaryBackend == .acpAgent
+        let cleanupIsACP = cleanupBackend.backend == "acp_agent"
+        return summaryIsACP || cleanupIsACP
+    }
+
+    /// (Re)fetches the ACP agent's advertised config options whenever an ACP
+    /// branch is visible with a non-empty command. Failures degrade to "use
+    /// agent default": a single "Default" entry in each menu.
+    private func loadACPConfigOptionsIfNeeded() {
+        guard isShowingACPConfigOptions else {
+            acpConfigOptionsLoadTask?.cancel()
+            acpConfigOptionsLoadTask = nil
+            acpConfigOptions = nil
+            acpConfigOptionsCommand = ""
+            acpOptionsUnavailable = false
+            return
+        }
+        let command = appState.config.acpAgentCommand.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !command.isEmpty else {
+            acpConfigOptionsLoadTask?.cancel()
+            acpConfigOptionsLoadTask = nil
+            acpConfigOptions = nil
+            acpConfigOptionsCommand = ""
+            acpOptionsUnavailable = false
+            return
+        }
+        guard acpConfigOptionsCommand != command else { return }
+        acpConfigOptionsLoadTask?.cancel()
+        acpConfigOptions = nil
+        acpConfigOptionsCommand = command
+        acpOptionsUnavailable = false
+        acpConfigOptionsLoadTask = Task { @MainActor in
+            do {
+                let options = try await ACPClient.availableOptions(command: command, timeout: 20)
+                guard !Task.isCancelled else { return }
+                acpConfigOptions = options
+                acpOptionsUnavailable = options.isEmpty
+            } catch {
+                guard !Task.isCancelled else { return }
+                acpConfigOptions = []
+                acpOptionsUnavailable = true
+            }
+        }
+    }
+
+    private func acpOptionValues(_ id: String) -> [ACPConfigValue] {
+        acpConfigOptions?.first(where: { $0.id == id })?.options ?? []
+    }
+
+    @ViewBuilder
+    private func acpWizardMenuRow(
+        label: String,
+        caption: String?,
+        optionID: String,
+        storedValue: String,
+        onSelect: @escaping (String) -> Void
+    ) -> some View {
+        if isACPConfigOptionsLoading {
+            configFieldRow(label, controlWidth: 320) {
+                Text("Loading…")
+                    .font(MuesliTheme.caption())
+                    .foregroundStyle(MuesliTheme.textTertiary)
+                    .frame(maxWidth: 320, alignment: .trailing)
+            }
+        } else {
+            let entries = [("", "Default")] + acpOptionValues(optionID).map { ($0.value, $0.name) }
+            let selectedLabel = {
+                if storedValue.isEmpty {
+                    return "Default"
+                }
+                return entries.first(where: { $0.0 == storedValue })?.1 ?? "Default"
+            }()
+            configFieldRow(label, controlWidth: 320) {
+                wizardMenu(
+                    selection: selectedLabel,
+                    options: entries.map(\.1)
+                ) { pickedLabel in
+                    guard let entry = entries.first(where: { $0.1 == pickedLabel }) else { return }
+                    onSelect(entry.0)
+                }
+            }
+            if let caption {
+                Text(caption)
+                    .font(.system(size: 11))
+                    .foregroundStyle(MuesliTheme.textTertiary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+    }
+
+    // MARK: Transcript Cleanup
+
+    private var cleanupBackendOptions: [TranscriptCleanupBackendOption] {
+        TranscriptCleanupBackendOption.all.filter { !$0.isGemma4LiteRT }
+    }
+
+    private var cleanupBackend: TranscriptCleanupBackendOption {
+        TranscriptCleanupBackendOption.resolved(appState.config.postProcessorBackend)
+    }
+
+    private var cleanupConfiguredModel: String {
+        TranscriptCleanupClient.configuredModel(for: cleanupBackend, config: appState.config)
+    }
+
+    @ViewBuilder
+    private var summaryCleanupSection: some View {
+        VStack(spacing: MuesliTheme.spacing12) {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("AI Transcript Cleanup")
+                        .font(MuesliTheme.headline())
+                        .foregroundStyle(MuesliTheme.textPrimary)
+                    Text("Removes filler words and disfluencies from finished transcripts.")
+                        .font(MuesliTheme.caption())
+                        .foregroundStyle(MuesliTheme.textSecondary)
+                }
+                Spacer()
+                Toggle("", isOn: Binding(
+                    get: { appState.config.enablePostProcessor },
+                    set: { controller.setPostProcessorEnabled($0) }
+                ))
+                .toggleStyle(.switch)
+                .tint(MuesliTheme.accent)
+                .labelsHidden()
+            }
+
+            if appState.config.enablePostProcessor {
+                cleanupSourceRow
+                cleanupSourceDetail
+            }
+        }
+        .padding(MuesliTheme.spacing16)
+        .background(MuesliTheme.backgroundRaised)
+        .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerMedium))
+        .overlay(
+            RoundedRectangle(cornerRadius: MuesliTheme.cornerMedium)
+                .strokeBorder(MuesliTheme.surfaceBorder, lineWidth: 1)
+        )
+    }
+
+    private var cleanupSourceRow: some View {
+        configFieldRow("Cleanup source", controlWidth: 240) {
+            wizardMenu(
+                selection: cleanupBackend.label,
+                options: cleanupBackendOptions.map(\.label)
+            ) { label in
+                if let option = cleanupBackendOptions.first(where: { $0.label == label }) {
+                    controller.selectPostProcessorBackend(option)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var cleanupSourceDetail: some View {
+        if cleanupBackend.isLocal {
+            Text("Uses the local Qwen3 model downloaded in Models. Model management stays in Settings.")
+                .font(.system(size: 11))
+                .foregroundStyle(MuesliTheme.textTertiary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        } else if cleanupBackend.backend == "acp_agent" {
+            Text("Uses your ACP agent + its model/reasoning from above.")
+                .font(.system(size: 11))
+                .foregroundStyle(MuesliTheme.textTertiary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        } else {
+            configFieldRow("Model", controlWidth: 240) {
+                PastableTextField(
+                    text: cleanupConfiguredModel,
+                    placeholder: TranscriptCleanupClient.defaultModel(for: cleanupBackend),
+                    onChange: { newModel in
+                        controller.updateConfig { config in
+                            switch cleanupBackend.backend {
+                            case "chatgpt": config.postProcessorChatGPTModel = newModel
+                            case "openai": config.postProcessorOpenAIModel = newModel
+                            case "openrouter": config.postProcessorOpenRouterModel = newModel
+                            case "ollama": config.postProcessorOllamaModel = newModel
+                            case "lmstudio": config.postProcessorLMStudioModel = newModel
+                            default: config.postProcessorCustomLLMModel = newModel
+                            }
+                        }
+                    }
+                )
+                .frame(height: 24)
+            }
+        }
+    }
+
+    // MARK: Shared wizard controls
+
+    private func configFieldRow(_ label: String, controlWidth: CGFloat, @ViewBuilder control: () -> some View) -> some View {
+        HStack(alignment: .center) {
+            Text(label)
+                .font(MuesliTheme.body())
+                .foregroundStyle(MuesliTheme.textPrimary)
+                .layoutPriority(1)
+            Spacer(minLength: 16)
+            control()
+                .frame(maxWidth: controlWidth)
+        }
+    }
+
+    private func wizardMenu(selection: String, options: [String], onChange: @escaping (String) -> Void) -> some View {
+        FixedWidthPopUp(
+            selection: selection,
+            options: options,
+            onChange: onChange
+        )
+        .frame(height: 24)
     }
 
     private func providerTab(_ title: String, selected: Bool, action: @escaping () -> Void) -> some View {
