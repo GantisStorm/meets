@@ -74,6 +74,8 @@ final class MeetingDetector {
         "net.whatsapp.WhatsApp": "WhatsApp",
         "com.hnc.discord": "Discord",
         "com.hnc.discordcanary": "Discord Canary",
+        "ru.keepcoder.Telegram": "Telegram",
+        "org.whispersystems.signal-mac": "Signal",
     ]
 
     /// Apps that can host calls, but should not trigger from generic

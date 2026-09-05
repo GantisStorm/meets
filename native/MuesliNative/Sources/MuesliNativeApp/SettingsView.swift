@@ -8,6 +8,16 @@ private struct MeetingDetectionAppOption: Identifiable {
     let bundleID: String
     let name: String
     let icon: String
+    /// Bundled brand icon resource name (e.g. "appicon-discord"); falls back
+    /// to the SF Symbol `icon` when nil or not bundled.
+    var brandIcon: String?
+
+    init(bundleID: String, name: String, icon: String, brandIcon: String? = nil) {
+        self.bundleID = bundleID
+        self.name = name
+        self.icon = icon
+        self.brandIcon = brandIcon
+    }
 
     var id: String { bundleID }
 }
@@ -106,12 +116,15 @@ struct SettingsView: View {
         MeetingDetectionAppOption(bundleID: "com.apple.Safari", name: "Safari", icon: "globe"),
         MeetingDetectionAppOption(bundleID: "com.microsoft.edgemac", name: "Edge", icon: "globe"),
         MeetingDetectionAppOption(bundleID: "com.brave.Browser", name: "Brave", icon: "globe"),
-        MeetingDetectionAppOption(bundleID: "com.tinyspeck.slackmacgap", name: "Slack", icon: "message.fill"),
-        MeetingDetectionAppOption(bundleID: "us.zoom.xos", name: "Zoom", icon: "video.fill"),
-        MeetingDetectionAppOption(bundleID: "com.microsoft.teams2", name: "Teams", icon: "person.2.fill"),
+        MeetingDetectionAppOption(bundleID: "com.tinyspeck.slackmacgap", name: "Slack", icon: "message.fill", brandIcon: "slack"),
+        MeetingDetectionAppOption(bundleID: "us.zoom.xos", name: "Zoom", icon: "video.fill", brandIcon: "zoom-app"),
+        MeetingDetectionAppOption(bundleID: "com.microsoft.teams2", name: "Teams", icon: "person.2.fill", brandIcon: "teams"),
         MeetingDetectionAppOption(bundleID: "com.apple.FaceTime", name: "FaceTime", icon: "video.fill"),
-        MeetingDetectionAppOption(bundleID: "net.whatsapp.WhatsApp", name: "WhatsApp", icon: "phone.fill"),
-        MeetingDetectionAppOption(bundleID: "com.hnc.discord", name: "Discord", icon: "bubble.left.fill"),
+        MeetingDetectionAppOption(bundleID: "net.whatsapp.WhatsApp", name: "WhatsApp", icon: "phone.fill", brandIcon: "appicon-whatsapp"),
+        MeetingDetectionAppOption(bundleID: "com.hnc.discord", name: "Discord", icon: "bubble.left.fill", brandIcon: "appicon-discord"),
+        MeetingDetectionAppOption(bundleID: "ru.keepcoder.Telegram", name: "Telegram", icon: "paperplane.fill", brandIcon: "appicon-telegram"),
+        MeetingDetectionAppOption(bundleID: "org.whispersystems.signal-mac", name: "Signal", icon: "lock.fill", brandIcon: "appicon-signal"),
+        MeetingDetectionAppOption(bundleID: "com.webex.meetingmanager", name: "Webex", icon: "video.fill", brandIcon: "appicon-webex"),
     ]
 
     private var meetingBackendOptions: [BackendOption] {
@@ -2299,6 +2312,24 @@ struct SettingsView: View {
         }
     }
 
+    /// Renders the app's bundled brand icon when available (colored PNG), else
+    /// falls back to its SF Symbol.
+    @ViewBuilder
+    private func detectionAppIcon(_ app: MeetingDetectionAppOption) -> some View {
+        if let brandIcon = app.brandIcon,
+           let url = Bundle.main.url(forResource: brandIcon, withExtension: "png"),
+           let image = NSImage(contentsOf: url) {
+            Image(nsImage: image)
+                .resizable()
+                .interpolation(.high)
+                .scaledToFit()
+        } else {
+            Image(systemName: app.icon)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(MuesliTheme.textTertiary)
+        }
+    }
+
     private func mutedDetectionAppButton(_ app: MeetingDetectionAppOption, isMuted: Bool) -> some View {
         Button {
             updateMutedMeetingDetectionApp(app.bundleID, isMuted: !isMuted)
@@ -2308,9 +2339,7 @@ struct SettingsView: View {
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(isMuted ? MuesliTheme.accent : MuesliTheme.textTertiary)
                     .frame(width: 16)
-                Image(systemName: app.icon)
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(MuesliTheme.textTertiary)
+                detectionAppIcon(app)
                     .frame(width: 14)
                 Text(app.name)
                     .font(.system(size: 12))

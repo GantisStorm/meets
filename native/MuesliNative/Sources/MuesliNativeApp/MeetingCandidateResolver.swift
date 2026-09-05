@@ -10,6 +10,8 @@ struct MeetingCandidate: Equatable {
         case slack
         case whatsApp
         case discord
+        case telegram
+        case signal
         case unknown
 
         var displayName: String {
@@ -22,6 +24,8 @@ struct MeetingCandidate: Equatable {
             case .slack: return "Slack"
             case .whatsApp: return "WhatsApp"
             case .discord: return "Discord"
+            case .telegram: return "Telegram"
+            case .signal: return "Signal"
             case .unknown: return "Meeting"
             }
         }
@@ -257,6 +261,8 @@ final class MeetingCandidateResolver {
         "net.whatsapp.WhatsApp": ("WhatsApp", .whatsApp),
         "com.hnc.discord": ("Discord", .discord),
         "com.hnc.discordcanary": ("Discord Canary", .discord),
+        "ru.keepcoder.Telegram": ("Telegram", .telegram),
+        "org.whispersystems.signal-mac": ("Signal", .signal),
     ]
 
     /// User-configured call/meeting apps (Settings > Meeting Notifications >
