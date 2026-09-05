@@ -273,14 +273,12 @@ struct CalendarPageView: View {
     @ViewBuilder
     private var toolbarTrailing: some View {
         HStack(spacing: MuesliTheme.spacing8) {
-            if pageMode == .list {
-                Toggle("Hide cancelled", isOn: $hideCancelled)
-                    .toggleStyle(.checkbox)
-                    .font(MuesliTheme.caption())
-                    .foregroundStyle(MuesliTheme.textSecondary)
-                    .fixedSize()
-                    .help("Hide cancelled events from the list")
-            }
+            Toggle("Hide cancelled", isOn: $hideCancelled)
+                .toggleStyle(.checkbox)
+                .font(MuesliTheme.caption())
+                .foregroundStyle(MuesliTheme.textSecondary)
+                .fixedSize()
+                .help("Hide cancelled and declined events from the calendar")
 
             if appState.isCalendarPageLoading {
                 ProgressView()
@@ -384,13 +382,17 @@ struct CalendarPageView: View {
                 .padding(.horizontal, 4)
 
                 let weeks = monthWeeks
-                LazyVGrid(
-                    columns: Array(repeating: GridItem(.flexible(), spacing: 2), count: 7),
-                    spacing: 2
-                ) {
+                // Eager Grid, not LazyVGrid: lazy vertical containers inside a
+                // ScrollView collapse when children carry unbounded
+                // (.infinity) heights — only the first row rendered. Grid
+                // always lays out every week, and cell heights are bounded
+                // below, so all 5–6 weeks of the month are always visible.
+                Grid(horizontalSpacing: 2, verticalSpacing: 2) {
                     ForEach(weeks.indices, id: \.self) { weekIndex in
-                        ForEach(weeks[weekIndex].indices, id: \.self) { cellIndex in
-                            monthDayCell(weeks[weekIndex][cellIndex])
+                        GridRow {
+                            ForEach(weeks[weekIndex].indices, id: \.self) { cellIndex in
+                                monthDayCell(weeks[weekIndex][cellIndex])
+                            }
                         }
                     }
                 }
@@ -451,7 +453,10 @@ struct CalendarPageView: View {
             }
             Spacer(minLength: 0)
         }
-        .frame(maxWidth: .infinity, minHeight: 58, maxHeight: .infinity, alignment: .topLeading)
+        // Bounded height so eager Grid rows are deterministic; content taller
+        // than the row clips only in extreme cases (4+ chips on one day),
+        // which the "+N more" line absorbs.
+        .frame(maxWidth: .infinity, minHeight: CalendarPageLogic.monthRowHeight, alignment: .topLeading)
         .padding(4)
         .background(
             RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall)
@@ -1094,8 +1099,13 @@ struct CalendarPageView: View {
 
     // MARK: - Presentation helpers
 
+    /// Shared event source for month, day, and list views. The
+    /// hide-cancelled filter is applied here so every view honors it (the
+    /// list's section builder also skips cancelled below, but the shared
+    /// filter keeps month chips and day rows consistent).
     private var visibleCalendarEvents: [UnifiedCalendarEvent] {
-        appState.calendarEvents
+        guard hideCancelled else { return appState.calendarEvents }
+        return appState.calendarEvents.filter { !($0.isCancelled || $0.isDeclined) }
     }
 
     /// Calendar-event → recorded meeting. Events link to meetings by the
@@ -1295,6 +1305,8 @@ private struct CalendarPageHourSection {
 
 private enum CalendarPageLogic {
     static let maxChipsPerDay = 3
+    /// Fixed height per month-grid row (day number + up to 3 chips + spacing).
+    static let monthRowHeight: CGFloat = 96
 
     static func monthStart(of date: Date) -> Date {
         let calendar = Calendar.current
