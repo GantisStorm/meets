@@ -379,6 +379,163 @@ public struct InsightsWordFrequency: Codable, Sendable, Equatable, Identifiable 
     }
 }
 
+// MARK: - Insights v2 (trinity aggregates)
+
+/// Meeting-infrastructure aggregate for a time window.
+public struct MeetingActivityStats: Codable, Sendable, Equatable {
+    public let totalMeetings: Int
+    public let completedMeetings: Int
+    public let failedMeetings: Int
+    public let recordingMeetings: Int
+    public let totalDurationSeconds: Double
+    public let averageDurationSeconds: Double
+    public let totalWords: Int
+    public let meetingsWithRecording: Int
+    public let meetingsLinkedToCalendar: Int
+    public let followUpMeetings: Int
+    public let importedMeetings: Int
+
+    public init(
+        totalMeetings: Int = 0,
+        completedMeetings: Int = 0,
+        failedMeetings: Int = 0,
+        recordingMeetings: Int = 0,
+        totalDurationSeconds: Double = 0,
+        averageDurationSeconds: Double = 0,
+        totalWords: Int = 0,
+        meetingsWithRecording: Int = 0,
+        meetingsLinkedToCalendar: Int = 0,
+        followUpMeetings: Int = 0,
+        importedMeetings: Int = 0
+    ) {
+        self.totalMeetings = totalMeetings
+        self.completedMeetings = completedMeetings
+        self.failedMeetings = failedMeetings
+        self.recordingMeetings = recordingMeetings
+        self.totalDurationSeconds = totalDurationSeconds
+        self.averageDurationSeconds = averageDurationSeconds
+        self.totalWords = totalWords
+        self.meetingsWithRecording = meetingsWithRecording
+        self.meetingsLinkedToCalendar = meetingsLinkedToCalendar
+        self.followUpMeetings = followUpMeetings
+        self.importedMeetings = importedMeetings
+    }
+}
+
+/// One bucket (day/week/month) of meeting activity for charts.
+public struct MeetingActivityBucket: Codable, Sendable, Equatable, Identifiable {
+    public var id: Date { bucketStart }
+    public let bucketStart: Date
+    public let meetings: Int
+    public let durationSeconds: Double
+    public let words: Int
+
+    public init(bucketStart: Date, meetings: Int, durationSeconds: Double, words: Int) {
+        self.bucketStart = bucketStart
+        self.meetings = meetings
+        self.durationSeconds = durationSeconds
+        self.words = words
+    }
+}
+
+/// Folder-scoped meeting counts.
+public struct MeetingFolderStat: Codable, Sendable, Equatable, Identifiable {
+    public let folderID: Int64
+    public let folderName: String
+    public let meetings: Int
+
+    public init(folderID: Int64, folderName: String, meetings: Int) {
+        self.folderID = folderID
+        self.folderName = folderName
+        self.meetings = meetings
+    }
+
+    public var id: Int64 { folderID }
+}
+
+/// Status mix + calendar linkage for the selected window.
+public struct MeetingCalendarLinkageStats: Codable, Sendable, Equatable {
+    public let eventsInRange: Int
+    public let recordedEvents: Int
+    public let missedEvents: Int
+    public let upcomingEvents: Int
+    public let cancelledEvents: Int
+
+    public init(eventsInRange: Int = 0, recordedEvents: Int = 0, missedEvents: Int = 0, upcomingEvents: Int = 0, cancelledEvents: Int = 0) {
+        self.eventsInRange = eventsInRange
+        self.recordedEvents = recordedEvents
+        self.missedEvents = missedEvents
+        self.upcomingEvents = upcomingEvents
+        self.cancelledEvents = cancelledEvents
+    }
+}
+
+/// One LLM (summary/cleanup/title) run recorded in the usage log.
+public struct LLMUsageRecord: Codable, Sendable, Equatable, Identifiable {
+    public let id: Int64
+    public let kind: String
+    public let backend: String
+    public let model: String
+    public let timestamp: Date
+    public let status: String
+    public let retryCount: Int
+    public let characters: Int
+
+    public init(id: Int64 = 0, kind: String, backend: String, model: String, timestamp: Date, status: String, retryCount: Int = 0, characters: Int = 0) {
+        self.id = id
+        self.kind = kind
+        self.backend = backend
+        self.model = model
+        self.timestamp = timestamp
+        self.status = status
+        self.retryCount = retryCount
+        self.characters = characters
+    }
+}
+
+/// Aggregate of LLM usage for a window.
+public struct LLMUsageStats: Codable, Sendable, Equatable {
+    public let totalRuns: Int
+    public let successfulRuns: Int
+    public let failedRuns: Int
+    public let totalCharacters: Int
+    public let byKind: [String: Int]
+    public let byBackend: [String: Int]
+
+    public init(totalRuns: Int = 0, successfulRuns: Int = 0, failedRuns: Int = 0, totalCharacters: Int = 0, byKind: [String: Int] = [:], byBackend: [String: Int] = [:]) {
+        self.totalRuns = totalRuns
+        self.successfulRuns = successfulRuns
+        self.failedRuns = failedRuns
+        self.totalCharacters = totalCharacters
+        self.byKind = byKind
+        self.byBackend = byBackend
+    }
+}
+
+/// Per-day LLM usage for charts.
+public struct LLMUsageDay: Codable, Sendable, Equatable, Identifiable {
+    public var id: Date { day }
+    public let day: Date
+    public let runs: Int
+
+    public init(day: Date, runs: Int) {
+        self.day = day
+        self.runs = runs
+    }
+}
+
+/// Top recurring meeting titles.
+public struct RecurringMeetingStat: Codable, Sendable, Equatable, Identifiable {
+    public var id: String { title }
+    public let title: String
+    public let count: Int
+
+    public init(title: String, count: Int) {
+        self.title = title
+        self.count = count
+    }
+}
+
 public struct InsightsSnapshot: Codable, Sendable, Equatable {
     public let range: InsightsRange
     public let generatedAt: Date
@@ -389,6 +546,16 @@ public struct InsightsSnapshot: Codable, Sendable, Equatable {
     public let longestStreakDays: Int
     public let activeDaysInRange: Int
     public let meetingWords: [InsightsWordFrequency]
+    // v2 — meeting infrastructure (defaulted so existing callers stay valid)
+    public let meetingStats: MeetingActivityStats
+    public let meetingBuckets: [MeetingActivityBucket]
+    public let folderStats: [MeetingFolderStat]
+    public let recurringMeetings: [RecurringMeetingStat]
+    // v2 — calendar linkage
+    public let calendarStats: MeetingCalendarLinkageStats
+    // v2 — LLM usage
+    public let llmStats: LLMUsageStats
+    public let llmUsageByDay: [LLMUsageDay]
 
     public init(
         range: InsightsRange,
@@ -399,7 +566,14 @@ public struct InsightsSnapshot: Codable, Sendable, Equatable {
         currentStreakDays: Int,
         longestStreakDays: Int,
         activeDaysInRange: Int,
-        meetingWords: [InsightsWordFrequency]
+        meetingWords: [InsightsWordFrequency],
+        meetingStats: MeetingActivityStats = MeetingActivityStats(),
+        meetingBuckets: [MeetingActivityBucket] = [],
+        folderStats: [MeetingFolderStat] = [],
+        recurringMeetings: [RecurringMeetingStat] = [],
+        calendarStats: MeetingCalendarLinkageStats = MeetingCalendarLinkageStats(),
+        llmStats: LLMUsageStats = LLMUsageStats(),
+        llmUsageByDay: [LLMUsageDay] = []
     ) {
         self.range = range
         self.generatedAt = generatedAt
@@ -410,5 +584,12 @@ public struct InsightsSnapshot: Codable, Sendable, Equatable {
         self.longestStreakDays = longestStreakDays
         self.activeDaysInRange = activeDaysInRange
         self.meetingWords = meetingWords
+        self.meetingStats = meetingStats
+        self.meetingBuckets = meetingBuckets
+        self.folderStats = folderStats
+        self.recurringMeetings = recurringMeetings
+        self.calendarStats = calendarStats
+        self.llmStats = llmStats
+        self.llmUsageByDay = llmUsageByDay
     }
 }

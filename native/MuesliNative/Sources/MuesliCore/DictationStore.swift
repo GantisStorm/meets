@@ -223,6 +223,21 @@ public final class DictationStore {
         );
         CREATE INDEX IF NOT EXISTS idx_insights_daily_tokens_token
             ON insights_daily_tokens(token_id, day);
+
+        -- Append-only log of LLM pillar runs (summaries, transcript cleanup,
+        -- title generation). Written at call sites; read by Insights.
+        CREATE TABLE IF NOT EXISTS llm_usage_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            kind TEXT NOT NULL,
+            backend TEXT NOT NULL,
+            model TEXT NOT NULL DEFAULT '',
+            status TEXT NOT NULL,
+            retry_count INTEGER NOT NULL DEFAULT 0,
+            characters INTEGER NOT NULL DEFAULT 0,
+            meeting_id INTEGER,
+            created_at REAL NOT NULL DEFAULT 0
+        );
+        CREATE INDEX IF NOT EXISTS idx_llm_usage_created ON llm_usage_log(created_at);
         """, db: db)
     }
 
@@ -1234,6 +1249,19 @@ public final class DictationStore {
             }
 
             let streaks = try meetingStreakDays(db: db, calendar: calendar)
+            // v2 trinity aggregates.
+            let meetingStats = try meetingActivityStats(db: db, sinceDay: startDay, calendar: calendar)
+            let bucketStart = startDate.map { calendar.startOfDay(for: $0) } ?? today
+            let meetingBuckets = try meetingActivityBuckets(
+                db: db,
+                sinceDay: startDay,
+                calendar: calendar,
+                startDate: bucketStart,
+                endDate: today
+            )
+            let folderStats = try meetingFolderStats(db: db, sinceDay: startDay)
+            let recurringMeetings = try recurringMeetingStats(db: db, sinceDay: startDay)
+            let llm = try llmUsageStats(db: db, sinceDay: startDay, calendar: calendar)
             let snapshot = InsightsSnapshot(
                 range: range,
                 generatedAt: now,
@@ -1243,7 +1271,14 @@ public final class DictationStore {
                 currentStreakDays: streaks.current,
                 longestStreakDays: streaks.longest,
                 activeDaysInRange: activity.filter { $0.meetings > 0 }.count,
-                meetingWords: try cachedTopMeetingWords(db: db, sinceDay: startDay)
+                meetingWords: try cachedTopMeetingWords(db: db, sinceDay: startDay),
+                meetingStats: meetingStats,
+                meetingBuckets: meetingBuckets,
+                folderStats: folderStats,
+                recurringMeetings: recurringMeetings,
+                calendarStats: MeetingCalendarLinkageStats(),
+                llmStats: llm.stats,
+                llmUsageByDay: llm.byDay
             )
             try exec("COMMIT", db: db)
             return snapshot
@@ -1619,6 +1654,226 @@ public final class DictationStore {
         var words: [InsightsWordFrequency] = []
         while sqlite3_step(s) == SQLITE_ROW { words.append(.init(word: stringColumn(s, index: 0), count: Int(sqlite3_column_int64(s, 1)))) }
         return words
+    }
+
+    // MARK: - Trinity aggregates (v2)
+
+    /// Epoch-double bound for a "since day" (YYYY-MM-DD, cache-day form) so
+    /// `created_at` (unix epoch) comparisons work. nil when unbounded.
+    private static func sinceEpoch(sinceDay: String?, calendar: Calendar) -> Double? {
+        guard let sinceDay else { return nil }
+        let parts = sinceDay.split(separator: "-").compactMap { Int($0) }
+        guard parts.count == 3, let date = calendar.date(from: DateComponents(year: parts[0], month: parts[1], day: parts[2])) else { return nil }
+        return date.timeIntervalSince1970
+    }
+
+    /// Finished-meeting aggregate (excludes transient `.recording` live rows,
+    /// which are counted separately as `recordingMeetings`).
+    func meetingActivityStats(db: OpaquePointer?, sinceDay: String?, calendar: Calendar) throws -> MeetingActivityStats {
+        let since = sinceDay.map { "AND start_time >= '\($0)'" } ?? ""
+        let finishedSQL = """
+        SELECT
+          COUNT(*),
+          SUM(CASE WHEN meeting_status IN ('completed','note_only') THEN 1 ELSE 0 END),
+          SUM(CASE WHEN meeting_status = 'failed' THEN 1 ELSE 0 END),
+          COALESCE(SUM(duration_seconds), 0),
+          COALESCE(SUM(word_count), 0),
+          SUM(CASE WHEN saved_recording_path IS NOT NULL THEN 1 ELSE 0 END),
+          SUM(CASE WHEN calendar_event_id IS NOT NULL OR calendar_occurrence_key IS NOT NULL THEN 1 ELSE 0 END),
+          SUM(CASE WHEN follow_up_to_id IS NOT NULL THEN 1 ELSE 0 END),
+          SUM(CASE WHEN source = 'audio_import' THEN 1 ELSE 0 END)
+        FROM meetings
+        WHERE (meeting_status IS NULL OR meeting_status != 'recording') \(since)
+        """
+        var s: OpaquePointer?
+        guard sqlite3_prepare_v2(db, finishedSQL, -1, &s, nil) == SQLITE_OK else { throw lastError(db) }
+        defer { sqlite3_finalize(s) }
+        guard sqlite3_step(s) == SQLITE_ROW else { return MeetingActivityStats() }
+        let total = Int(sqlite3_column_int64(s, 0))
+        let completed = Int(sqlite3_column_int64(s, 1))
+        let failed = Int(sqlite3_column_int64(s, 2))
+        let duration = sqlite3_column_double(s, 3)
+        let words = Int(sqlite3_column_int64(s, 4))
+        let withRecording = Int(sqlite3_column_int64(s, 5))
+        let linked = Int(sqlite3_column_int64(s, 6))
+        let followUps = Int(sqlite3_column_int64(s, 7))
+        let imported = Int(sqlite3_column_int64(s, 8))
+
+        var recordingCount = 0
+        let recordingSQL = "SELECT COUNT(*) FROM meetings WHERE meeting_status = 'recording' \(since)"
+        var rs: OpaquePointer?
+        if sqlite3_prepare_v2(db, recordingSQL, -1, &rs, nil) == SQLITE_OK {
+            if sqlite3_step(rs) == SQLITE_ROW { recordingCount = Int(sqlite3_column_int64(rs, 0)) }
+            sqlite3_finalize(rs)
+        }
+
+        return MeetingActivityStats(
+            totalMeetings: total,
+            completedMeetings: completed,
+            failedMeetings: failed,
+            recordingMeetings: recordingCount,
+            totalDurationSeconds: duration,
+            averageDurationSeconds: total > 0 ? duration / Double(total) : 0,
+            totalWords: words,
+            meetingsWithRecording: withRecording,
+            meetingsLinkedToCalendar: linked,
+            followUpMeetings: followUps,
+            importedMeetings: imported
+        )
+    }
+
+    /// Per-day finished-meeting activity across `startDate...endDate`,
+    /// zero-filled so charts can draw contiguous bars.
+    func meetingActivityBuckets(db: OpaquePointer?, sinceDay: String?, calendar: Calendar, startDate: Date, endDate: Date) throws -> [MeetingActivityBucket] {
+        let since = sinceDay.map { "AND start_time >= '\($0)'" } ?? ""
+        let sql = """
+        SELECT start_time, COUNT(*), COALESCE(SUM(duration_seconds),0), COALESCE(SUM(word_count),0)
+        FROM meetings
+        WHERE (meeting_status IS NULL OR meeting_status != 'recording') \(since)
+        GROUP BY start_time
+        """
+        var s: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &s, nil) == SQLITE_OK else { throw lastError(db) }
+        defer { sqlite3_finalize(s) }
+        var byDay: [Date: (meetings: Int, duration: Double, words: Int)] = [:]
+        while sqlite3_step(s) == SQLITE_ROW {
+            guard let d = parseISODate(stringColumn(s, index: 0)) else { continue }
+            let day = calendar.startOfDay(for: d)
+            let old = byDay[day] ?? (0, 0, 0)
+            byDay[day] = (
+                old.meetings + Int(sqlite3_column_int64(s, 1)),
+                old.duration + sqlite3_column_double(s, 2),
+                old.words + Int(sqlite3_column_int64(s, 3))
+            )
+        }
+        var result: [MeetingActivityBucket] = []
+        var cursor = calendar.startOfDay(for: startDate)
+        let end = calendar.startOfDay(for: endDate)
+        while cursor <= end {
+            let v = byDay[cursor] ?? (0, 0, 0)
+            result.append(MeetingActivityBucket(bucketStart: cursor, meetings: v.meetings, durationSeconds: v.duration, words: v.words))
+            guard let next = calendar.date(byAdding: .day, value: 1, to: cursor) else { break }
+            cursor = next
+        }
+        return result
+    }
+
+    /// Finished-meeting counts grouped by folder name.
+    func meetingFolderStats(db: OpaquePointer?, sinceDay: String?) throws -> [MeetingFolderStat] {
+        let since = sinceDay.map { "AND m.start_time >= '\($0)'" } ?? ""
+        let sql = """
+        SELECT COALESCE(mf.name, 'No folder'), COUNT(*)
+        FROM meetings m LEFT JOIN meeting_folders mf ON mf.id = m.folder_id
+        WHERE (m.meeting_status IS NULL OR m.meeting_status != 'recording') \(since)
+        GROUP BY COALESCE(mf.name, 'No folder')
+        ORDER BY COUNT(*) DESC
+        """
+        var s: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &s, nil) == SQLITE_OK else { throw lastError(db) }
+        defer { sqlite3_finalize(s) }
+        var out: [MeetingFolderStat] = []
+        while sqlite3_step(s) == SQLITE_ROW {
+            out.append(MeetingFolderStat(folderID: 0, folderName: stringColumn(s, index: 0), meetings: Int(sqlite3_column_int64(s, 1))))
+        }
+        return out
+    }
+
+    /// Most-recorded recurring meeting titles (excludes the generic default
+    /// title "Meeting").
+    func recurringMeetingStats(db: OpaquePointer?, sinceDay: String?, limit: Int = 10) throws -> [RecurringMeetingStat] {
+        let since = sinceDay.map { "AND start_time >= '\($0)'" } ?? ""
+        let sql = """
+        SELECT title, COUNT(*) c FROM meetings
+        WHERE (meeting_status IS NULL OR meeting_status != 'recording') AND title != 'Meeting' \(since)
+        GROUP BY title HAVING c > 1 ORDER BY c DESC LIMIT ?
+        """
+        var s: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &s, nil) == SQLITE_OK else { throw lastError(db) }
+        defer { sqlite3_finalize(s) }
+        sqlite3_bind_int(s, 1, Int32(limit))
+        var out: [RecurringMeetingStat] = []
+        while sqlite3_step(s) == SQLITE_ROW { out.append(.init(title: stringColumn(s, index: 0), count: Int(sqlite3_column_int64(s, 1)))) }
+        return out
+    }
+
+    /// Appends one LLM usage event (summary / cleanup / title generation).
+    public func recordLLMUsage(kind: String, backend: String, model: String, status: String, retryCount: Int = 0, characters: Int = 0, meetingID: Int64? = nil) {
+        guard let db = try? openDatabase() else { return }
+        defer { sqlite3_close(db) }
+        let sql = "INSERT INTO llm_usage_log(kind,backend,model,status,retry_count,characters,meeting_id,created_at) VALUES (?,?,?,?,?,?,?,?)"
+        var s: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &s, nil) == SQLITE_OK else { return }
+        defer { sqlite3_finalize(s) }
+        sqlite3_bind_text(s, 1, (kind as NSString).utf8String, -1, nil)
+        sqlite3_bind_text(s, 2, (backend as NSString).utf8String, -1, nil)
+        sqlite3_bind_text(s, 3, (model as NSString).utf8String, -1, nil)
+        sqlite3_bind_text(s, 4, (status as NSString).utf8String, -1, nil)
+        sqlite3_bind_int(s, 5, Int32(retryCount))
+        sqlite3_bind_int(s, 6, Int32(characters))
+        if let meetingID { sqlite3_bind_int64(s, 7, meetingID) } else { sqlite3_bind_null(s, 7) }
+        sqlite3_bind_double(s, 8, Date().timeIntervalSince1970)
+        sqlite3_step(s)
+    }
+
+    /// LLM usage aggregates + per-day runs. `sinceDay` is a cache-day string
+    /// ("YYYY-MM-DD"); nil = lifetime.
+    func llmUsageStats(db: OpaquePointer?, sinceDay: String?, calendar: Calendar) throws -> (stats: LLMUsageStats, byDay: [LLMUsageDay]) {
+        let sinceEpoch = Self.sinceEpoch(sinceDay: sinceDay, calendar: calendar)
+        let since = sinceEpoch.map { "AND created_at >= \($0)" } ?? ""
+
+        let aggSQL = """
+        SELECT COUNT(*),
+               SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END),
+               SUM(CASE WHEN status != 'success' THEN 1 ELSE 0 END),
+               COALESCE(SUM(characters), 0)
+        FROM llm_usage_log WHERE 1=1 \(since)
+        """
+        var s: OpaquePointer?
+        guard sqlite3_prepare_v2(db, aggSQL, -1, &s, nil) == SQLITE_OK else { throw lastError(db) }
+        defer { sqlite3_finalize(s) }
+        var stats = LLMUsageStats()
+        if sqlite3_step(s) == SQLITE_ROW {
+            stats = LLMUsageStats(
+                totalRuns: Int(sqlite3_column_int64(s, 0)),
+                successfulRuns: Int(sqlite3_column_int64(s, 1)),
+                failedRuns: Int(sqlite3_column_int64(s, 2)),
+                totalCharacters: Int(sqlite3_column_int64(s, 3))
+            )
+        }
+
+        let kindSQL = "SELECT kind, COUNT(*) FROM llm_usage_log WHERE 1=1 \(since) GROUP BY kind"
+        var ks: OpaquePointer?
+        guard sqlite3_prepare_v2(db, kindSQL, -1, &ks, nil) == SQLITE_OK else { throw lastError(db) }
+        defer { sqlite3_finalize(ks) }
+        var kinds: [String: Int] = [:]
+        while sqlite3_step(ks) == SQLITE_ROW { kinds[stringColumn(ks, index: 0)] = Int(sqlite3_column_int64(ks, 1)) }
+
+        let backendSQL = "SELECT backend, COUNT(*) FROM llm_usage_log WHERE 1=1 \(since) GROUP BY backend"
+        var bs: OpaquePointer?
+        guard sqlite3_prepare_v2(db, backendSQL, -1, &bs, nil) == SQLITE_OK else { throw lastError(db) }
+        defer { sqlite3_finalize(bs) }
+        var backends: [String: Int] = [:]
+        while sqlite3_step(bs) == SQLITE_ROW { backends[stringColumn(bs, index: 0)] = Int(sqlite3_column_int64(bs, 1)) }
+
+        stats = LLMUsageStats(
+            totalRuns: stats.totalRuns,
+            successfulRuns: stats.successfulRuns,
+            failedRuns: stats.failedRuns,
+            totalCharacters: stats.totalCharacters,
+            byKind: kinds,
+            byBackend: backends
+        )
+
+        let daySQL = "SELECT created_at, COUNT(*) FROM llm_usage_log WHERE 1=1 \(since) GROUP BY CAST(created_at / 86400 AS INT) ORDER BY 1"
+        var ds: OpaquePointer?
+        guard sqlite3_prepare_v2(db, daySQL, -1, &ds, nil) == SQLITE_OK else { throw lastError(db) }
+        defer { sqlite3_finalize(ds) }
+        var days: [LLMUsageDay] = []
+        while sqlite3_step(ds) == SQLITE_ROW {
+            let epochDay = floor(sqlite3_column_double(ds, 0) / 86400) * 86400
+            days.append(LLMUsageDay(day: Date(timeIntervalSince1970: epochDay), runs: Int(sqlite3_column_int64(ds, 1))))
+        }
+        return (stats, days)
     }
 
     private func meetingStreakDays(db: OpaquePointer?, calendar: Calendar) throws -> (current: Int, longest: Int) {
