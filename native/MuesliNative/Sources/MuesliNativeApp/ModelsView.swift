@@ -958,7 +958,7 @@ struct ModelsView: View {
                         if option.recommended {
                             Text("Recommended")
                                 .font(.system(size: 10, weight: .semibold))
-                                .foregroundStyle(.white)
+                                .foregroundStyle(MuesliTheme.accentContent)
                                 .padding(.horizontal, 6)
                                 .padding(.vertical, 2)
                                 .background(MuesliTheme.accent)

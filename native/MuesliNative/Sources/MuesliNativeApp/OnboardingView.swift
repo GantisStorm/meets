@@ -648,7 +648,7 @@ struct OnboardingView: View {
                         if option == BackendOption.onboardingDefault {
                             Text("Recommended")
                                 .font(.system(size: 9, weight: .semibold))
-                                .foregroundStyle(.white)
+                                .foregroundStyle(MuesliTheme.accentContent)
                                 .padding(.horizontal, 5)
                                 .padding(.vertical, 1)
                                 .background(MuesliTheme.accent)
@@ -935,11 +935,11 @@ struct OnboardingView: View {
                     } label: {
                         HStack(spacing: 6) {
                             OpenAILogoShape()
-                                .fill(.white)
+                                .fill(MuesliTheme.accentContent)
                                 .frame(width: 14, height: 14)
                             Text("Sign in with ChatGPT")
                                 .font(.system(size: 13, weight: .medium))
-                                .foregroundStyle(.white)
+                                .foregroundStyle(MuesliTheme.accentContent)
                         }
                         .padding(.horizontal, 16)
                         .padding(.vertical, 8)
@@ -1020,7 +1020,7 @@ struct OnboardingView: View {
                             Text("Connect OpenRouter")
                                 .font(.system(size: 13, weight: .medium))
                         }
-                        .foregroundStyle(.white)
+                        .foregroundStyle(MuesliTheme.accentContent)
                         .padding(.horizontal, 16)
                         .padding(.vertical, 8)
                         .background(MuesliTheme.accent)
@@ -1488,7 +1488,7 @@ struct OnboardingView: View {
                             Text("Connect Google Calendar")
                                 .font(.system(size: 14, weight: .medium))
                         }
-                        .foregroundStyle(.white)
+                        .foregroundStyle(MuesliTheme.accentContent)
                         .padding(.horizontal, MuesliTheme.spacing16)
                         .padding(.vertical, MuesliTheme.spacing8)
                         .background(MuesliTheme.accent)

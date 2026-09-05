@@ -2,10 +2,10 @@ import SwiftUI
 import MuesliCore
 
 enum MuesliTheme {
-    // MARK: - Colors — Backgrounds (layered)
+    // MARK: - Colors — Backgrounds (layered, neutral greys/blacks)
 
-    static let backgroundDeepDarkHex = 0x0B0C0E
-    static let backgroundDeepLightHex = 0xF5F5F7
+    static let backgroundDeepDarkHex = 0x0A0A0A
+    static let backgroundDeepLightHex = 0xF6F6F6
     static let backgroundDeep   = Color.adaptive(dark: backgroundDeepDarkHex, light: backgroundDeepLightHex)
 
     /// AppKit counterpart of `backgroundDeep`, for window chrome that cannot use SwiftUI colors.
@@ -13,38 +13,38 @@ enum MuesliTheme {
         dark: backgroundDeepDarkHex,
         light: backgroundDeepLightHex
     )
-    static let backgroundBase   = Color.adaptive(dark: 0x161719, light: 0xFFFFFF)
-    static let backgroundRaised = Color.adaptive(dark: 0x1C1D20, light: 0xF0F0F2)
-    static let backgroundHover  = Color.adaptive(dark: 0x232528, light: 0xE8E8EC)
+    static let backgroundBase   = Color.adaptive(dark: 0x121212, light: 0xFFFFFF)
+    static let backgroundRaised = Color.adaptive(dark: 0x181818, light: 0xF0F0F0)
+    static let backgroundHover  = Color.adaptive(dark: 0x1F1F1F, light: 0xE8E8E8)
 
     // MARK: - Surfaces (interactive elements)
 
-    static let surfacePrimary   = Color.adaptive(dark: 0x262830, light: 0xE5E5EA)
-    static let surfaceSelected  = Color.adaptive(dark: 0x2E3340, light: 0xD6DFFE)
+    static let surfacePrimary   = Color.adaptive(dark: 0x242424, light: 0xE5E5E5)
+    static let surfaceSelected  = Color.adaptive(dark: 0x3A3A3A, light: 0xD9D9D9)
     static let surfaceBorder    = Color.adaptiveAlpha(
-        dark: .white, darkAlpha: 0.07,
-        light: .black, lightAlpha: 0.08
+        dark: .white, darkAlpha: 0.10,
+        light: .black, lightAlpha: 0.10
     )
 
     // MARK: - Text hierarchy
 
     static let textPrimary = Color.adaptiveAlpha(
-        dark: .white, darkAlpha: 0.92,
-        light: .black, lightAlpha: 0.88
+        dark: .white, darkAlpha: 0.94,
+        light: .black, lightAlpha: 0.90
     )
     static let textSecondary = Color.adaptiveAlpha(
-        dark: .white, darkAlpha: 0.62,
-        light: .black, lightAlpha: 0.55
+        dark: .white, darkAlpha: 0.64,
+        light: .black, lightAlpha: 0.56
     )
     static let textTertiary = Color.adaptiveAlpha(
         dark: .white, darkAlpha: 0.40,
-        light: .black, lightAlpha: 0.33
+        light: .black, lightAlpha: 0.34
     )
 
-    // MARK: - Accent
+    // MARK: - Accent (neutral: near-white in dark mode, near-black in light)
 
-    static let defaultAccentDarkHex = 0x6BA3F7
-    static let defaultAccentLightHex = 0x2563EB
+    static let defaultAccentDarkHex = 0xE8E8E8
+    static let defaultAccentLightHex = 0x1F1F1F
     static let defaultAccent    = Color.adaptive(dark: defaultAccentDarkHex, light: defaultAccentLightHex)
     static var accentOverrideHex: String?
     static var accent: Color {
@@ -56,11 +56,16 @@ enum MuesliTheme {
     }
     static var accentSubtle: Color { accent.opacity(0.15) }
 
-    // MARK: - Semantic
+    /// Text/icons placed on top of an `accent` fill. Dark mode fills are
+    /// light grey (near-white accent), so content is black; light mode fills
+    /// are near-black, so content is white.
+    static let accentContent = Color.adaptive(dark: 0x111111, light: 0xF4F4F4)
 
-    static let recording        = Color(hex: 0xEF4444)
-    static let transcribing     = Color(hex: 0xF59E0B)
-    static let success          = Color(hex: 0x34D399)
+    // MARK: - Semantic (functional status only; kept minimal for dark UIs)
+
+    static let recording        = Color(hex: 0xE5484D)
+    static let transcribing     = Color(hex: 0xE8A020)
+    static let success          = Color(hex: 0x30A46C)
 
     // MARK: - Typography (SF Pro via .system())
 

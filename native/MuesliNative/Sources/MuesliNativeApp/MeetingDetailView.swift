@@ -1272,7 +1272,7 @@ struct MeetingDetailView: View {
                     Text("Resume")
                         .font(.system(size: 12, weight: .semibold))
                 }
-                .foregroundStyle(Color.white)
+                .foregroundStyle(MuesliTheme.accentContent)
                 .padding(.horizontal, MuesliTheme.spacing12)
                 .padding(.vertical, 7)
                 .background(MuesliTheme.accent)
@@ -1294,7 +1294,7 @@ struct MeetingDetailView: View {
             } label: {
                 Image(systemName: "chevron.down")
                     .font(.system(size: 9, weight: .semibold))
-                    .foregroundStyle(Color.white)
+                    .foregroundStyle(MuesliTheme.accentContent)
                     .padding(.horizontal, 8)
                     .frame(maxHeight: .infinity)
                     .background(MuesliTheme.accent)

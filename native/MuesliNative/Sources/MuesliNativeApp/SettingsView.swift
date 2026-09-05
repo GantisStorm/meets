@@ -1168,11 +1168,11 @@ struct SettingsView: View {
                 } label: {
                     HStack(spacing: 5) {
                         OpenAILogoShape()
-                            .fill(.white)
+                            .fill(MuesliTheme.accentContent)
                             .frame(width: 10, height: 10)
                         Text("Sign in with ChatGPT")
                             .font(.system(size: 11, weight: .medium))
-                            .foregroundStyle(.white)
+                            .foregroundStyle(MuesliTheme.accentContent)
                             .lineLimit(1)
                     }
                     .frame(maxWidth: .infinity)
@@ -1298,7 +1298,7 @@ struct SettingsView: View {
                             .foregroundStyle(.white)
                         Text("Connect OpenRouter")
                             .font(.system(size: 11, weight: .medium))
-                            .foregroundStyle(.white)
+                            .foregroundStyle(MuesliTheme.accentContent)
                             .lineLimit(1)
                     }
                     .frame(maxWidth: .infinity)
@@ -1418,7 +1418,7 @@ struct SettingsView: View {
                             .foregroundStyle(.white)
                         Text("Connect Google Calendar")
                             .font(.system(size: 11, weight: .medium))
-                            .foregroundStyle(.white)
+                            .foregroundStyle(MuesliTheme.accentContent)
                             .lineLimit(1)
                     }
                     .frame(maxWidth: .infinity)
