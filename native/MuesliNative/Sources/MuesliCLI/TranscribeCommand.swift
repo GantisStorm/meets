@@ -1255,6 +1255,8 @@ enum CLISummaryClient {
                 transcript: transcript,
                 title: title
             )
+        case "acp_agent":
+            throw CLISummaryError.unavailable("The ACP agent summary backend is app-only; select OpenAI, OpenRouter, Ollama, LM Studio, or Custom LLM in Meets settings for meets-cli transcribe --summarize.")
         default:
             throw CLISummaryError.unavailable("The configured ChatGPT session summary backend is app-only in headless CLI mode. Select OpenAI, OpenRouter, Ollama, LM Studio, or Custom LLM in Muesli settings for `meets-cli transcribe --summarize`.")
         }

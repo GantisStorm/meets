@@ -1638,6 +1638,8 @@ struct MeetingDetailView: View {
             return MeetingSummaryClient.lmStudioHasRequiredSettings(config: config)
         } else if appState.selectedMeetingSummaryBackend == .customLLM {
             return MeetingSummaryClient.customLLMHasRequiredSettings(config: config)
+        } else if appState.selectedMeetingSummaryBackend == .acpAgent {
+            return MeetingSummaryClient.acpAgentHasRequiredSettings(config: config)
         } else {
             return !OpenRouterCredentialResolver.resolvedAPIKey(
                 legacyAPIKey: config.openRouterAPIKey

@@ -91,6 +91,7 @@ enum MeetingSummaryRetryPolicy {
         return normalized == MeetingSummaryBackendOption.ollama.backend
             || normalized == MeetingSummaryBackendOption.lmStudio.backend
             || normalized == "lm studio"
+            || normalized == MeetingSummaryBackendOption.acpAgent.backend
     }
 
     private static func isLocalEndpointUnavailable(_ error: Error) -> Bool {
@@ -135,6 +136,7 @@ enum MeetingSummaryClient {
     private static let lmStudioSummaryTimeout: TimeInterval = 300
     private static let lmStudioTitleTimeout: TimeInterval = 120
     private static let customLLMSummaryTimeout: TimeInterval = 300
+    private static let acpAgentSummaryTimeout: TimeInterval = 300
     private static let customLLMTitleTimeout: TimeInterval = 120
 
     private static let titleInstructions = """
@@ -273,6 +275,19 @@ enum MeetingSummaryClient {
         }
         if backend == MeetingSummaryBackendOption.customLLM.backend {
             generatedNotes = try await summarizeWithCustomLLM(
+                transcript: transcript,
+                meetingTitle: meetingTitle,
+                existingNotes: existingNotes,
+                manualNotes: manualNotesToRetain,
+                config: config,
+                template: template,
+                visualContext: visualContext,
+                previousMeetingNotes: previousMeetingNotes
+            )
+            return notesByRetainingManualNotes(generatedNotes: generatedNotes, manualNotes: manualNotesToRetain)
+        }
+        if backend == MeetingSummaryBackendOption.acpAgent.backend {
+            generatedNotes = try await summarizeWithACPAgent(
                 transcript: transcript,
                 meetingTitle: meetingTitle,
                 existingNotes: existingNotes,
@@ -801,6 +816,45 @@ enum MeetingSummaryClient {
         }
     }
 
+    private static func summarizeWithACPAgent(
+        transcript: String,
+        meetingTitle: String,
+        existingNotes: String?,
+        manualNotes: String?,
+        config: AppConfig,
+        template: MeetingTemplateSnapshot,
+        visualContext: String? = nil,
+        previousMeetingNotes: String? = nil
+    ) async throws -> String {
+        let command = config.acpAgentCommand.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !command.isEmpty else {
+            throw MeetingSummaryError.backendFailed(
+                backend: "ACP Agent",
+                statusCode: nil,
+                message: "No ACP agent command configured. Enter one in Settings."
+            )
+        }
+        let instructions = summaryInstructions(for: template, existingNotes: existingNotes, manualNotes: manualNotes, previousMeetingNotes: previousMeetingNotes)
+        let userPrompt = summaryUserPrompt(
+            transcript: transcript,
+            meetingTitle: meetingTitle,
+            existingNotes: existingNotes,
+            manualNotes: manualNotes,
+            visualContext: visualContext,
+            previousMeetingNotes: previousMeetingNotes
+        )
+        do {
+            return try await ACPClient.summarize(
+                instructions: instructions,
+                userPrompt: userPrompt,
+                command: command,
+                timeout: acpAgentSummaryTimeout
+            )
+        } catch {
+            throw summaryRequestError(backend: "ACP Agent", error: error)
+        }
+    }
+
     static func customLLMRequiresAPIKey(config: AppConfig) -> Bool {
         (CustomLLMFormat(rawValue: config.customLLMFormat) ?? .openAI) == .anthropic
     }
@@ -813,6 +867,10 @@ enum MeetingSummaryClient {
         let model = config.customLLMModel.trimmingCharacters(in: .whitespacesAndNewlines)
         let apiKey = config.customLLMAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
         return !model.isEmpty && (!customLLMRequiresAPIKey(config: config) || !apiKey.isEmpty)
+    }
+
+    static func acpAgentHasRequiredSettings(config: AppConfig) -> Bool {
+        !config.acpAgentCommand.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     private static func summarizeWithChatCompletions(
@@ -1159,6 +1217,10 @@ enum MeetingSummaryClient {
 
         if backend == MeetingSummaryBackendOption.customLLM.backend {
             return await generateTitleWithCustomLLM(transcript: excerpt, config: config)
+        }
+
+        if backend == MeetingSummaryBackendOption.acpAgent.backend {
+            return nil // ACP is summary-only v1; title falls back to the meeting/calendar title
         }
 
         let apiKey = ProcessInfo.processInfo.environment["OPENAI_API_KEY"] ?? config.openAIAPIKey

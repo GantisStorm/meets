@@ -722,6 +722,16 @@ struct SettingsView: View {
                 customLLMSettingsRows(model: appState.config.customLLMModel) {
                     val in controller.updateConfig { $0.customLLMModel = val }
                 }
+            } else if appState.selectedMeetingSummaryBackend == .acpAgent {
+                Divider().background(MuesliTheme.surfaceBorder)
+                settingsRow("Command", description: "Runs your installed agent (omp, Claude Code, Codex…) over Agent Client Protocol. No API key needed.", controlWidth: meetingControlWidth) {
+                    PastableTextField(
+                        text: appState.config.acpAgentCommand,
+                        placeholder: "omp acp",
+                        onChange: { val in controller.updateConfig { $0.acpAgentCommand = val } }
+                    )
+                    .frame(height: 22)
+                }
             } else {
                 settingsRow("Account", controlWidth: meetingControlWidth) {
                     openRouterAccountControl()
