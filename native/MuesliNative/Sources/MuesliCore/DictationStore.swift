@@ -1354,7 +1354,11 @@ public final class DictationStore {
             // v2 trinity aggregates.
             let meetingStats = try meetingActivityStats(db: db, sinceDay: startDay, calendar: calendar)
             let lifetimeMeetingStats = try meetingActivityStats(db: db, sinceDay: nil, calendar: calendar)
-            let bucketStart = startDate.map { calendar.startOfDay(for: $0) } ?? today
+            // For a bounded range, buckets start at the range start; for
+            // "All time" (nil start) they must start at the earliest day
+            // that has activity — otherwise the chart window collapses to
+            // today and past meetings vanish from the bars.
+            let bucketStart = startDate.map { calendar.startOfDay(for: $0) } ?? firstDay
             let meetingBuckets = try meetingActivityBuckets(
                 db: db,
                 sinceDay: startDay,
