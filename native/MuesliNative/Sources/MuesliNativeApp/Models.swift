@@ -1469,6 +1469,7 @@ struct AppConfig: Codable {
     var hiddenCalendarEventIDs: [String] = []
     var hiddenCalendarEventSourceHints: [String: String] = [:]
     var disabledCalendarIDs: [String] = []
+    var calendarHideCancelled: Bool = false
     var enablePostProcessor: Bool = false
     var postProcessorBackend: String = TranscriptCleanupBackendOption.local.backend
     var postProcessorGemmaModel: String = Gemma4LiteRTModel.e2b.repoID
@@ -1574,6 +1575,7 @@ struct AppConfig: Codable {
         case hiddenCalendarEventIDs = "hidden_calendar_event_ids"
         case hiddenCalendarEventSourceHints = "hidden_calendar_event_source_hints"
         case disabledCalendarIDs = "disabled_calendar_ids"
+        case calendarHideCancelled = "calendar_hide_cancelled"
         case enablePostProcessor = "enable_post_processor"
         case postProcessorBackend = "post_processor_backend"
         case postProcessorGemmaModel = "post_processor_gemma_model"
@@ -1732,6 +1734,7 @@ struct AppConfig: Codable {
             forKey: .hiddenCalendarEventSourceHints
         )) ?? defaults.hiddenCalendarEventSourceHints
         disabledCalendarIDs = (try? c.decode([String].self, forKey: .disabledCalendarIDs)) ?? defaults.disabledCalendarIDs
+        calendarHideCancelled = (try? c.decode(Bool.self, forKey: .calendarHideCancelled)) ?? defaults.calendarHideCancelled
         enablePostProcessor = (try? c.decode(Bool.self, forKey: .enablePostProcessor)) ?? defaults.enablePostProcessor
         postProcessorBackend = TranscriptCleanupBackendOption.resolved(try? c.decode(String.self, forKey: .postProcessorBackend)).backend ?? defaults.postProcessorBackend
         postProcessorGemmaModel = (try? c.decode(String.self, forKey: .postProcessorGemmaModel)) ?? defaults.postProcessorGemmaModel

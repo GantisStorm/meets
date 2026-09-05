@@ -11,7 +11,6 @@ struct CalendarPageView: View {
     @State private var pageMode: CalendarPageMode = .month
     @State private var visibleMonth: Date
     @State private var selectedDate: Date
-    @State private var hideCancelled = false
     /// Client-side filter for the list view (All | Upcoming | Past | Recorded | Unrecorded).
     @State private var listFilter: CalendarListFilter = .all
     /// Incremented to ask the list view to jump to today's section.
@@ -273,7 +272,7 @@ struct CalendarPageView: View {
     @ViewBuilder
     private var toolbarTrailing: some View {
         HStack(spacing: MuesliTheme.spacing8) {
-            Toggle("Hide cancelled", isOn: $hideCancelled)
+            Toggle("Hide cancelled", isOn: hideCancelledBinding)
                 .toggleStyle(.checkbox)
                 .font(MuesliTheme.caption())
                 .foregroundStyle(MuesliTheme.textSecondary)
@@ -751,11 +750,19 @@ struct CalendarPageView: View {
         )
     }
 
+    /// Persisted in AppConfig (survives relaunch + view switches).
+    private var hideCancelledBinding: Binding<Bool> {
+        Binding(
+            get: { appState.config.calendarHideCancelled },
+            set: { newValue in controller.updateConfig { $0.calendarHideCancelled = newValue } }
+        )
+    }
+
     private var listEmptyTitle: String {
         if listFilter != .all {
             return "No \(listFilter.title.lowercased()) events"
         }
-        return hideCancelled ? "No matching events" : "No calendar events"
+        return hideCancelledBinding.wrappedValue ? "No matching events" : "No calendar events"
     }
 
     private var listEmptyMessage: String {
@@ -768,7 +775,7 @@ struct CalendarPageView: View {
         if listFilter != .all {
             return "No events match this filter right now. Try another filter."
         }
-        return hideCancelled
+        return hideCancelledBinding.wrappedValue
             ? "All events in this window are cancelled. Turn off Hide cancelled to see them."
             : "Events from your enabled calendars will appear here once they sync."
     }
@@ -1104,7 +1111,7 @@ struct CalendarPageView: View {
     /// list's section builder also skips cancelled below, but the shared
     /// filter keeps month chips and day rows consistent).
     private var visibleCalendarEvents: [UnifiedCalendarEvent] {
-        guard hideCancelled else { return appState.calendarEvents }
+        guard appState.config.calendarHideCancelled else { return appState.calendarEvents }
         return appState.calendarEvents.filter { !($0.isCancelled || $0.isDeclined) }
     }
 
@@ -1188,7 +1195,7 @@ struct CalendarPageView: View {
         let today = calendar.startOfDay(for: Date())
 
         var eventsByDay: [Date: [UnifiedCalendarEvent]] = [:]
-        for event in visibleCalendarEvents where !(hideCancelled && event.isCancelled) {
+        for event in visibleCalendarEvents {
             let day = calendar.startOfDay(for: event.startDate)
             eventsByDay[day, default: []].append(event)
         }
