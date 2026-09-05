@@ -1118,17 +1118,17 @@ struct MeetingDetailView: View {
     @ViewBuilder
     private func includeNotesInSummaryRow(for meeting: MeetingRecord) -> some View {
         Toggle(isOn: Binding(
-            get: { meeting.includeNotesInSummary },
+            get: { appState.config.includeNotesInSummary },
             set: { include in
-                controller.setMeetingIncludeNotesInSummary(id: meeting.id, include: include)
+                controller.updateConfig { $0.includeNotesInSummary = include }
             }
         )) {
-            Text("Include your written notes when generating the summary.")
+            Text("Include your written notes when generating summaries.")
                 .font(MuesliTheme.caption())
                 .foregroundStyle(MuesliTheme.textSecondary)
         }
         .toggleStyle(.checkbox)
-        .help("When on, your written notes are fed to the AI summary alongside the transcript and retained in the generated notes.")
+        .help("When on, your written notes are fed to AI summaries alongside the transcript and retained in the generated notes.")
         .accessibilityIdentifier("meeting.includeNotesInSummaryToggle")
     }
 

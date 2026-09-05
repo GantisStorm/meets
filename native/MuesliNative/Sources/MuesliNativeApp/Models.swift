@@ -1460,6 +1460,7 @@ struct AppConfig: Codable {
     var acpAgentThinking: String = ""
     var summaryModel: String = ""
     var meetingSummaryModel: String = ""
+    var includeNotesInSummary: Bool = false
     var hasCompletedOnboarding: Bool = false
     var onboardingUseCase: String = OnboardingUseCase.meetings.rawValue
     var userName: String = ""
@@ -1577,6 +1578,7 @@ struct AppConfig: Codable {
         case acpAgentThinking = "acp_agent_thinking"
         case summaryModel = "summary_model"
         case meetingSummaryModel = "meeting_summary_model"
+        case includeNotesInSummary = "include_notes_in_summary"
         case hasCompletedOnboarding = "has_completed_onboarding"
         case onboardingUseCase = "onboarding_use_case"
         case userName = "user_name"
@@ -1730,6 +1732,7 @@ struct AppConfig: Codable {
         acpAgentThinking = (try? c.decode(String.self, forKey: .acpAgentThinking)) ?? defaults.acpAgentThinking
         summaryModel = (try? c.decode(String.self, forKey: .summaryModel)) ?? defaults.summaryModel
         meetingSummaryModel = (try? c.decode(String.self, forKey: .meetingSummaryModel)) ?? defaults.meetingSummaryModel
+        includeNotesInSummary = (try? c.decode(Bool.self, forKey: .includeNotesInSummary)) ?? defaults.includeNotesInSummary
         hasCompletedOnboarding = (try? c.decode(Bool.self, forKey: .hasCompletedOnboarding)) ?? defaults.hasCompletedOnboarding
         let decodedOnboardingUseCase = try? c.decode(String.self, forKey: .onboardingUseCase)
         if let decodedOnboardingUseCase,

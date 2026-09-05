@@ -826,6 +826,14 @@ struct SettingsView: View {
 
     private var meetingSummarySettingsSection: some View {
         settingsSection("Meeting Summaries") {
+            settingsRow("Include written notes") {
+                settingsSwitch(isOn: appState.config.includeNotesInSummary) { newValue in
+                    controller.updateConfig { $0.includeNotesInSummary = newValue }
+                }
+            }
+            settingsDescription("Feed your written notes into AI summaries alongside the transcript. Notes are always kept verbatim either way.")
+            Divider().background(MuesliTheme.surfaceBorder)
+
             settingsRow("Summary backend", controlWidth: meetingControlWidth) {
                 settingsMenu(
                     selection: appState.selectedMeetingSummaryBackend.label,
