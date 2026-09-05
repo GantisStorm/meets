@@ -84,6 +84,8 @@ struct SettingsView: View {
     @State private var isCheckingSystemAudioPermission = false
     @State private var isUsingCustomOpenRouterModel = false
     @State private var hasRefreshedMeetingCalendarSources = false
+    @State private var isShowingCleanupPromptManager = false
+    @State private var cleanupDownloads: [String: Double] = [:]
 
     init(appState: AppState, controller: MuesliController) {
         self.appState = appState
@@ -272,6 +274,14 @@ struct SettingsView: View {
                 }
             } message: {
                 Text(pendingDataDestruction?.message ?? "")
+            }
+            .sheet(isPresented: $isShowingCleanupPromptManager) {
+                TranscriptCleanupPromptsManagerView(
+                    appState: appState,
+                    controller: controller,
+                    onClose: { isShowingCleanupPromptManager = false }
+                )
+                .frame(minWidth: 560, minHeight: 480)
             }
         }
     }
@@ -751,6 +761,139 @@ struct SettingsView: View {
         }
     }
 
+    private var cleanupBackendOptions: [TranscriptCleanupBackendOption] {
+        TranscriptCleanupBackendOption.all.filter { !$0.isGemma4LiteRT }
+    }
+
+    private var selectedCleanupBackend: TranscriptCleanupBackendOption {
+        TranscriptCleanupBackendOption.resolved(appState.config.postProcessorBackend)
+    }
+
+    private var cleanupLocalModels: [PostProcessorOption] {
+        PostProcessorOption.all
+    }
+
+    private var selectedCleanupLocalModel: PostProcessorOption {
+        PostProcessorOption.resolve(id: appState.config.activePostProcessorId)
+    }
+
+    @ViewBuilder
+    private var transcriptCleanupSettingsSection: some View {
+        settingsSection("Transcript Cleanup") {
+            settingsRow("AI transcript cleanup") {
+                settingsSwitch(isOn: appState.config.enablePostProcessor) { newValue in
+                    controller.setPostProcessorEnabled(newValue)
+                }
+            }
+            if appState.config.enablePostProcessor {
+                Divider().background(MuesliTheme.surfaceBorder)
+                settingsRow(
+                    "Cleanup source",
+                    description: cleanupSourceDescription,
+                    controlWidth: meetingControlWidth
+                ) {
+                    settingsMenu(
+                        selection: selectedCleanupBackend.label,
+                        options: cleanupBackendOptions.map(\.label)
+                    ) { label in
+                        if let option = cleanupBackendOptions.first(where: { $0.label == label }) {
+                            controller.selectPostProcessorBackend(option)
+                        }
+                    }
+                }
+                if selectedCleanupBackend.isLocal {
+                    Divider().background(MuesliTheme.surfaceBorder)
+                    settingsRow("Local model", controlWidth: meetingControlWidth) {
+                        settingsMenu(
+                            selection: selectedCleanupLocalModel.label,
+                            options: cleanupLocalModels.map(\.label)
+                        ) { label in
+                            if let option = cleanupLocalModels.first(where: { $0.label == label }) {
+                                controller.selectPostProcessor(option)
+                            }
+                        }
+                    }
+                    if !selectedCleanupLocalModel.isDownloaded {
+                        Divider().background(MuesliTheme.surfaceBorder)
+                        settingsRow("Download", controlWidth: meetingControlWidth) {
+                            if let progress = cleanupDownloads[selectedCleanupLocalModel.id] {
+                                HStack(spacing: 6) {
+                                    ProgressView(value: progress)
+                                        .frame(width: 120)
+                                    Text("\(Int(progress * 100))%")
+                                        .font(.system(size: 11))
+                                        .foregroundStyle(MuesliTheme.textTertiary)
+                                }
+                            } else {
+                                compactActionButton("Download \(selectedCleanupLocalModel.sizeLabel)", systemImage: "arrow.down.circle") {
+                                    downloadSelectedCleanupModel()
+                                }
+                            }
+                        }
+                    } else {
+                        Divider().background(MuesliTheme.surfaceBorder)
+                        settingsRow("Delete model", controlWidth: meetingControlWidth) {
+                            compactActionButton("Delete", systemImage: "trash") {
+                                controller.deletePostProcessorModel(selectedCleanupLocalModel)
+                            }
+                        }
+                    }
+                } else {
+                    Divider().background(MuesliTheme.surfaceBorder)
+                    settingsRow("Model", controlWidth: meetingControlWidth) {
+                        settingsModelTextField(
+                            currentModel: cleanupConfiguredModel,
+                            placeholder: TranscriptCleanupClient.defaultModel(for: selectedCleanupBackend)
+                        ) { newModel in
+                            controller.updateConfig { config in
+                                switch selectedCleanupBackend.backend {
+                                case "chatgpt": config.postProcessorChatGPTModel = newModel
+                                case "openai": config.postProcessorOpenAIModel = newModel
+                                case "openrouter": config.postProcessorOpenRouterModel = newModel
+                                case "ollama": config.postProcessorOllamaModel = newModel
+                                case "lmstudio": config.postProcessorLMStudioModel = newModel
+                                default: config.postProcessorCustomLLMModel = newModel
+                                }
+                            }
+                        }
+                    }
+                }
+                Divider().background(MuesliTheme.surfaceBorder)
+                settingsRow("Cleanup prompt", controlWidth: meetingControlWidth) {
+                    actionButton("Manage Prompts…") {
+                        isShowingCleanupPromptManager = true
+                    }
+                }
+            }
+        }
+    }
+
+    private var cleanupSourceDescription: String {
+        switch selectedCleanupBackend.backend {
+        case "local": return "Runs on-device with a downloaded Qwen3 GGUF model."
+        default: return "Uses the same account configured for meeting summaries."
+        }
+    }
+
+    private var cleanupConfiguredModel: String {
+        TranscriptCleanupClient.configuredModel(for: selectedCleanupBackend, config: appState.config)
+    }
+
+    private func downloadSelectedCleanupModel() {
+        let option = selectedCleanupLocalModel
+        cleanupDownloads[option.id] = 0
+        Task {
+            do {
+                try await controller.downloadPostProcessorModel(option) { progress in
+                    cleanupDownloads[option.id] = progress
+                }
+                await MainActor.run { cleanupDownloads[option.id] = nil }
+            } catch {
+                await MainActor.run { cleanupDownloads[option.id] = nil }
+            }
+        }
+    }
+
     private var meetingsSettingsPane: some View {
         VStack(alignment: .leading, spacing: MuesliTheme.spacing24) {
             meetingTranscriptionSettingsSection
@@ -760,6 +903,8 @@ struct SettingsView: View {
             }
 
             meetingSummarySettingsSection
+
+            transcriptCleanupSettingsSection
 
             settingsSection("Meeting Notes") {
                 settingsRow("Default template", controlWidth: meetingControlWidth) {

@@ -106,6 +106,9 @@ struct MeetingDetailView: View {
     @State private var manualNotesSaveStatusTask: DispatchWorkItem?
     @State private var summaryErrorMessage: String?
     @State private var retranscriptionErrorMessage: String?
+    @State private var isCleaningTranscript = false
+    @State private var cleanupErrorMessage: String?
+    @State private var showCleanupConfirmation = false
     @State private var showDeleteConfirmation = false
     @State private var transcriptResummaryPromptMeetingID: Int64?
     @State private var transcriptEditOriginalTranscript: String?
@@ -179,6 +182,26 @@ struct MeetingDetailView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(MuesliTheme.backgroundBase)
             }
+        }
+        .confirmationDialog(
+            "Clean up transcript?",
+            isPresented: $showCleanupConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Clean Up Transcript") {
+                runTranscriptCleanup()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Runs the transcript through the configured cleanup model to remove filler words and disfluencies. The stored transcript is replaced.")
+        }
+        .alert("Cleanup Failed", isPresented: Binding(
+            get: { cleanupErrorMessage != nil },
+            set: { if !$0 { cleanupErrorMessage = nil } }
+        )) {
+            Button("OK", role: .cancel) { cleanupErrorMessage = nil }
+        } message: {
+            Text(cleanupErrorMessage ?? "")
         }
         .alert("Couldn't Save Summary", isPresented: summaryErrorBinding) {
             Button("OK", role: .cancel) {
@@ -729,6 +752,64 @@ struct MeetingDetailView: View {
         }
     }
 
+    private func runTranscriptCleanup() {
+        guard let meeting else { return }
+        guard !isCleaningTranscript else { return }
+        isCleaningTranscript = true
+        cleanupErrorMessage = nil
+        Task {
+            do {
+                try await controller.applyTranscriptCleanup(id: meeting.id)
+                await MainActor.run {
+                    isCleaningTranscript = false
+                    if let updated = controller.meeting(id: meeting.id) {
+                        syncLocalState(with: updated)
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    isCleaningTranscript = false
+                    cleanupErrorMessage = error.localizedDescription
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func transcriptCleanupAction(for meeting: MeetingRecord) -> some View {
+        if !meeting.rawTranscript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            Button {
+                showCleanupConfirmation = true
+            } label: {
+                HStack(spacing: 6) {
+                    if isCleaningTranscript {
+                        ProgressView()
+                            .controlSize(.small)
+                    } else {
+                        Image(systemName: "wand.and.stars")
+                            .font(.system(size: 10, weight: .semibold))
+                    }
+                    Text(isCleaningTranscript ? "Cleaning…" : "Clean Up")
+                        .font(.system(size: 12, weight: .semibold))
+                }
+                .foregroundStyle(MuesliTheme.textPrimary)
+                .padding(.horizontal, MuesliTheme.spacing12)
+                .padding(.vertical, 7)
+                .background(
+                    RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall)
+                        .fill(MuesliTheme.accent.opacity(0.18))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall)
+                        .strokeBorder(MuesliTheme.accent.opacity(0.35), lineWidth: 1)
+                )
+            }
+            .buttonStyle(.plain)
+            .disabled(isCleaningTranscript)
+            .help("Clean up the transcript with the configured LLM cleanup backend")
+        }
+    }
+
     private func beginSummary(for meeting: MeetingRecord) {
         guard !isSummarizing else { return }
         isSummarizing = true
@@ -888,6 +969,8 @@ struct MeetingDetailView: View {
     private func contentToolbar(for meeting: MeetingRecord) -> some View {
         HStack {
             Spacer()
+
+            transcriptCleanupAction(for: meeting)
 
             retranscribeAction(for: meeting)
 

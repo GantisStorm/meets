@@ -237,6 +237,10 @@ public final class MuesliController: NSObject {
     private let meetingMarkdownAutoExporter: MeetingMarkdownAutoExporting
     private let launchAtLoginCoordinator: LaunchAtLoginCoordinator
     let transcriptionCoordinator = TranscriptionCoordinator()
+    /// Local Qwen3 GGUF cleanup engine, created on first use and reused across
+    /// meeting transcript cleanups so the model stays warm. Stored as Any
+    /// because Qwen3PostProcessor is macOS 15+ gated.
+    private var qwen3PostProcessor: Any?
     private let meetingRecordingHotkeyMonitor = HotkeyMonitor()
     private let dictationAudioRoutingController: DictationAudioRouting
     private lazy var diagnosticIncidentReporter = DiagnosticIncidentReporter(
@@ -1436,6 +1440,126 @@ public final class MuesliController: NSObject {
                 includeMeetingHelpers: false,
                 appleSpeechLanguage: normalized
             )
+        }
+    }
+
+    func setPostProcessorEnabled(_ enabled: Bool) {
+        updateConfig {
+            $0.enablePostProcessor = enabled
+            if enabled && $0.activePostProcessorId.isEmpty {
+                $0.activePostProcessorId = PostProcessorOption.defaultOption.id
+            }
+        }
+    }
+
+    func selectPostProcessorBackend(_ option: TranscriptCleanupBackendOption) {
+        updateConfig {
+            $0.postProcessorBackend = option.backend
+        }
+    }
+
+    func selectPostProcessor(_ option: PostProcessorOption) {
+        updateConfig {
+            $0.activePostProcessorId = option.id
+            if option.inputFormat == .s1Mini {
+                $0.postProcessorSystemPrompt = PostProcessorOption.s1MiniSystemPrompt
+            } else if $0.activeTranscriptCleanupPromptId == TranscriptCleanupPrompts.defaultID {
+                $0.postProcessorSystemPrompt = PostProcessorOption.defaultSystemPrompt
+            }
+        }
+    }
+
+    /// Downloads a local GGUF cleanup model to its cache path. Progress is
+    /// reported on the main actor via the callback.
+    func downloadPostProcessorModel(
+        _ option: PostProcessorOption,
+        progress: @escaping @MainActor (Double) -> Void
+    ) async throws {
+        let fileURL = option.modelURL
+        try FileManager.default.createDirectory(
+            at: fileURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        let (tempURL, response) = try await URLSession.shared.download(from: option.downloadURL)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw URLError(.badServerResponse)
+        }
+        // Streamed copy so progress is observable.
+        let source = try FileHandle(forReadingFrom: tempURL)
+        defer { try? source.close() }
+        let total = (try? source.seekToEnd()) ?? 0
+        try source.seek(toFileOffset: 0)
+        FileManager.default.createFile(atPath: fileURL.path, contents: nil)
+        let destination = try FileHandle(forWritingTo: fileURL)
+        defer { try? destination.close() }
+        var downloaded: UInt64 = 0
+        while true {
+            let chunk = try source.read(upToCount: 1 << 20) ?? Data()
+            if chunk.isEmpty { break }
+            try destination.write(contentsOf: chunk)
+            downloaded += UInt64(chunk.count)
+            if total > 0 {
+                await MainActor.run { progress(min(Double(downloaded) / Double(total), 1.0)) }
+            }
+        }
+        await MainActor.run { progress(1.0) }
+    }
+
+    func deletePostProcessorModel(_ option: PostProcessorOption) {
+        try? FileManager.default.removeItem(at: option.modelURL)
+        if config.activePostProcessorId == option.id {
+            updateConfig { $0.activePostProcessorId = PostProcessorOption.defaultOption.id }
+        }
+    }
+
+    func selectGemma4PostProcessor(_ model: Gemma4LiteRTModel) {
+        updateConfig {
+            $0.postProcessorGemmaModel = model.repoID
+            $0.postProcessorBackend = TranscriptCleanupBackendOption.gemma4LiteRT.backend
+        }
+    }
+
+    func selectTranscriptCleanupPrompt(id: String) {
+        let preset = TranscriptCleanupPrompts.resolve(id: id, custom: config.customTranscriptCleanupPrompts)
+        updateConfig {
+            $0.activeTranscriptCleanupPromptId = preset.id
+            $0.postProcessorSystemPrompt = preset.prompt
+        }
+    }
+
+    func createTranscriptCleanupPrompt(name: String, prompt: String) {
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedPrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty, !trimmedPrompt.isEmpty else { return }
+        let preset = CustomTranscriptCleanupPrompt(name: trimmedName, prompt: trimmedPrompt)
+        updateConfig {
+            $0.customTranscriptCleanupPrompts.append(preset)
+            $0.activeTranscriptCleanupPromptId = preset.id
+            $0.postProcessorSystemPrompt = preset.prompt
+        }
+    }
+
+    func updateTranscriptCleanupPrompt(id: String, name: String, prompt: String) {
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedPrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty, !trimmedPrompt.isEmpty else { return }
+        updateConfig {
+            guard let index = $0.customTranscriptCleanupPrompts.firstIndex(where: { $0.id == id }) else { return }
+            $0.customTranscriptCleanupPrompts[index].name = trimmedName
+            $0.customTranscriptCleanupPrompts[index].prompt = trimmedPrompt
+            if $0.activeTranscriptCleanupPromptId == id {
+                $0.postProcessorSystemPrompt = trimmedPrompt
+            }
+        }
+    }
+
+    func deleteTranscriptCleanupPrompt(id: String) {
+        updateConfig {
+            $0.customTranscriptCleanupPrompts.removeAll { $0.id == id }
+            if $0.activeTranscriptCleanupPromptId == id {
+                $0.activeTranscriptCleanupPromptId = TranscriptCleanupPrompts.defaultID
+                $0.postProcessorSystemPrompt = PostProcessorOption.defaultSystemPrompt
+            }
         }
     }
 
@@ -3035,6 +3159,90 @@ public final class MuesliController: NSObject {
         }
         syncAppState()
     }
+
+    /// Cleans a meeting's stored transcript with the configured LLM cleanup
+    /// backend (local Qwen3 GGUF on macOS 15+, or a hosted ChatGPT/OpenAI/
+    /// OpenRouter/Ollama/LM Studio/custom backend). Returns the cleaned text.
+    func cleanMeetingTranscript(id: Int64) async throws -> String {
+        guard let meeting = meeting(id: id) else {
+            throw TranscriptCleanupError.missingConfiguration("Meeting not found.")
+        }
+        let text = meeting.rawTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else {
+            throw TranscriptCleanupError.missingConfiguration("Meeting has no transcript to clean.")
+        }
+        let backend = TranscriptCleanupBackendOption.resolved(config.postProcessorBackend)
+        let systemPrompt = config.postProcessorSystemPrompt
+
+        if backend.isGemma4LiteRT {
+            throw TranscriptCleanupError.missingConfiguration(
+                "Gemma 4 cleanup is not available in this build. Choose Local Model or a hosted backend."
+            )
+        }
+        if backend.isLocal {
+            guard #available(macOS 15, *) else {
+                throw TranscriptCleanupError.missingConfiguration("Local cleanup requires macOS 15 or later.")
+            }
+            let option = PostProcessorOption.runtimeOption(id: config.activePostProcessorId)
+            guard let option else {
+                throw TranscriptCleanupError.missingConfiguration("No local cleanup model downloaded.")
+            }
+            let processor: Qwen3PostProcessor
+            if let existing = qwen3PostProcessor as? Qwen3PostProcessor {
+                processor = existing
+            } else {
+                let created = Qwen3PostProcessor(
+                    modelURL: option.modelURL,
+                    systemPrompt: systemPrompt,
+                    inputFormat: option.inputFormat
+                )
+                qwen3PostProcessor = created
+                processor = created
+            }
+            await processor.reconfigure(
+                modelURL: option.modelURL,
+                systemPrompt: systemPrompt,
+                inputFormat: option.inputFormat
+            )
+            let cleaned = try await processor.process(
+                text,
+                appContext: nil,
+                configuration: Qwen3PostProcessor.Configuration(
+                    modelURL: option.modelURL,
+                    systemPrompt: systemPrompt,
+                    inputFormat: option.inputFormat
+                )
+            )
+            let result = cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !result.isEmpty else {
+                throw TranscriptCleanupError.rejectedOutput
+            }
+            return result
+        }
+
+        let result = try await TranscriptCleanupClient.clean(
+            text: text,
+            systemPrompt: systemPrompt,
+            appContext: nil,
+            backend: backend,
+            config: config
+        )
+        let cleaned = result.cleanedOutput.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleaned.isEmpty else {
+            throw TranscriptCleanupError.emptyResponse(backend.label)
+        }
+        return cleaned
+    }
+
+    /// Cleans and persists the meeting transcript. Called from the meeting
+    /// detail view's Clean up Transcript action.
+    func applyTranscriptCleanup(id: Int64) async throws {
+        let cleaned = try await cleanMeetingTranscript(id: id)
+        try await MainActor.run {
+            updateMeetingTranscript(id: id, transcript: cleaned)
+        }
+    }
+
 
     func updateMeetingManualNotes(id: Int64, notes: String) {
         liveManualNotesPersistWorkItems[id]?.cancel()

@@ -679,6 +679,13 @@ struct SummaryModelPreset {
         SummaryModelPreset(id: "gpt-5.6-terra", label: "GPT-5.6 Terra"),
         SummaryModelPreset(id: "gpt-5.6-luna", label: "GPT-5.6 Luna"),
     ]
+    static let chatGPTTranscriptCleanupModels: [SummaryModelPreset] = [
+        SummaryModelPreset(id: "gpt-5.6-terra", label: "GPT-5.6 Terra (default)"),
+        SummaryModelPreset(id: "gpt-5.4-mini", label: "GPT-5.4 Mini"),
+        SummaryModelPreset(id: "gpt-5.6-sol", label: "GPT-5.6 Sol"),
+        SummaryModelPreset(id: "gpt-5.6-luna", label: "GPT-5.6 Luna"),
+    ]
+
 
     static let openRouterModels: [SummaryModelPreset] = [
         SummaryModelPreset(id: "stepfun/step-3.5-flash:free", label: "Step 3.5 Flash (256k ctx)"),
@@ -1166,6 +1173,229 @@ enum OnboardingUseCase: String, Codable, CaseIterable {
     }
 }
 
+struct PostProcessorOption: Identifiable, Equatable {
+    enum InputFormat: Hashable {
+        /// The existing Meets/Qwen cleanup prompt, which users may customize.
+        case configurable
+        /// S1-mini is trained on a fixed prompt and control-line contract.
+        case s1Mini
+    }
+
+    let id: String
+    let label: String
+    let sizeLabel: String
+    let description: String
+    let downloadURL: URL
+    let filename: String
+    let inputFormat: InputFormat
+    let isDownloadable: Bool
+
+    init(
+        id: String,
+        label: String,
+        sizeLabel: String,
+        description: String,
+        downloadURL: URL,
+        filename: String,
+        inputFormat: InputFormat = .configurable,
+        isDownloadable: Bool = true
+    ) {
+        self.id = id
+        self.label = label
+        self.sizeLabel = sizeLabel
+        self.description = description
+        self.downloadURL = downloadURL
+        self.filename = filename
+        self.inputFormat = inputFormat
+        self.isDownloadable = isDownloadable
+    }
+
+    var cacheDirectory: URL {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".cache/muesli/models/postproc-\(id)", isDirectory: true)
+    }
+
+    var modelURL: URL {
+        cacheDirectory.appendingPathComponent(filename)
+    }
+
+    var isDownloaded: Bool {
+        FileManager.default.fileExists(atPath: modelURL.path)
+    }
+
+    var logoResourceName: String {
+        inputFormat == .s1Mini ? "superwhisper-logo" : "qwen-logo"
+    }
+
+
+    /// S1-mini normalizes English transcripts only. Indic ASR always emits an
+    /// Indic-language transcript, so do not offer or run S1-mini for it.
+    func isCompatible(with transcriptionBackend: BackendOption) -> Bool {
+        inputFormat != .s1Mini || transcriptionBackend != .indicASR
+    }
+
+    /// Retained only so existing installs keep working. This option is not in
+    /// the download catalogue; once its local cache is deleted, it cannot be
+    /// downloaded again.
+    static let legacyV2 = PostProcessorOption(
+        id: "qwen3-postproc-v2",
+        label: "Meets Cleanup (Legacy)",
+        sizeLabel: "~390 MB",
+        description: "An earlier cleanup model. It handles filler words and spoken lists, but is less consistent than the current model.",
+        downloadURL: URL(string: "https://huggingface.co/phequals/qwen3-postproc-v2/resolve/main/qwen3-postproc-v2-q4_k_m.gguf")!,
+        filename: "qwen3-postproc-v2-q4_k_m.gguf",
+        isDownloadable: false
+    )
+
+    // Vanilla Qwen3.5-0.8B. Stable for basic cleanup; does not reliably convert spoken list cues.
+    static let qwen35_0_8b = PostProcessorOption(
+        id: "qwen35-0.8b",
+        label: "Qwen Basic Cleanup",
+        sizeLabel: "~533 MB",
+        description: "A general-purpose option for typos and filler words in transcripts.",
+        downloadURL: URL(string: "https://huggingface.co/unsloth/Qwen3.5-0.8B-GGUF/resolve/main/Qwen3.5-0.8B-Q4_K_M.gguf")!,
+        filename: "Qwen3.5-0.8B-Q4_K_M.gguf"
+    )
+
+    // Fine-tuned Qwen3.5-0.8B v3 for transcript cleanup.
+    static let finetunedV3 = PostProcessorOption(
+        id: "qwen35-postproc-v3",
+        label: "Meets Cleanup",
+        sizeLabel: "~505 MB",
+        description: "Removes filler words and disfluencies from meeting transcripts and turns spoken list cues into clean formatting.",
+        downloadURL: URL(string: "https://huggingface.co/phequals/qwen35-postproc-v3-gguf/resolve/main/qwen35-postproc-v3-Q4_K_M.gguf")!,
+        filename: "qwen35-postproc-v3-Q4_K_M.gguf"
+    )
+
+    static let s1Mini = PostProcessorOption(
+        id: "superwhisper-s1-mini",
+        label: "S1-mini by Superwhisper",
+        sizeLabel: "~462 MB",
+        description: "English-only speech-to-text normalization with reliable filler removal, corrections, punctuation, capitalization, and written numbers, dates, times, currency, and email addresses.",
+        downloadURL: URL(string: "https://huggingface.co/superwhisper/s1-mini-GGUF/resolve/main/s1-mini-q4_k_m.gguf")!,
+        filename: "s1-mini-q4_k_m.gguf",
+        inputFormat: .s1Mini
+    )
+
+    static let all: [PostProcessorOption] = [.finetunedV3, .s1Mini, .qwen35_0_8b]
+    static let defaultOption: PostProcessorOption = .finetunedV3
+
+    /// Includes retired options that remain runnable when they are already
+    /// cached locally. Keep this separate from `all` so retired models never
+    /// appear as downloadable catalogue entries.
+    private static let knownOptions: [PostProcessorOption] = all + [.legacyV2]
+
+    static var downloaded: [PostProcessorOption] {
+        knownOptions.filter(\.isDownloaded)
+    }
+
+    static var downloadedIDs: Set<String> {
+        Set(downloaded.map(\.id))
+    }
+
+    static func resolve(id: String) -> PostProcessorOption {
+        knownOptions.first { $0.id == id } ?? defaultOption
+    }
+
+    static func firstDownloaded(excluding excludedID: String? = nil) -> PostProcessorOption? {
+        firstDownloaded(excluding: excludedID, downloadedIDs: downloadedIDs)
+    }
+
+    static func firstDownloaded(excluding excludedID: String? = nil, downloadedIDs: Set<String>) -> PostProcessorOption? {
+        knownOptions.first { option in
+            option.id != excludedID && downloadedIDs.contains(option.id)
+        }
+    }
+
+    static func resolveDownloaded(id: String) -> PostProcessorOption? {
+        resolveDownloaded(id: id, downloadedIDs: downloadedIDs)
+    }
+
+    static func resolveDownloaded(id: String, downloadedIDs: Set<String>) -> PostProcessorOption? {
+        let resolved = resolve(id: id)
+        if downloadedIDs.contains(resolved.id) { return resolved }
+        return firstDownloaded(downloadedIDs: downloadedIDs)
+    }
+
+    static func runtimeOption(id: String) -> PostProcessorOption? {
+        runtimeOption(
+            id: id,
+            downloadedIDs: downloadedIDs,
+            hasDevOverride: Qwen3PostProcessorConfig.devOverrideURL() != nil
+        )
+    }
+
+    static func runtimeOption(id: String, downloadedIDs: Set<String>, hasDevOverride: Bool) -> PostProcessorOption? {
+        let configured = resolve(id: id)
+        if downloadedIDs.contains(configured.id) || hasDevOverride { return configured }
+        return firstDownloaded(downloadedIDs: downloadedIDs)
+    }
+
+    static let defaultSystemPrompt = """
+    Clean up speech-to-text transcription. Only make changes when there is a clear error. If the text is already correct, output it exactly as-is.
+
+    The user input may include an <APP-CONTEXT> section with focused app, document, URL, selected text, or OCR screen text. Use it only to resolve obvious transcription errors, names, acronyms, and formatting intent. Never copy app context into the output unless the user dictated it.
+
+    You may: fix obvious misspellings, remove filler words (um, uh, like) and repeated false starts, and format numbered or bullet lists when spoken.
+
+    Do not: paraphrase, reword, add words, remove meaningful words, change the meaning in any way, wrap the output in markdown, code fences, tags, labels, or commentary, or repeat the output more than once. Preserve the speaker's original phrasing.
+    """
+
+    /// S1-mini was trained on this exact system prompt and rejects prompt customization.
+    static let s1MiniSystemPrompt = "You are a text normalizer for speech-to-text transcripts. The input begins with a control line specifying the styling, structure, and context settings; clean the transcript to match those settings and output only the cleaned text."
+
+    func effectiveSystemPrompt(configuredSystemPrompt: String) -> String {
+        switch inputFormat {
+        case .configurable:
+            configuredSystemPrompt
+        case .s1Mini:
+            Self.s1MiniSystemPrompt
+        }
+    }
+}
+
+struct TranscriptCleanupPromptPreset: Identifiable, Equatable {
+    let id: String
+    let name: String
+    let prompt: String
+    let isCustom: Bool
+}
+
+struct CustomTranscriptCleanupPrompt: Codable, Equatable, Identifiable {
+    var id: String
+    var name: String
+    var prompt: String
+
+    init(id: String = UUID().uuidString, name: String, prompt: String) {
+        self.id = id
+        self.name = name
+        self.prompt = prompt
+    }
+}
+
+enum TranscriptCleanupPrompts {
+    static let defaultID = "default"
+
+    static let builtIns: [TranscriptCleanupPromptPreset] = [
+        TranscriptCleanupPromptPreset(
+            id: defaultID,
+            name: "Default Cleanup",
+            prompt: PostProcessorOption.defaultSystemPrompt,
+            isCustom: false
+        ),
+    ]
+
+    static func presets(custom: [CustomTranscriptCleanupPrompt]) -> [TranscriptCleanupPromptPreset] {
+        builtIns + custom.map {
+            TranscriptCleanupPromptPreset(id: $0.id, name: $0.name, prompt: $0.prompt, isCustom: true)
+        }
+    }
+
+    static func resolve(id: String, custom: [CustomTranscriptCleanupPrompt]) -> TranscriptCleanupPromptPreset {
+        presets(custom: custom).first { $0.id == id } ?? builtIns[0]
+    }
+}
+
 struct AppConfig: Codable {
     var meetingRecordingHotkey: HotkeyConfig = .meetingRecordingDefault
     var enableMeetingRecordingHotkey: Bool = false
@@ -1239,6 +1469,19 @@ struct AppConfig: Codable {
     var hiddenCalendarEventIDs: [String] = []
     var hiddenCalendarEventSourceHints: [String: String] = [:]
     var disabledCalendarIDs: [String] = []
+    var enablePostProcessor: Bool = false
+    var postProcessorBackend: String = TranscriptCleanupBackendOption.local.backend
+    var postProcessorGemmaModel: String = Gemma4LiteRTModel.e2b.repoID
+    var activePostProcessorId: String = PostProcessorOption.defaultOption.id
+    var postProcessorChatGPTModel: String = ""
+    var postProcessorOpenAIModel: String = ""
+    var postProcessorOpenRouterModel: String = ""
+    var postProcessorOllamaModel: String = ""
+    var postProcessorLMStudioModel: String = ""
+    var postProcessorCustomLLMModel: String = ""
+    var activeTranscriptCleanupPromptId: String = TranscriptCleanupPrompts.defaultID
+    var customTranscriptCleanupPrompts: [CustomTranscriptCleanupPrompt] = []
+    var postProcessorSystemPrompt: String = PostProcessorOption.defaultSystemPrompt
     var enableScreenContext: Bool = false
     var useCoreAudioTap: Bool = true
     /// Enables the explicitly selected live meeting transcription mode.
@@ -1331,6 +1574,19 @@ struct AppConfig: Codable {
         case hiddenCalendarEventIDs = "hidden_calendar_event_ids"
         case hiddenCalendarEventSourceHints = "hidden_calendar_event_source_hints"
         case disabledCalendarIDs = "disabled_calendar_ids"
+        case enablePostProcessor = "enable_post_processor"
+        case postProcessorBackend = "post_processor_backend"
+        case postProcessorGemmaModel = "post_processor_gemma_model"
+        case activePostProcessorId = "active_post_processor_id"
+        case postProcessorChatGPTModel = "post_processor_chatgpt_model"
+        case postProcessorOpenAIModel = "post_processor_openai_model"
+        case postProcessorOpenRouterModel = "post_processor_openrouter_model"
+        case postProcessorOllamaModel = "post_processor_ollama_model"
+        case postProcessorLMStudioModel = "post_processor_lmstudio_model"
+        case postProcessorCustomLLMModel = "post_processor_custom_llm_model"
+        case activeTranscriptCleanupPromptId = "active_transcript_cleanup_prompt_id"
+        case customTranscriptCleanupPrompts = "custom_transcript_cleanup_prompts"
+        case postProcessorSystemPrompt = "post_processor_system_prompt"
         case enableScreenContext = "enable_screen_context"
         case useCoreAudioTap = "use_core_audio_tap"
         case enableLiveStreamingPartials = "enable_live_streaming_partials"
@@ -1476,6 +1732,19 @@ struct AppConfig: Codable {
             forKey: .hiddenCalendarEventSourceHints
         )) ?? defaults.hiddenCalendarEventSourceHints
         disabledCalendarIDs = (try? c.decode([String].self, forKey: .disabledCalendarIDs)) ?? defaults.disabledCalendarIDs
+        enablePostProcessor = (try? c.decode(Bool.self, forKey: .enablePostProcessor)) ?? defaults.enablePostProcessor
+        postProcessorBackend = TranscriptCleanupBackendOption.resolved(try? c.decode(String.self, forKey: .postProcessorBackend)).backend ?? defaults.postProcessorBackend
+        postProcessorGemmaModel = (try? c.decode(String.self, forKey: .postProcessorGemmaModel)) ?? defaults.postProcessorGemmaModel
+        activePostProcessorId = (try? c.decode(String.self, forKey: .activePostProcessorId)) ?? defaults.activePostProcessorId
+        postProcessorChatGPTModel = (try? c.decode(String.self, forKey: .postProcessorChatGPTModel)) ?? defaults.postProcessorChatGPTModel
+        postProcessorOpenAIModel = (try? c.decode(String.self, forKey: .postProcessorOpenAIModel)) ?? defaults.postProcessorOpenAIModel
+        postProcessorOpenRouterModel = (try? c.decode(String.self, forKey: .postProcessorOpenRouterModel)) ?? defaults.postProcessorOpenRouterModel
+        postProcessorOllamaModel = (try? c.decode(String.self, forKey: .postProcessorOllamaModel)) ?? defaults.postProcessorOllamaModel
+        postProcessorLMStudioModel = (try? c.decode(String.self, forKey: .postProcessorLMStudioModel)) ?? defaults.postProcessorLMStudioModel
+        postProcessorCustomLLMModel = (try? c.decode(String.self, forKey: .postProcessorCustomLLMModel)) ?? defaults.postProcessorCustomLLMModel
+        activeTranscriptCleanupPromptId = (try? c.decode(String.self, forKey: .activeTranscriptCleanupPromptId)) ?? defaults.activeTranscriptCleanupPromptId
+        customTranscriptCleanupPrompts = (try? c.decode([CustomTranscriptCleanupPrompt].self, forKey: .customTranscriptCleanupPrompts)) ?? defaults.customTranscriptCleanupPrompts
+        postProcessorSystemPrompt = (try? c.decode(String.self, forKey: .postProcessorSystemPrompt)) ?? defaults.postProcessorSystemPrompt
         enableScreenContext = (try? c.decode(Bool.self, forKey: .enableScreenContext)) ?? defaults.enableScreenContext
         useCoreAudioTap = (try? c.decode(Bool.self, forKey: .useCoreAudioTap)) ?? defaults.useCoreAudioTap
         enableLiveStreamingPartials = (try? c.decode(Bool.self, forKey: .enableLiveStreamingPartials)) ?? defaults.enableLiveStreamingPartials
