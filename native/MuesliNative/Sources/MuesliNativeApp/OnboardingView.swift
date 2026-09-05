@@ -861,8 +861,8 @@ struct OnboardingView: View {
         }
     }
 
-    /// Step 6: AI Transcript Cleanup — a separate page after Meeting
-    /// Summaries, mirroring the Settings layout (toggle + source + detail).
+    /// Step 6: AI Transcript Cleanup — same component language as Meeting
+    /// Summaries: provider tab strip + per-backend config rows below.
     private var transcriptCleanupStep: some View {
         VStack(spacing: 0) {
             ScrollView {
@@ -879,7 +879,12 @@ struct OnboardingView: View {
                     }
                     .padding(.top, MuesliTheme.spacing24)
 
-                    summaryCleanupSection
+                    cleanupEnabledRow
+
+                    if appState.config.enablePostProcessor {
+                        cleanupBackendTabs
+                        cleanupBackendConfig
+                    }
                 }
                 .padding(.horizontal, MuesliTheme.spacing32)
                 .padding(.bottom, MuesliTheme.spacing16)
@@ -905,6 +910,98 @@ struct OnboardingView: View {
                 loadACPConfigOptionsIfNeeded()
             }
         }
+    }
+
+    /// On/off row for cleanup, matching the summary step's section rhythm.
+    private var cleanupEnabledRow: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Clean finished transcripts")
+                    .font(MuesliTheme.headline())
+                    .foregroundStyle(MuesliTheme.textPrimary)
+                Text("Removes filler words and disfluencies from finished transcripts.")
+                    .font(MuesliTheme.caption())
+                    .foregroundStyle(MuesliTheme.textSecondary)
+            }
+            Spacer()
+            Toggle("", isOn: Binding(
+                get: { appState.config.enablePostProcessor },
+                set: { controller.setPostProcessorEnabled($0) }
+            ))
+            .toggleStyle(.switch)
+            .tint(MuesliTheme.accent)
+            .labelsHidden()
+        }
+        .padding(MuesliTheme.spacing16)
+        .background(MuesliTheme.backgroundRaised)
+        .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerMedium))
+        .overlay(
+            RoundedRectangle(cornerRadius: MuesliTheme.cornerMedium)
+                .strokeBorder(MuesliTheme.surfaceBorder, lineWidth: 1)
+        )
+    }
+
+    // MARK: Cleanup backend tabs
+
+    /// Tab strip over cleanup backends (Gemma excluded), same visual as the
+    /// Meeting Summaries provider tabs.
+    private var cleanupBackendTabs: some View {
+        HStack(spacing: 0) {
+            ForEach(cleanupBackendOptions, id: \.backend) { option in
+                providerTab(option.label, selected: cleanupBackend == option) {
+                    controller.selectPostProcessorBackend(option)
+                }
+            }
+        }
+        .background(MuesliTheme.backgroundRaised)
+        .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
+        .overlay(
+            RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall)
+                .strokeBorder(MuesliTheme.surfaceBorder, lineWidth: 1)
+        )
+        .frame(width: 640)
+    }
+
+    /// Per-backend config below the tabs (mirrors summaryProviderConfig).
+    @ViewBuilder
+    private var cleanupBackendConfig: some View {
+        VStack(alignment: .leading, spacing: MuesliTheme.spacing8) {
+            if cleanupBackend.isLocal {
+                Text("Uses the local Qwen3 model downloaded in Models. Model management stays in Settings.")
+                    .font(MuesliTheme.caption())
+                    .foregroundStyle(MuesliTheme.textTertiary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, MuesliTheme.spacing4)
+            } else if cleanupBackend.backend == "acp_agent" {
+                Text("Uses your ACP agent — command, model, and reasoning configured on the Meeting Summaries step.")
+                    .font(MuesliTheme.caption())
+                    .foregroundStyle(MuesliTheme.textTertiary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, MuesliTheme.spacing4)
+            } else {
+                configFieldRow("Model", controlWidth: 320) {
+                    PastableTextField(
+                        text: cleanupConfiguredModel,
+                        placeholder: TranscriptCleanupClient.defaultModel(for: cleanupBackend),
+                        onChange: { newModel in
+                            controller.updateConfig { config in
+                                switch cleanupBackend.backend {
+                                case "chatgpt": config.postProcessorChatGPTModel = newModel
+                                case "openai": config.postProcessorOpenAIModel = newModel
+                                case "openrouter": config.postProcessorOpenRouterModel = newModel
+                                case "ollama": config.postProcessorOllamaModel = newModel
+                                case "lmstudio": config.postProcessorLMStudioModel = newModel
+                                default: config.postProcessorCustomLLMModel = newModel
+                                }
+                            }
+                        }
+                    )
+                    .frame(height: 24)
+                }
+                .padding(.horizontal, MuesliTheme.spacing4)
+            }
+        }
+        .frame(maxWidth: .infinity)
     }
 
     // MARK: Summary Provider Tabs
@@ -1386,90 +1483,6 @@ struct OnboardingView: View {
 
     private var cleanupConfiguredModel: String {
         TranscriptCleanupClient.configuredModel(for: cleanupBackend, config: appState.config)
-    }
-
-    @ViewBuilder
-    private var summaryCleanupSection: some View {
-        VStack(spacing: MuesliTheme.spacing12) {
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("AI Transcript Cleanup")
-                        .font(MuesliTheme.headline())
-                        .foregroundStyle(MuesliTheme.textPrimary)
-                    Text("Removes filler words and disfluencies from finished transcripts.")
-                        .font(MuesliTheme.caption())
-                        .foregroundStyle(MuesliTheme.textSecondary)
-                }
-                Spacer()
-                Toggle("", isOn: Binding(
-                    get: { appState.config.enablePostProcessor },
-                    set: { controller.setPostProcessorEnabled($0) }
-                ))
-                .toggleStyle(.switch)
-                .tint(MuesliTheme.accent)
-                .labelsHidden()
-            }
-
-            if appState.config.enablePostProcessor {
-                cleanupSourceRow
-                cleanupSourceDetail
-            }
-        }
-        .padding(MuesliTheme.spacing16)
-        .background(MuesliTheme.backgroundRaised)
-        .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerMedium))
-        .overlay(
-            RoundedRectangle(cornerRadius: MuesliTheme.cornerMedium)
-                .strokeBorder(MuesliTheme.surfaceBorder, lineWidth: 1)
-        )
-    }
-
-    private var cleanupSourceRow: some View {
-        configFieldRow("Cleanup source", controlWidth: 240) {
-            wizardMenu(
-                selection: cleanupBackend.label,
-                options: cleanupBackendOptions.map(\.label)
-            ) { label in
-                if let option = cleanupBackendOptions.first(where: { $0.label == label }) {
-                    controller.selectPostProcessorBackend(option)
-                }
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var cleanupSourceDetail: some View {
-        if cleanupBackend.isLocal {
-            Text("Uses the local Qwen3 model downloaded in Models. Model management stays in Settings.")
-                .font(.system(size: 11))
-                .foregroundStyle(MuesliTheme.textTertiary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        } else if cleanupBackend.backend == "acp_agent" {
-            Text("Uses your ACP agent + its model/reasoning from above.")
-                .font(.system(size: 11))
-                .foregroundStyle(MuesliTheme.textTertiary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        } else {
-            configFieldRow("Model", controlWidth: 240) {
-                PastableTextField(
-                    text: cleanupConfiguredModel,
-                    placeholder: TranscriptCleanupClient.defaultModel(for: cleanupBackend),
-                    onChange: { newModel in
-                        controller.updateConfig { config in
-                            switch cleanupBackend.backend {
-                            case "chatgpt": config.postProcessorChatGPTModel = newModel
-                            case "openai": config.postProcessorOpenAIModel = newModel
-                            case "openrouter": config.postProcessorOpenRouterModel = newModel
-                            case "ollama": config.postProcessorOllamaModel = newModel
-                            case "lmstudio": config.postProcessorLMStudioModel = newModel
-                            default: config.postProcessorCustomLLMModel = newModel
-                            }
-                        }
-                    }
-                )
-                .frame(height: 24)
-            }
-        }
     }
 
     // MARK: Shared wizard controls
