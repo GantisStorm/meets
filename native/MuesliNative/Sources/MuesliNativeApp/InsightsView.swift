@@ -484,18 +484,36 @@ struct InsightsView: View {
                     readout("Successful", format(stats.successfulRuns))
                     readout("Failed", format(stats.failedRuns))
                     if stats.totalCharacters > 0 {
-                        readout("Characters", format(stats.totalCharacters))
+                        readout("Characters processed", format(stats.totalCharacters))
                     }
-                    if !stats.byKind.isEmpty {
-                        ForEach(kindRows(stats.byKind), id: \.0) { kind, count in
-                            readout(kind, format(count))
+                }
+                if !data.llmUsageByDay.isEmpty {
+                    LLMDailyBarChart(days: data.llmUsageByDay)
+                        .frame(height: 90)
+                        .padding(.top, 6)
+                }
+                if !stats.byKind.isEmpty {
+                    HStack(alignment: .top, spacing: 24) {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("BY KIND")
+                                .font(.system(size: 10, weight: .bold)).tracking(1.5)
+                                .foregroundStyle(InsightsPalette.tertiaryText)
+                            ForEach(kindRows(stats.byKind), id: \.0) { kind, count in
+                                readout(kind, format(count))
+                            }
+                        }
+                        if !stats.byBackend.isEmpty {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("BY BACKEND")
+                                    .font(.system(size: 10, weight: .bold)).tracking(1.5)
+                                    .foregroundStyle(InsightsPalette.tertiaryText)
+                                ForEach(backendRows(stats.byBackend), id: \.0) { backend, count in
+                                    readout(backend, format(count))
+                                }
+                            }
                         }
                     }
-                    if !stats.byBackend.isEmpty {
-                        ForEach(backendRows(stats.byBackend), id: \.0) { backend, count in
-                            readout(backend, format(count))
-                        }
-                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
         }
@@ -557,7 +575,17 @@ struct InsightsView: View {
     }
 
     private func displayBackend(_ backend: String) -> String {
-        backend.isEmpty ? "Unknown backend" : backend
+        switch backend.lowercased() {
+        case "chatgpt": return "ChatGPT"
+        case "openai": return "OpenAI"
+        case "openrouter": return "OpenRouter"
+        case "ollama": return "Ollama"
+        case "lmstudio": return "LM Studio"
+        case "custom_llm": return "Custom LLM"
+        case "local", "qwen3": return "Local model"
+        default:
+            return backend.isEmpty ? "Unknown backend" : backend
+        }
     }
 
     private func durationLine(_ seconds: Double) -> String {
@@ -937,6 +965,64 @@ private struct MeetingBarChart: View {
         let date = bucket.bucketStart.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day().year())
         let meetings = bucket.meetings == 1 ? "1 meeting" : "\(bucket.meetings.formatted()) meetings"
         return "\(date), \(meetings)"
+    }
+}
+
+/// Compact per-day LLM run bars (Phase 3).
+private struct LLMDailyBarChart: View {
+    let days: [LLMUsageDay]
+
+    private let barWidth: CGFloat = 6
+    private let barSpacing: CGFloat = 3
+
+    private var maximum: Int {
+        max(1, days.map(\.runs).max() ?? 1)
+    }
+
+    private var totalRuns: Int {
+        days.reduce(0) { $0 + $1.runs }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(alignment: .bottom, spacing: barSpacing) {
+                    ForEach(days) { day in
+                        VStack(spacing: 4) {
+                            RoundedRectangle(cornerRadius: 2)
+                                .fill(MuesliTheme.accent.opacity(0.7))
+                                .frame(width: barWidth, height: barHeight(for: day.runs))
+                                .help(barHelp(day))
+                                .accessibilityLabel(barHelp(day))
+                            Text(day.day.formatted(.dateTime.day()))
+                                .font(.system(size: 8, weight: .medium))
+                                .foregroundStyle(InsightsPalette.tertiaryText)
+                                .monospacedDigit()
+                        }
+                    }
+                }
+                .frame(height: 64, alignment: .bottom)
+            }
+            Text(totalLabel)
+                .font(.system(size: 9, weight: .medium))
+                .foregroundStyle(InsightsPalette.tertiaryText)
+        }
+    }
+
+    private var totalLabel: String {
+        totalRuns == 1 ? "1 run" : "\(totalRuns.formatted()) runs in this window"
+    }
+
+    private func barHeight(for count: Int) -> CGFloat {
+        guard count > 0 else { return 2 }
+        let ratio = CGFloat(count) / CGFloat(maximum)
+        return max(3, (64 - 18) * ratio)
+    }
+
+    private func barHelp(_ day: LLMUsageDay) -> String {
+        let date = day.day.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day().year())
+        let runs = day.runs == 1 ? "1 run" : "\(day.runs.formatted()) runs"
+        return "\(date), \(runs)"
     }
 }
 
