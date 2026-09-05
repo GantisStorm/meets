@@ -168,6 +168,9 @@ public final class DictationStore {
         if sqlite3_exec(db, "ALTER TABLE meetings ADD COLUMN source TEXT NOT NULL DEFAULT 'meeting'", nil, nil, nil) != SQLITE_OK {
             // Column may already exist.
         }
+        if sqlite3_exec(db, "ALTER TABLE meetings ADD COLUMN visual_context TEXT", nil, nil, nil) != SQLITE_OK {
+            // Column may already exist.
+        }
         // Clean up legacy pre-meeting tables and sync columns from databases
         // created by earlier Muesli versions.
         for table in ["dictations", "computer_use_traces", "cloud_sync_state", "local_migrations"] {
@@ -181,6 +184,11 @@ public final class DictationStore {
                 // column simply remains unused in the meeting-only schema.
             }
         }
+        // Insights aggregation tables (daily cache, tokens, record cache,
+        // llm_usage_log). Previously this helper was never invoked, so fresh
+        // databases lacked the insights tables and the Insights page failed
+        // with "no such table: insights_cache_meta".
+        try migrateInsightsCache(db: db)
     }
 
     private func migrateInsightsCache(db: OpaquePointer?) throws {
@@ -239,6 +247,100 @@ public final class DictationStore {
         );
         CREATE INDEX IF NOT EXISTS idx_llm_usage_created ON llm_usage_log(created_at);
         """, db: db)
+
+        try rebuildLegacyInsightsTablesIfNeeded(db: db)
+    }
+
+    /// Reshape pre-existing dictation-era insights tables (which carried
+    /// `kind`/`dictation_*` columns and composite keys) into the
+    /// meetings-only schema. `CREATE TABLE IF NOT EXISTS` cannot alter an
+    /// existing table, so legacy databases keep the old shape and every
+    /// insert fails (NOT NULL constraint on the missing-column default).
+    /// Meeting data is preserved; dictation columns are dropped (dead in the
+    /// meetings-only app).
+    private func rebuildLegacyInsightsTablesIfNeeded(db: OpaquePointer?) throws {
+        // Detect legacy shape: insights_record_cache has a `kind` column.
+        var legacy = false
+        var s: OpaquePointer?
+        if sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM pragma_table_info('insights_record_cache') WHERE name='kind'", -1, &s, nil) == SQLITE_OK {
+            if sqlite3_step(s) == SQLITE_ROW { legacy = sqlite3_column_int(s, 0) > 0 }
+            sqlite3_finalize(s)
+        }
+        guard legacy else { return }
+        try withInsightsWriteTransaction(db: db) {
+            // 1. insights_record_cache: old PK(kind, record_id) -> new PK(record_id).
+            try exec("ALTER TABLE insights_record_cache RENAME TO insights_record_cache_legacy", db: db)
+            try exec("""
+            CREATE TABLE insights_record_cache (
+                record_id INTEGER PRIMARY KEY,
+                source_updated_at REAL NOT NULL,
+                activity_day TEXT NOT NULL,
+                word_count INTEGER NOT NULL,
+                duration_seconds REAL NOT NULL,
+                meeting_words INTEGER NOT NULL,
+                meetings INTEGER NOT NULL,
+                token_blob BLOB NOT NULL
+            )
+            """, db: db)
+            try exec("""
+            INSERT INTO insights_record_cache
+              (record_id, source_updated_at, activity_day, word_count, duration_seconds,
+               meeting_words, meetings, token_blob)
+            SELECT record_id, source_updated_at, activity_day, word_count, duration_seconds,
+                   meeting_words, meetings, token_blob
+            FROM insights_record_cache_legacy
+            """, db: db)
+            try exec("DROP TABLE insights_record_cache_legacy", db: db)
+            try exec("CREATE INDEX IF NOT EXISTS idx_insights_record_updated ON insights_record_cache(source_updated_at)", db: db)
+
+            // 2. insights_daily_cache: drop dictation_words/dictation_sessions.
+            try exec("ALTER TABLE insights_daily_cache RENAME TO insights_daily_cache_legacy", db: db)
+            try exec("""
+            CREATE TABLE insights_daily_cache (
+                day TEXT PRIMARY KEY,
+                meeting_words INTEGER NOT NULL DEFAULT 0,
+                meetings INTEGER NOT NULL DEFAULT 0,
+                duration_seconds REAL NOT NULL DEFAULT 0
+            )
+            """, db: db)
+            try exec("""
+            INSERT INTO insights_daily_cache (day, meeting_words, meetings, duration_seconds)
+            SELECT day, meeting_words, meetings, duration_seconds
+            FROM insights_daily_cache_legacy
+            """, db: db)
+            try exec("DROP TABLE insights_daily_cache_legacy", db: db)
+
+            // 3. insights_token_totals + insights_daily_tokens: drop dictation_count.
+            try exec("ALTER TABLE insights_token_totals RENAME TO insights_token_totals_legacy", db: db)
+            try exec("""
+            CREATE TABLE insights_token_totals (
+                token_id INTEGER PRIMARY KEY REFERENCES insights_tokens(id) ON DELETE CASCADE,
+                meeting_count INTEGER NOT NULL DEFAULT 0
+            )
+            """, db: db)
+            try exec("""
+            INSERT INTO insights_token_totals (token_id, meeting_count)
+            SELECT token_id, meeting_count FROM insights_token_totals_legacy
+            """, db: db)
+            try exec("DROP TABLE insights_token_totals_legacy", db: db)
+
+            try exec("ALTER TABLE insights_daily_tokens RENAME TO insights_daily_tokens_legacy", db: db)
+            try exec("""
+            CREATE TABLE insights_daily_tokens (
+                day TEXT NOT NULL,
+                token_id INTEGER NOT NULL REFERENCES insights_tokens(id) ON DELETE CASCADE,
+                meeting_count INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY(day, token_id)
+            )
+            """, db: db)
+            try exec("""
+            INSERT INTO insights_daily_tokens (day, token_id, meeting_count)
+            SELECT day, token_id, meeting_count FROM insights_daily_tokens_legacy
+            """, db: db)
+            try exec("DROP TABLE insights_daily_tokens_legacy", db: db)
+            try exec("CREATE INDEX IF NOT EXISTS idx_insights_daily_tokens_token ON insights_daily_tokens(token_id, day)", db: db)
+        }
+        fputs("[muesli-store] rebuilt legacy dictation-era insights tables to meetings-only schema\n", stderr)
     }
 
     public func meetingCounts() throws -> (total: Int, byFolder: [Int64: Int], directByFolder: [Int64: Int]) {

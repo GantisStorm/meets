@@ -421,6 +421,7 @@ public final class MuesliController: NSObject {
         } catch {
             fputs("[muesli-native] startup error: \(error)\n", stderr)
         }
+        migrateLegacyDatabaseIfNeeded()
         recoverStaleLiveMeetings()
         normalizeMeetingTranscriptionSelectionForAvailability()
         SoundController.prewarmLifecycleSounds()
@@ -991,6 +992,50 @@ public final class MuesliController: NSObject {
         let persisted = Set(config.hiddenCalendarEventIDs)
         if appState.hiddenCalendarEventIDs != persisted {
             appState.hiddenCalendarEventIDs = persisted
+        }
+    }
+
+    /// One-time migration: the pre-rebrand app stored its database under
+    /// "Library/Application Support/Muesli". After the support directory
+    /// moved to "Meets", a fresh empty DB was created there. If the active
+    /// DB has no meetings but the legacy one does, adopt the legacy file so
+    /// the user's recordings/insights survive the rename.
+    private func migrateLegacyDatabaseIfNeeded() {
+        let fm = FileManager.default
+        let activeURL = dictationStore.resolvedDatabaseURL
+        guard fm.fileExists(atPath: activeURL.path) else {
+            // Fresh install with no active DB — nothing to migrate.
+            return
+        }
+        let activeHasMeetings: Bool
+        do {
+            let store = DictationStore(databaseURL: activeURL)
+            activeHasMeetings = (try? store.meetingCounts())?.total ?? 0 > 0
+        }
+        if activeHasMeetings { return }
+
+        let legacyDir = fm.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support", isDirectory: true)
+            .appendingPathComponent("Muesli", isDirectory: true)
+        let legacyURL = legacyDir.appendingPathComponent("muesli.db")
+        guard fm.fileExists(atPath: legacyURL.path) else { return }
+        guard let legacyCount = try? DictationStore(databaseURL: legacyURL).meetingCounts(),
+              legacyCount.total > 0 else { return }
+
+        // Adopt: replace the empty active DB with the legacy one (plus its
+        // sidecar files) so no data is stranded by the rename.
+        do {
+            try fm.removeItem(at: activeURL)
+            try fm.copyItem(at: legacyURL, to: activeURL)
+            for ext in ["-wal", "-shm"] {
+                let sidecar = URL(fileURLWithPath: legacyURL.path + ext)
+                if fm.fileExists(atPath: sidecar.path) {
+                    try? fm.copyItem(at: sidecar, to: URL(fileURLWithPath: activeURL.path + ext))
+                }
+            }
+            fputs("[muesli-native] migrated legacy Muesli database (\(legacyCount.total) meetings) to Meets support directory\n", stderr)
+        } catch {
+            fputs("[muesli-native] legacy database migration failed: \(error)\n", stderr)
         }
     }
 
