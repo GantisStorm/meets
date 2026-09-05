@@ -294,6 +294,11 @@ struct SettingsView: View {
             .onChange(of: appState.config.acpAgentCommand) { _, _ in
                 loadACPConfigOptionsIfNeeded()
             }
+            .onChange(of: appState.config.postProcessorBackend) { _, _ in
+                if selectedCleanupBackend.backend == "acp_agent" {
+                    loadACPConfigOptionsIfNeeded()
+                }
+            }
             .onChange(of: selectedPane) { _, pane in
                 if pane != .meetings {
                     acpConfigOptionsLoadTask?.cancel()
@@ -376,7 +381,9 @@ struct SettingsView: View {
     /// Failures degrade to "use agent default": a single "Default" entry in
     /// each menu and a hint that starting the agent surfaces the options.
     private func loadACPConfigOptionsIfNeeded() {
-        guard appState.selectedMeetingSummaryBackend == .acpAgent else { return }
+        let summaryIsACP = appState.selectedMeetingSummaryBackend == .acpAgent
+        let cleanupIsACP = selectedCleanupBackend.backend == "acp_agent"
+        guard summaryIsACP || cleanupIsACP else { return }
         let command = appState.config.acpAgentCommand.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !command.isEmpty else {
             acpConfigOptionsLoadTask?.cancel()
@@ -406,7 +413,7 @@ struct SettingsView: View {
     }
 
     private var isACPConfigOptionsLoading: Bool {
-        appState.selectedMeetingSummaryBackend == .acpAgent
+        (appState.selectedMeetingSummaryBackend == .acpAgent || selectedCleanupBackend.backend == "acp_agent")
             && !appState.config.acpAgentCommand.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && acpConfigOptions == nil
             && acpConfigOptionsLoadTask != nil
@@ -1051,6 +1058,18 @@ struct SettingsView: View {
                             }
                         }
                     }
+                } else if selectedCleanupBackend.backend == "acp_agent" {
+                    Divider().background(MuesliTheme.surfaceBorder)
+                    settingsRow("Command", controlWidth: meetingControlWidth) {
+                        PastableTextField(
+                            text: appState.config.acpAgentCommand,
+                            placeholder: "omp acp",
+                            onChange: { val in controller.updateConfig { $0.acpAgentCommand = val } }
+                        )
+                        .frame(height: 22)
+                    }
+                    acpModelMenuRow
+                    acpThinkingMenuRow
                 } else {
                     Divider().background(MuesliTheme.surfaceBorder)
                     settingsRow("Model", controlWidth: meetingControlWidth) {
@@ -1084,6 +1103,7 @@ struct SettingsView: View {
     private var cleanupSourceDescription: String {
         switch selectedCleanupBackend.backend {
         case "local": return "Runs on-device with a downloaded Qwen3 GGUF model."
+        case "acp_agent": return "Runs your installed agent (omp, Claude Code, Codex…) over Agent Client Protocol. No API key needed."
         default: return "Uses the same account configured for meeting summaries."
         }
     }
@@ -1274,6 +1294,7 @@ struct SettingsView: View {
                     mutedMeetingDetectionAppsControl
                     Divider().background(MuesliTheme.surfaceBorder)
                     customMeetingDetectionAppsControl
+                        .padding(.top, MuesliTheme.spacing8)
                 }
             }
 

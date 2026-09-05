@@ -12,8 +12,9 @@ struct LLMBackendOption: Equatable, Identifiable {
     static let ollama = LLMBackendOption(backend: "ollama", label: "Ollama")
     static let lmStudio = LLMBackendOption(backend: "lmstudio", label: "LM Studio")
     static let customLLM = LLMBackendOption(backend: "custom_llm", label: "Custom LLM")
+    static let acpAgent = LLMBackendOption(backend: "acp_agent", label: "Agent (ACP)")
 
-    static let all: [LLMBackendOption] = [.chatGPT, .openAI, .openRouter, .ollama, .lmStudio, .customLLM]
+    static let all: [LLMBackendOption] = [.chatGPT, .openAI, .openRouter, .ollama, .lmStudio, .customLLM, .acpAgent]
 
     static func resolved(_ backend: String?) -> LLMBackendOption? {
         guard let backend else { return nil }

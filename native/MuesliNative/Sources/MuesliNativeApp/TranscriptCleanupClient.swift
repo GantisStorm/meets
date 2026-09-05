@@ -47,7 +47,7 @@ enum TranscriptCleanupClient {
             return SummaryModelPreset.openRouterModels.first?.id ?? "stepfun/step-3.5-flash:free"
         case .some(.ollama):
             return "qwen3.5"
-        case .some(.lmStudio), .some(.customLLM):
+        case .some(.lmStudio), .some(.customLLM), .some(.acpAgent):
             return ""
         case nil:
             return PostProcessorOption.defaultOption.id
@@ -74,6 +74,8 @@ enum TranscriptCleanupClient {
             raw = config.postProcessorLMStudioModel
         case .some(.customLLM):
             raw = config.postProcessorCustomLLMModel
+        case .some(.acpAgent):
+            raw = ""
         case nil:
             raw = config.activePostProcessorId
         default:
@@ -109,6 +111,8 @@ enum TranscriptCleanupClient {
             return !model.isEmpty
                 && resolveConfiguredCustomLLMURL(config: config, format: format) != nil
                 && (!MeetingSummaryClient.customLLMRequiresAPIKey(config: config) || !key.isEmpty)
+        case .some(.acpAgent):
+            return !config.acpAgentCommand.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         case nil:
             return true
         default:
@@ -225,6 +229,21 @@ enum TranscriptCleanupClient {
                     maxOutputTokens: maxOutputTokens ?? defaultMaxOutputTokens
                 )
             }
+        case .acpAgent:
+            let command = config.acpAgentCommand.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !command.isEmpty else {
+                throw TranscriptCleanupError.missingConfiguration("No ACP agent command configured. Enter one in Settings.")
+            }
+            let model = config.acpAgentModel.isEmpty ? nil : config.acpAgentModel
+            let thinking = config.acpAgentThinking.isEmpty ? nil : config.acpAgentThinking
+            return try await ACPClient.summarize(
+                instructions: systemPrompt,
+                userPrompt: userPrompt,
+                command: command,
+                model: model,
+                thinking: thinking,
+                timeout: 300
+            )
         default:
             throw TranscriptCleanupError.missingConfiguration("Unsupported transcript cleanup backend: \(backend.label)")
         }
