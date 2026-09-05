@@ -1828,6 +1828,66 @@ struct DictationStoreTests {
         #expect(completed.manualNotes == "- Keep this")
     }
 
+    @Test("live meeting completion stores the stop-time manual notes snapshot verbatim")
+    func completeLiveMeetingStoresExplicitManualNotes() throws {
+        let store = try makeStore()
+        let start = Date()
+        let id = try store.createLiveMeeting(title: "Draft", calendarEventID: nil, startTime: start)
+
+        // The row's debounced live value was lost/empty at stop; the stop-time
+        // snapshot must still land in manual_notes (this is the regression the
+        // completed meeting must not clear or drop).
+        try store.completeLiveMeeting(
+            id: id,
+            title: "Generated Title",
+            calendarEventID: nil,
+            startTime: start,
+            endTime: start.addingTimeInterval(120),
+            rawTranscript: "hello world",
+            formattedNotes: "## Summary\nHello\n\n### Written notes\n\n- Ship today",
+            manualNotes: "- Ship today",
+            micAudioPath: nil,
+            systemAudioPath: nil,
+            savedRecordingPath: nil,
+            selectedTemplateID: "auto",
+            selectedTemplateName: "Auto",
+            selectedTemplateKind: .auto,
+            selectedTemplatePrompt: "## Summary"
+        )
+
+        let completed = try #require(try store.meeting(id: id))
+        #expect(completed.manualNotes == "- Ship today")
+        #expect(completed.wordCount == DictationStore.countWords(in: "hello world") + DictationStore.countWords(in: "- Ship today"))
+    }
+
+    @Test("live meeting completion keeps stored manual notes when no snapshot is supplied")
+    func completeLiveMeetingKeepsStoredManualNotesWithoutSnapshot() throws {
+        let store = try makeStore()
+        let start = Date()
+        let id = try store.createLiveMeeting(title: "Draft", calendarEventID: nil, startTime: start)
+        try store.updateMeetingManualNotes(id: id, manualNotes: "- Already persisted live")
+
+        try store.completeLiveMeeting(
+            id: id,
+            title: "Generated Title",
+            calendarEventID: nil,
+            startTime: start,
+            endTime: start.addingTimeInterval(120),
+            rawTranscript: "hello world",
+            formattedNotes: "## Summary\nHello",
+            micAudioPath: nil,
+            systemAudioPath: nil,
+            savedRecordingPath: nil,
+            selectedTemplateID: "auto",
+            selectedTemplateName: "Auto",
+            selectedTemplateKind: .auto,
+            selectedTemplatePrompt: "## Summary"
+        )
+
+        let completed = try #require(try store.meeting(id: id))
+        #expect(completed.manualNotes == "- Already persisted live")
+    }
+
     @Test("live transcript checkpoints recover stale meetings as raw transcript fallback")
     func liveTranscriptCheckpointsRecoverStaleMeeting() throws {
         let store = try makeStore()
@@ -4094,5 +4154,84 @@ struct DictationStoreTests {
         #expect(updatedLocal.rawText == "Remote text update")
         #expect(updatedLocal.targetAppName == "Notes")
         #expect(updatedLocal.targetAppBundleID == "com.apple.Notes")
+    }
+
+    // MARK: - Meeting ↔ Event links
+
+    private func makeLinkableMeeting(in store: DictationStore) throws -> Int64 {
+        let start = Date(timeIntervalSince1970: 1_775_000_000)
+        return try store.insertMeeting(
+            title: "Manual Sync",
+            calendarEventID: nil,
+            startTime: start,
+            endTime: start.addingTimeInterval(1800),
+            rawTranscript: "Transcript",
+            formattedNotes: "## Notes",
+            micAudioPath: nil,
+            systemAudioPath: nil
+        )
+    }
+
+    @Test("meeting event link add, list, reverse lookup, and remove round-trip")
+    func meetingEventLinkRoundTrip() throws {
+        let store = try makeStore()
+        let meetingID = try makeLinkableMeeting(in: store)
+
+        try store.addMeetingEventLink(meetingID: meetingID, eventID: "event-1", calendarID: "cal-a")
+        try store.addMeetingEventLink(meetingID: meetingID, eventID: "event-2", occurrenceKey: "occ-2")
+        // Duplicate add is an idempotent no-op.
+        try store.addMeetingEventLink(meetingID: meetingID, eventID: "event-1", calendarID: "cal-a")
+
+        let links = try store.meetingEventLinks(meetingID: meetingID)
+        #expect(links.count == 2)
+        #expect(links.contains { $0.eventID == "event-1" && $0.calendarID == "cal-a" && $0.occurrenceKey == nil })
+        #expect(links.contains { $0.eventID == "event-2" && $0.occurrenceKey == "occ-2" })
+
+        #expect(Set(try store.meetingsLinked(toEventID: "event-1")) == [meetingID])
+        #expect(Set(try store.meetingsLinked(toEventID: "event-2")) == [meetingID])
+        #expect(try store.meetingsLinked(toEventID: "event-3").isEmpty)
+
+        let all = try store.allMeetingEventLinks()
+        #expect(all.count == 2)
+
+        try store.removeMeetingEventLink(meetingID: meetingID, eventID: "event-1")
+        let remaining = try store.meetingEventLinks(meetingID: meetingID)
+        #expect(remaining.count == 1)
+        #expect(remaining.first?.eventID == "event-2")
+    }
+
+    @Test("meeting event links cascade-delete with their meeting")
+    func meetingEventLinksCascadeOnMeetingDelete() throws {
+        let store = try makeStore()
+        let meetingID = try makeLinkableMeeting(in: store)
+        try store.addMeetingEventLink(meetingID: meetingID, eventID: "event-1")
+
+        try store.deleteMeeting(id: meetingID)
+
+        #expect(try store.meetingEventLinks(meetingID: meetingID).isEmpty)
+        #expect(try store.meetingsLinked(toEventID: "event-1").isEmpty)
+        #expect(try store.allMeetingEventLinks().isEmpty)
+    }
+
+    @Test("updateMeetingCalendarLink adopts primary event identity")
+    func updateMeetingCalendarLinkAdoptsIdentity() throws {
+        let store = try makeStore()
+        let meetingID = try makeLinkableMeeting(in: store)
+        let start = Date(timeIntervalSince1970: 1_775_000_000)
+        let occurrence = CalendarOccurrenceReference(
+            provider: .eventKit,
+            calendarID: "cal-a",
+            eventID: "event-1",
+            seriesID: "series-1",
+            originalStartTime: start
+        )
+
+        try store.updateMeetingCalendarLink(id: meetingID, eventID: "event-1", occurrence: occurrence)
+
+        let meeting = try #require(try store.meeting(id: meetingID))
+        #expect(meeting.calendarEventID == "event-1")
+        #expect(meeting.calendarOccurrence?.identityKey == occurrence.identityKey)
+        #expect(meeting.calendarOccurrence?.seriesID == "series-1")
+        #expect(try store.meetingByCalendarOccurrence(occurrence)?.id == meetingID)
     }
 }

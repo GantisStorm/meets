@@ -103,6 +103,20 @@ public final class DictationStore {
         CREATE INDEX IF NOT EXISTS idx_meeting_participants_order
             ON meeting_participants(meeting_id, insertion_order);
 
+        -- Explicit "Add to Event" attachments: a meeting can be tied to one
+        -- or more calendar events, in addition to its primary
+        -- calendar_event_id column. Cascade-deleted with the meeting.
+        CREATE TABLE IF NOT EXISTS meeting_event_links (
+            meeting_id INTEGER NOT NULL REFERENCES meetings(id) ON DELETE CASCADE,
+            event_id TEXT NOT NULL,
+            calendar_id TEXT,
+            occurrence_key TEXT,
+            added_at REAL NOT NULL DEFAULT 0,
+            PRIMARY KEY (meeting_id, event_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_meeting_event_links_event
+            ON meeting_event_links(event_id);
+
         CREATE TABLE IF NOT EXISTS meeting_transcript_checkpoints (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             meeting_id INTEGER NOT NULL REFERENCES meetings(id) ON DELETE CASCADE,
@@ -1078,6 +1092,182 @@ public final class DictationStore {
         }
     }
 
+    // MARK: - Meeting ↔ Event links (multi "Add to Event" attachments)
+
+    /// Attaches a meeting to an additional calendar event. Idempotent: a
+    /// link already present for the pair is left untouched.
+    public func addMeetingEventLink(
+        meetingID: Int64,
+        eventID: String,
+        calendarID: String? = nil,
+        occurrenceKey: String? = nil
+    ) throws {
+        let db = try openDatabase()
+        defer { sqlite3_close(db) }
+        let sql = """
+        INSERT OR IGNORE INTO meeting_event_links
+            (meeting_id, event_id, calendar_id, occurrence_key, added_at)
+        VALUES (?, ?, ?, ?, ?)
+        """
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
+            throw lastError(db)
+        }
+        defer { sqlite3_finalize(statement) }
+        sqlite3_bind_int64(statement, 1, meetingID)
+        sqlite3_bind_text(statement, 2, (eventID as NSString).utf8String, -1, nil)
+        bindOptionalText(calendarID, at: 3, statement: statement)
+        bindOptionalText(occurrenceKey, at: 4, statement: statement)
+        sqlite3_bind_double(statement, 5, Date().timeIntervalSince1970)
+        guard sqlite3_step(statement) == SQLITE_DONE else {
+            throw lastError(db)
+        }
+    }
+
+    /// Removes an explicit "Add to Event" attachment. Safe to call when no
+    /// such link exists.
+    public func removeMeetingEventLink(
+        meetingID: Int64,
+        eventID: String
+    ) throws {
+        let db = try openDatabase()
+        defer { sqlite3_close(db) }
+        let sql = """
+        DELETE FROM meeting_event_links
+        WHERE meeting_id = ? AND event_id = ?
+        """
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
+            throw lastError(db)
+        }
+        defer { sqlite3_finalize(statement) }
+        sqlite3_bind_int64(statement, 1, meetingID)
+        sqlite3_bind_text(statement, 2, (eventID as NSString).utf8String, -1, nil)
+        guard sqlite3_step(statement) == SQLITE_DONE else {
+            throw lastError(db)
+        }
+    }
+
+    /// The extra events a meeting is explicitly attached to (does not
+    /// include the primary `calendar_event_id`).
+    public func meetingEventLinks(meetingID: Int64) throws -> [MeetingEventLink] {
+        let db = try openDatabase()
+        defer { sqlite3_close(db) }
+        return try meetingEventLinks(meetingID: meetingID, db: db)
+    }
+
+    private func meetingEventLinks(
+        meetingID: Int64,
+        db: OpaquePointer?
+    ) throws -> [MeetingEventLink] {
+        let sql = """
+        SELECT meeting_id, event_id, calendar_id, occurrence_key, added_at
+        FROM meeting_event_links
+        WHERE meeting_id = ?
+        ORDER BY added_at ASC, event_id ASC
+        """
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
+            throw lastError(db)
+        }
+        defer { sqlite3_finalize(statement) }
+        sqlite3_bind_int64(statement, 1, meetingID)
+
+        var links: [MeetingEventLink] = []
+        while true {
+            switch sqlite3_step(statement) {
+            case SQLITE_ROW:
+                links.append(MeetingEventLink(
+                    meetingID: sqlite3_column_int64(statement, 0),
+                    eventID: stringColumn(statement, index: 1),
+                    calendarID: optionalStringColumn(statement, index: 2),
+                    occurrenceKey: optionalStringColumn(statement, index: 3),
+                    addedAt: Date(timeIntervalSince1970: sqlite3_column_double(statement, 4))
+                ))
+            case SQLITE_DONE:
+                return links
+            default:
+                throw lastError(db)
+            }
+        }
+    }
+
+    /// Meetings explicitly attached to the given event (by stored event id or
+    /// by a recorded occurrence whose identity key matches).
+    public func meetingsLinked(toEventID eventID: String) throws -> [Int64] {
+        let db = try openDatabase()
+        defer { sqlite3_close(db) }
+        return try meetingsLinked(toEventID: eventID, db: db)
+    }
+
+    private func meetingsLinked(
+        toEventID eventID: String,
+        db: OpaquePointer?
+    ) throws -> [Int64] {
+        let sql = """
+        SELECT DISTINCT mel.meeting_id
+        FROM meeting_event_links mel
+        LEFT JOIN meetings m ON m.id = mel.meeting_id
+        WHERE mel.event_id = ?
+            OR (mel.occurrence_key IS NOT NULL AND m.calendar_occurrence_key = mel.occurrence_key)
+        ORDER BY mel.meeting_id ASC
+        """
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
+            throw lastError(db)
+        }
+        defer { sqlite3_finalize(statement) }
+        sqlite3_bind_text(statement, 1, (eventID as NSString).utf8String, -1, nil)
+
+        var meetingIDs: [Int64] = []
+        while true {
+            switch sqlite3_step(statement) {
+            case SQLITE_ROW:
+                meetingIDs.append(sqlite3_column_int64(statement, 0))
+            case SQLITE_DONE:
+                return meetingIDs
+            default:
+                throw lastError(db)
+            }
+        }
+    }
+
+    /// Every explicit meeting-event attachment in the store, most recently
+    /// attached first. Read once into `AppState` so views can index links
+    /// without per-meeting queries.
+    public func allMeetingEventLinks() throws -> [MeetingEventLink] {
+        let db = try openDatabase()
+        defer { sqlite3_close(db) }
+        let sql = """
+        SELECT meeting_id, event_id, calendar_id, occurrence_key, added_at
+        FROM meeting_event_links
+        ORDER BY added_at DESC, meeting_id ASC, event_id ASC
+        """
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
+            throw lastError(db)
+        }
+        defer { sqlite3_finalize(statement) }
+
+        var links: [MeetingEventLink] = []
+        while true {
+            switch sqlite3_step(statement) {
+            case SQLITE_ROW:
+                links.append(MeetingEventLink(
+                    meetingID: sqlite3_column_int64(statement, 0),
+                    eventID: stringColumn(statement, index: 1),
+                    calendarID: optionalStringColumn(statement, index: 2),
+                    occurrenceKey: optionalStringColumn(statement, index: 3),
+                    addedAt: Date(timeIntervalSince1970: sqlite3_column_double(statement, 4))
+                ))
+            case SQLITE_DONE:
+                return links
+            default:
+                throw lastError(db)
+            }
+        }
+    }
+
     @discardableResult
     public func createLiveMeeting(
         title: String,
@@ -2032,6 +2222,7 @@ public final class DictationStore {
         try exec("DELETE FROM meeting_resume_snapshots", db: db)
         try exec("DELETE FROM meeting_transcript_checkpoints", db: db)
         try exec("DELETE FROM meeting_participants", db: db)
+        try exec("DELETE FROM meeting_event_links", db: db)
         try exec("DELETE FROM meetings", db: db)
     }
 
@@ -2323,6 +2514,7 @@ public final class DictationStore {
         durationSeconds explicitDurationSeconds: Double? = nil,
         rawTranscript: String,
         formattedNotes: String,
+        manualNotes: String? = nil,
         micAudioPath: String?,
         systemAudioPath: String?,
         savedRecordingPath: String? = nil,
@@ -2334,9 +2526,18 @@ public final class DictationStore {
     ) throws {
         let db = try openDatabase()
         defer { sqlite3_close(db) }
+        // A nil manualNotes keeps the currently stored value (the row already
+        // holds debounced live writes); an explicit value (the stop-time
+        // snapshot) is authoritative and replaces whatever was last written.
+        let resolvedManualNotes: String
+        if let manualNotes {
+            resolvedManualNotes = manualNotes
+        } else {
+            resolvedManualNotes = try manualNotesForMeeting(id: id, db: db)
+        }
         let sql = """
         UPDATE meetings
-        SET title = ?, calendar_event_id = ?, start_time = ?, end_time = ?, duration_seconds = ?, raw_transcript = ?, formatted_notes = ?, mic_audio_path = ?, system_audio_path = ?, saved_recording_path = ?, meeting_status = ?, word_count = ?, selected_template_id = ?, selected_template_name = ?, selected_template_kind = ?, selected_template_prompt = ?, visual_context = ?, updated_at = ?
+        SET title = ?, calendar_event_id = ?, start_time = ?, end_time = ?, duration_seconds = ?, raw_transcript = ?, formatted_notes = ?, manual_notes = ?, mic_audio_path = ?, system_audio_path = ?, saved_recording_path = ?, meeting_status = ?, word_count = ?, selected_template_id = ?, selected_template_name = ?, selected_template_kind = ?, selected_template_prompt = ?, visual_context = ?, updated_at = ?
         WHERE id = ?
         """
         var statement: OpaquePointer?
@@ -2349,8 +2550,7 @@ public final class DictationStore {
         let startString = formatter.string(from: startTime)
         let endString = formatter.string(from: endTime)
         let durationSeconds = max(explicitDurationSeconds ?? endTime.timeIntervalSince(startTime), 0)
-        let manualNotes = try manualNotesForMeeting(id: id, db: db)
-        let wordCount = Self.countWords(in: rawTranscript) + Self.countWords(in: manualNotes)
+        let wordCount = Self.countWords(in: rawTranscript) + Self.countWords(in: resolvedManualNotes)
 
         sqlite3_bind_text(statement, 1, (title as NSString).utf8String, -1, nil)
         bindOptionalText(calendarEventID, at: 2, statement: statement)
@@ -2359,18 +2559,19 @@ public final class DictationStore {
         sqlite3_bind_double(statement, 5, durationSeconds)
         sqlite3_bind_text(statement, 6, (rawTranscript as NSString).utf8String, -1, nil)
         sqlite3_bind_text(statement, 7, (formattedNotes as NSString).utf8String, -1, nil)
-        bindOptionalText(micAudioPath, at: 8, statement: statement)
-        bindOptionalText(systemAudioPath, at: 9, statement: statement)
-        bindOptionalText(savedRecordingPath, at: 10, statement: statement)
-        sqlite3_bind_text(statement, 11, (MeetingStatus.completed.rawValue as NSString).utf8String, -1, nil)
-        sqlite3_bind_int(statement, 12, Int32(wordCount))
-        bindOptionalText(selectedTemplateID, at: 13, statement: statement)
-        bindOptionalText(selectedTemplateName, at: 14, statement: statement)
-        bindOptionalText(selectedTemplateKind?.rawValue, at: 15, statement: statement)
-        bindOptionalText(selectedTemplatePrompt, at: 16, statement: statement)
-        bindOptionalText(visualContext, at: 17, statement: statement)
-        sqlite3_bind_double(statement, 18, Date().timeIntervalSince1970)
-        sqlite3_bind_int64(statement, 19, id)
+        sqlite3_bind_text(statement, 8, (resolvedManualNotes as NSString).utf8String, -1, nil)
+        bindOptionalText(micAudioPath, at: 9, statement: statement)
+        bindOptionalText(systemAudioPath, at: 10, statement: statement)
+        bindOptionalText(savedRecordingPath, at: 11, statement: statement)
+        sqlite3_bind_text(statement, 12, (MeetingStatus.completed.rawValue as NSString).utf8String, -1, nil)
+        sqlite3_bind_int(statement, 13, Int32(wordCount))
+        bindOptionalText(selectedTemplateID, at: 14, statement: statement)
+        bindOptionalText(selectedTemplateName, at: 15, statement: statement)
+        bindOptionalText(selectedTemplateKind?.rawValue, at: 16, statement: statement)
+        bindOptionalText(selectedTemplatePrompt, at: 17, statement: statement)
+        bindOptionalText(visualContext, at: 18, statement: statement)
+        sqlite3_bind_double(statement, 19, Date().timeIntervalSince1970)
+        sqlite3_bind_int64(statement, 20, id)
         guard sqlite3_step(statement) == SQLITE_DONE else {
             throw lastError(db)
         }
@@ -2818,6 +3019,65 @@ public final class DictationStore {
         sqlite3_bind_int64(statement, 3, id)
         guard sqlite3_step(statement) == SQLITE_DONE else {
             throw lastError(db)
+        }
+    }
+
+    /// Adopts a calendar event as a meeting's *primary* calendar identity.
+    /// Used when a meeting that was never recorded from a calendar row (a
+    /// quick/manual meeting) is first attached to an event via "Add to
+    /// Event": writing the same calendar columns a recording would have
+    /// written keeps every linkage consumer (calendar rows, occurrence
+    /// matching, title sync) working for the attached meeting.
+    public func updateMeetingCalendarLink(
+        id: Int64,
+        eventID: String,
+        occurrence: CalendarOccurrenceReference?
+    ) throws {
+        let db = try openDatabase()
+        defer { sqlite3_close(db) }
+        let sql = """
+        UPDATE meetings
+        SET calendar_event_id = ?,
+            calendar_occurrence_key = ?,
+            calendar_source = ?,
+            calendar_id = ?,
+            calendar_series_id = ?,
+            calendar_occurrence_start = ?,
+            updated_at = ?
+        WHERE id = ?
+        """
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
+            throw lastError(db)
+        }
+        defer { sqlite3_finalize(statement) }
+        sqlite3_bind_text(statement, 1, (eventID as NSString).utf8String, -1, nil)
+        bindOptionalText(occurrence?.identityKey, at: 2, statement: statement)
+        if let occurrence {
+            sqlite3_bind_text(
+                statement,
+                3,
+                (occurrence.provider.rawValue as NSString).utf8String,
+                -1,
+                nil
+            )
+        } else {
+            sqlite3_bind_null(statement, 3)
+        }
+        bindOptionalText(occurrence?.calendarID, at: 4, statement: statement)
+        bindOptionalText(occurrence?.seriesID, at: 5, statement: statement)
+        if let occurrence {
+            sqlite3_bind_double(statement, 6, occurrence.originalStartTime.timeIntervalSince1970)
+        } else {
+            sqlite3_bind_null(statement, 6)
+        }
+        sqlite3_bind_double(statement, 7, Date().timeIntervalSince1970)
+        sqlite3_bind_int64(statement, 8, id)
+        guard sqlite3_step(statement) == SQLITE_DONE else {
+            throw lastError(db)
+        }
+        guard sqlite3_changes(db) > 0 else {
+            throw DictationStoreError.meetingNotFound(id: id)
         }
     }
 

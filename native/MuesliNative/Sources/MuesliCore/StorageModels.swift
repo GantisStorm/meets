@@ -296,6 +296,37 @@ public struct MeetingParticipantDraft: Equatable, Sendable {
     }
 }
 
+/// One explicit "Add to Event" attachment between a meeting and a calendar
+/// event. A meeting may carry many of these (multi-link), while
+/// `MeetingRecord.calendarEventID` remains the meeting's single *primary*
+/// event — the one a recording was created from. Link rows are the source of
+/// truth for extra events attached later from the meeting detail view.
+public struct MeetingEventLink: Identifiable, Equatable, Sendable {
+    public let meetingID: Int64
+    public let eventID: String
+    public let calendarID: String?
+    public let occurrenceKey: String?
+    public let addedAt: Date
+
+    public var id: String {
+        "\(meetingID):\(eventID)"
+    }
+
+    public init(
+        meetingID: Int64,
+        eventID: String,
+        calendarID: String? = nil,
+        occurrenceKey: String? = nil,
+        addedAt: Date
+    ) {
+        self.meetingID = meetingID
+        self.eventID = eventID
+        self.calendarID = calendarID
+        self.occurrenceKey = occurrenceKey
+        self.addedAt = addedAt
+    }
+}
+
 public struct MeetingFolder: Identifiable, Codable, Sendable {
     public let id: Int64
     public var name: String

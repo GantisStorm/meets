@@ -89,6 +89,11 @@ final class AppState {
     var selectedMeetingID: Int64?
     var selectedMeetingRecord: MeetingRecord?
     var folders: [MeetingFolder] = []
+    /// Explicit "Add to Event" attachments (meeting ↔ calendar event),
+    /// loaded in one pass by `syncAppState`. Indexed in views to determine
+    /// which events a meeting is attached to beyond its primary
+    /// `calendarEventID`.
+    var meetingEventLinks: [MeetingEventLink] = []
     var selectedFolderID: Int64?  // nil = "All Meetings"
     var meetingsNavigationState: MeetingsNavigationState = .browser
     var meetingNotesFocusRequest = 0

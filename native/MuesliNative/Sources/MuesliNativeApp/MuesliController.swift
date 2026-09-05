@@ -957,6 +957,9 @@ public final class MuesliController: NSObject {
             limit: 200,
             folderID: appState.selectedFolderID
         )) ?? []
+        // Single cheap pass so views can index extra "Add to Event"
+        // attachments without per-meeting queries.
+        appState.meetingEventLinks = (try? dictationStore.allMeetingEventLinks()) ?? []
         let counts = (try? dictationStore.meetingCounts())
             ?? (total: 0, byFolder: [:], directByFolder: [:])
         appState.totalMeetingCount = counts.total
@@ -3694,6 +3697,110 @@ public final class MuesliController: NSObject {
         return true
     }
 
+    // MARK: - Meeting ↔ Event explicit attachments ("Add to Event")
+
+    /// Attaches any meeting to a calendar event (multi-link). The first
+    /// attached event becomes the meeting's *primary* `calendarEventID` when
+    /// the meeting has none yet, so calendar↔meeting linkage keeps working
+    /// for meetings that never recorded from a calendar row. Every attach
+    /// also auto-adds the event's attendees to the meeting (calendar source,
+    /// deduped by participant identifier).
+    func linkMeetingToEvent(meetingID: Int64, event: UnifiedCalendarEvent) async {
+        guard let meeting = meeting(id: meetingID) else { return }
+        let occurrence = event.resolvedCalendarOccurrence
+        let alreadyPrimary = meeting.calendarEventID == event.id
+            || meeting.calendarOccurrence?.eventID == event.id
+        let alreadyLinked = appState.meetingEventLinks.contains {
+            $0.meetingID == meetingID && $0.eventID == event.id
+        }
+        guard !alreadyPrimary, !alreadyLinked else { return }
+
+        do {
+            if meeting.calendarEventID == nil, meeting.calendarOccurrence == nil {
+                // This meeting has no recorded calendar identity at all
+                // (quick/manual meeting): the first attached event becomes the
+                // primary one so calendar rows can find and open it.
+                try dictationStore.updateMeetingCalendarLink(
+                    id: meetingID,
+                    eventID: event.id,
+                    occurrence: occurrence
+                )
+            }
+            try dictationStore.addMeetingEventLink(
+                meetingID: meetingID,
+                eventID: event.id,
+                calendarID: event.calendarID,
+                occurrenceKey: occurrence.identityKey
+            )
+            syncAppState()
+            fputs("[muesli-native] linked meeting \(meetingID) to calendar event \(event.id) (\(event.title))\n", stderr)
+        } catch {
+            fputs("[muesli-native] failed to link meeting \(meetingID) to calendar event \(event.id): \(error)\n", stderr)
+            return
+        }
+
+        // Auto-add the event's attendees as calendar-sourced people. Runs
+        // through the same coalesced persistence queue the recording flow
+        // uses, so People UI stays consistent and duplicate attachments are
+        // collapsed by identifier.
+        let participants = event.attendees.map(\.participantDraft)
+        guard !participants.isEmpty else { return }
+        persistCalendarParticipants(participants, meetingID: meetingID, mode: .attach)
+    }
+
+    /// Detaches a meeting from an event attached via "Add to Event". The
+    /// meeting's primary calendar identity (recorded from an event) is never
+    /// removed through this path; only explicit link rows are deleted.
+    func unlinkMeetingFromEvent(meetingID: Int64, eventID: String) async {
+        do {
+            try dictationStore.removeMeetingEventLink(
+                meetingID: meetingID,
+                eventID: eventID
+            )
+            syncAppState()
+            fputs("[muesli-native] unlinked meeting \(meetingID) from calendar event \(eventID)\n", stderr)
+        } catch {
+            fputs("[muesli-native] failed to unlink meeting \(meetingID) from calendar event \(eventID): \(error)\n", stderr)
+        }
+    }
+
+    /// The explicit "Add to Event" attachments for one meeting (excludes its
+    /// primary calendar event).
+    func meetingEventLinks(meetingID: Int64) -> [MeetingEventLink] {
+        appState.meetingEventLinks.filter { $0.meetingID == meetingID }
+    }
+
+    /// Event ids (calendar identifiers) a meeting is attached to through any
+    /// channel: primary recorded event, recorded occurrence, and explicit
+    /// "Add to Event" link rows. Used by UI to show a meeting as linked.
+    func eventIDsLinked(toMeeting meeting: MeetingRecord) -> Set<String> {
+        var ids = Set<String>()
+        if let id = meeting.calendarEventID { ids.insert(id) }
+        if let eventID = meeting.calendarOccurrence?.eventID { ids.insert(eventID) }
+        for link in meetingEventLinks(meetingID: meeting.id) {
+            ids.insert(link.eventID)
+        }
+        return ids
+    }
+
+    /// Meetings attached to the given event (by stored id or explicit link
+    /// row). Display-side answer to "which meetings exist for this event";
+    /// `MeetingCalendarLinkage.linkedMeeting` receives these as
+    /// `additionalLinkedMeetingIDs`.
+    func meetingIDsLinked(toEvent event: UnifiedCalendarEvent) -> Set<Int64> {
+        let linkIDs = appState.meetingEventLinks
+            .filter { link in
+                link.eventID == event.id
+                    || appState.meetingRows.contains {
+                        $0.id == link.meetingID
+                            && link.occurrenceKey != nil
+                            && $0.calendarOccurrence?.identityKey == link.occurrenceKey
+                    }
+            }
+            .map(\.meetingID)
+        return Set(linkIDs)
+    }
+
     func updateMeetingNotes(id: Int64, notes: String) {
         try? dictationStore.updateMeetingNotes(id: id, formattedNotes: notes)
         syncAppState()
@@ -5651,6 +5758,12 @@ public final class MuesliController: NSObject {
         meetingNotification.close()
         let liveMeetingID = activeMeetingID
         if let liveMeetingID {
+            // Freeze the manual-notes value this stop will summarize AND
+            // persist. The live cache is a UI-coalesced debounce target and
+            // can still be mutated while transcription runs below; the
+            // session's stop flow must read one immutable snapshot or the
+            // typed notes can vanish from both the summary and the saved row.
+            sessionToStop.stopManualNotesSnapshot = manualNotesForLiveMeeting(id: liveMeetingID)
             flushCachedMeetingManualNotes(id: liveMeetingID, sync: false)
             flushCachedMeetingTitle(id: liveMeetingID)
             updateMeetingStatusAndScheduleSync(id: liveMeetingID, status: .processing)
@@ -5797,6 +5910,10 @@ public final class MuesliController: NSObject {
         let meetingID: Int64
         let savedRecordingPath = preparedRecordingSave.path
         let recordingSaveError = preparedRecordingSave.error
+        // The snapshot captured at stop time is the authoritative raw-notes
+        // value: it is what the summary fused, so the saved row must match or
+        // the typed notes vanish from the completed meeting.
+        let finalManualNotes = result.manualNotes
 
         if let existingMeetingID {
             let persistedTitle = completedLiveMeetingTitle(for: result, existingMeetingID: existingMeetingID)
@@ -5812,6 +5929,7 @@ public final class MuesliController: NSObject {
                 durationSeconds: durationOverride,
                 rawTranscript: result.rawTranscript,
                 formattedNotes: result.formattedNotes,
+                manualNotes: finalManualNotes,
                 micAudioPath: nil,
                 systemAudioPath: nil,
                 savedRecordingPath: savedRecordingPath,
@@ -5926,7 +6044,12 @@ public final class MuesliController: NSObject {
               let prior = pendingResumePriorTranscript[meetingID] else {
             return result
         }
-        let manualNotes = manualNotesForLiveMeeting(id: meetingID)
+        // The stop-time snapshot captured on the session is authoritative for
+        // what was typed during this resumed session. Fall back to the live
+        // cache (which may still hold an earlier value for direct callers).
+        let manualNotes = result.manualNotes.isEmpty
+            ? manualNotesForLiveMeeting(id: meetingID)
+            : result.manualNotes
         let combined = MeetingResumePolicy.combinedResumeTranscript(
             prior: prior,
             new: result.rawTranscript

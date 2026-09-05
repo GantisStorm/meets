@@ -797,6 +797,7 @@ struct CalendarPageView: View {
         MeetingEventLinkage.derive(
             event: event,
             meetings: appState.meetingRows,
+            additionalLinkedMeetingIDs: controller.meetingIDsLinked(toEvent: event),
             isCurrentlyRecording: appState.isMeetingRecording || appState.isMeetingStarting
         )
     }
@@ -1125,8 +1126,9 @@ struct CalendarPageView: View {
 
     /// Calendar-event → recorded meeting. Events link to meetings by the
     /// calendar event identifier recorded at creation time; recurring
-    /// occurrences additionally carry an occurrence eventID. Looking up both
-    /// keeps recordings matched when EventKit regenerates identifiers.
+    /// occurrences additionally carry an occurrence eventID. Explicit
+    /// "Add to Event" link rows contribute the same keys, so meetings
+    /// attached from the meeting detail view surface on their events too.
     private var meetingsByCalendarEventID: [String: MeetingRecord] {
         var map: [String: MeetingRecord] = [:]
         for meeting in appState.meetingRows {
@@ -1135,6 +1137,19 @@ struct CalendarPageView: View {
             }
             if let eventID = meeting.calendarOccurrence?.eventID {
                 map[eventID] = meeting
+            }
+        }
+        for link in appState.meetingEventLinks {
+            for meeting in appState.meetingRows where meeting.id == link.meetingID {
+                map[link.eventID] = meeting
+            }
+            if let occurrenceKey = link.occurrenceKey {
+                // Meetings recorded from this exact occurrence (identity keys
+                // survive EventKit identifier regeneration) surface on the
+                // linked event too.
+                for row in appState.meetingRows where row.calendarOccurrence?.identityKey == occurrenceKey {
+                    map[link.eventID] = row
+                }
             }
         }
         return map

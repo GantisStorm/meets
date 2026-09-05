@@ -89,6 +89,7 @@ struct MeetingDetailView: View {
     @State private var isSummarizing = false
     @State private var isRetranscribing = false
     @State private var isEditingNotes = false
+    @State private var isEditingManualNotes = false
     @State private var isEditingTranscript = false
     @State private var editableTitle: String
     @State private var editableNotes: String
@@ -116,6 +117,8 @@ struct MeetingDetailView: View {
     @State private var showFolderPopover = false
     @State private var showNewFolderPrompt = false
     @State private var newFolderName = ""
+    @State private var showEventPopover = false
+    @State private var eventSearchQuery = ""
     @State private var threadContext: MeetingThreadContext?
 
     init(
@@ -351,6 +354,8 @@ struct MeetingDetailView: View {
             HStack(alignment: .center, spacing: MuesliTheme.spacing8) {
                 folderPill(for: meeting)
                     .frame(maxWidth: 150)
+                eventPill(for: meeting)
+                    .frame(maxWidth: 150)
                 if CompactMeetingFormattingPolicy.showsFormattingControls(
                     for: meeting.status,
                     isPreparing: isPreparingThisMeeting(meeting)
@@ -511,6 +516,7 @@ struct MeetingDetailView: View {
     private func meetingContextStrip(for meeting: MeetingRecord) -> some View {
         HStack(alignment: .center, spacing: MuesliTheme.spacing16) {
             folderPill(for: meeting)
+            eventPill(for: meeting)
             Divider()
                 .frame(height: 20)
             MeetingParticipantsView(
@@ -672,10 +678,18 @@ struct MeetingDetailView: View {
                 contentToolbar(for: meeting)
 
                 ZStack(alignment: .topLeading) {
-                    MeetingNotesView(markdown: Self.notesContent(for: meeting))
-                        .opacity(documentMode == .notes ? 1 : 0)
-                        .allowsHitTesting(documentMode == .notes)
-                        .accessibilityHidden(documentMode != .notes)
+                    VStack(alignment: .leading, spacing: MuesliTheme.spacing12) {
+                        if documentMode == .notes, hasStoredManualNotes(meeting) {
+                            completedManualNotesSection(meeting)
+                        }
+                        MeetingNotesView(markdown: Self.notesContent(for: meeting))
+                            .opacity(documentMode == .notes ? 1 : 0)
+                            .allowsHitTesting(documentMode == .notes)
+                            .accessibilityHidden(documentMode != .notes)
+                    }
+                    .opacity(documentMode == .notes ? 1 : 0)
+                    .allowsHitTesting(documentMode == .notes)
+                    .accessibilityHidden(documentMode != .notes)
 
                     MeetingTranscriptView(transcript: meeting.rawTranscript)
                         .opacity(documentMode == .transcript ? 1 : 0)
@@ -689,6 +703,74 @@ struct MeetingDetailView: View {
             .padding(.top, 12)
             .padding(.bottom, 24)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        }
+    }
+
+    /// Raw notes typed during the meeting stay visible after it completes,
+    /// with an inline editor so they remain editable.
+    private func hasStoredManualNotes(_ meeting: MeetingRecord) -> Bool {
+        !meeting.manualNotes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private func completedManualNotesSection(_ meeting: MeetingRecord) -> some View {
+        VStack(alignment: .leading, spacing: MuesliTheme.spacing8) {
+            HStack(spacing: 6) {
+                Image(systemName: "square.and.pencil")
+                    .font(.system(size: 11, weight: .semibold))
+                Text("Written Notes")
+                    .font(MuesliTheme.headline())
+                Spacer()
+                Button(action: { toggleManualNotesEditing() }) {
+                    Image(systemName: isEditingManualNotes ? "checkmark.circle" : "pencil")
+                        .font(.system(size: 11, weight: .semibold))
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(MuesliTheme.textSecondary)
+                .help(isEditingManualNotes ? "Done editing notes" : "Edit notes")
+            }
+            .foregroundStyle(MuesliTheme.textPrimary)
+
+            if isEditingManualNotes {
+                MarkdownRichTextEditor(
+                    text: $editableManualNotes,
+                    command: $manualEditorCommand,
+                    shouldFocus: true,
+                    isEditable: true,
+                    onTextChange: { notes in
+                        saveManualNotes(meetingID: meeting.id, notes: notes)
+                    }
+                )
+                .frame(minHeight: 120, maxHeight: 260)
+                .background(MuesliTheme.backgroundBase)
+                .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
+                .overlay(
+                    RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall)
+                        .strokeBorder(MuesliTheme.surfaceBorder, lineWidth: 1)
+                )
+            } else {
+                MeetingNotesView(markdown: meeting.manualNotes)
+                    .frame(maxWidth: .infinity, maxHeight: 220, alignment: .topLeading)
+                    .background(MuesliTheme.backgroundBase)
+                    .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall)
+                            .strokeBorder(MuesliTheme.surfaceBorder, lineWidth: 1)
+                    )
+            }
+        }
+    }
+
+    private func toggleManualNotesEditing() {
+        if isEditingManualNotes {
+            if let meeting {
+                commitManualNotes(meetingID: meeting.id, notes: editableManualNotes)
+            }
+            isEditingManualNotes = false
+        } else {
+            if let meeting {
+                editableManualNotes = meeting.manualNotes
+            }
+            isEditingManualNotes = true
         }
     }
 
@@ -1574,6 +1656,187 @@ struct MeetingDetailView: View {
         .buttonStyle(.plain)
     }
 
+    // MARK: - Add to Event
+
+    /// Popover-eligible events for the "Add to event" picker: all non-cancelled
+    /// calendar events currently loaded (±1 year window) that also pass the
+    /// search query when one is typed. Recent + upcoming first, then older
+    /// events, so the likely targets are near the top of the list.
+    private var eventPickerEvents: [UnifiedCalendarEvent] {
+        let query = eventSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        let visible = appState.calendarEvents.filter { event in
+            guard !event.isCancelled, !event.isDeclined else { return false }
+            if query.isEmpty { return true }
+            return event.title.localizedCaseInsensitiveContains(query)
+        }
+        let now = Date()
+        return visible.sorted { a, b in
+            let aActive = a.endDate >= now
+            let bActive = b.endDate >= now
+            if aActive != bActive { return aActive }
+            if a.endDate >= now && b.endDate >= now {
+                // Upcoming: nearest first.
+                return a.startDate < b.startDate
+            }
+            // Past: most recent first.
+            return a.startDate > b.startDate
+        }
+    }
+
+    /// Event ids this meeting is attached to through any channel — primary
+    /// recorded event, recorded occurrence, and explicit "Add to Event" rows.
+    private func linkedEventIDs(for meeting: MeetingRecord) -> Set<String> {
+        controller.eventIDsLinked(toMeeting: meeting)
+    }
+
+    /// Formatter shared by the event popover rows: "Wed, Sep 3" for past
+    /// years and "Wed, Sep 3, 9:30 AM" otherwise.
+    private func eventPickerSubtitle(_ event: UnifiedCalendarEvent) -> String {
+        let now = Date()
+        let calendar = Calendar.current
+        let sameYear = calendar.isDate(event.startDate, equalTo: now, toGranularity: .year)
+        let date = sameYear
+            ? event.startDate.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day())
+            : event.startDate.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day().year())
+        let time = event.startDate.formatted(date: .omitted, time: .shortened)
+        return "\(date) \u{00B7} \(time)"
+    }
+
+    @ViewBuilder
+    private func eventPill(for meeting: MeetingRecord) -> some View {
+        let linkedIDs = linkedEventIDs(for: meeting)
+        let hasLinks = !linkedIDs.isEmpty
+        let title = hasLinks
+            ? (linkedIDs.count == 1 ? "1 event" : "\(linkedIDs.count) events")
+            : "Add to event"
+        Button {
+            eventSearchQuery = ""
+            showEventPopover.toggle()
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: hasLinks ? "calendar.badge.checkmark" : "calendar.badge.plus")
+                    .font(.system(size: 10))
+                Text(title)
+                    .font(.system(size: 11, weight: .medium))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+            .foregroundStyle(hasLinks ? MuesliTheme.accent : MuesliTheme.textSecondary)
+            .padding(.horizontal, MuesliTheme.spacing8)
+            .frame(height: MeetingHeaderLayout.contextControlHeight)
+            .background(hasLinks ? MuesliTheme.accentSubtle : MuesliTheme.backgroundRaised)
+            .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
+            .overlay(
+                RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall)
+                    .strokeBorder(hasLinks ? Color.clear : MuesliTheme.surfaceBorder, lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+        .help(hasLinks ? "Manage events" : "Add to a calendar event")
+        .popover(isPresented: $showEventPopover, arrowEdge: .bottom) {
+            eventPopoverContent(for: meeting)
+        }
+    }
+
+    @ViewBuilder
+    private func eventPopoverContent(for meeting: MeetingRecord) -> some View {
+        let events = eventPickerEvents
+        let linkedIDs = linkedEventIDs(for: meeting)
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 11))
+                    .foregroundStyle(MuesliTheme.textTertiary)
+                TextField("Search events", text: $eventSearchQuery)
+                    .textFieldStyle(.plain)
+                    .font(MuesliTheme.callout())
+            }
+            .padding(.horizontal, 8)
+            .frame(height: 26)
+            .background(MuesliTheme.surfacePrimary)
+            .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
+            .overlay(
+                RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall)
+                    .strokeBorder(MuesliTheme.surfaceBorder, lineWidth: 1)
+            )
+            .padding(8)
+
+            Divider()
+
+            if events.isEmpty {
+                Text(eventSearchQuery.isEmpty
+                    ? "No calendar events available"
+                    : "No matching events")
+                    .font(MuesliTheme.callout())
+                    .foregroundStyle(MuesliTheme.textTertiary)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.vertical, 24)
+            } else {
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        ForEach(events) { event in
+                            let isLinked = linkedIDs.contains(event.id)
+                            eventPopoverRow(event: event, isLinked: isLinked) {
+                                let meetingID = meeting.id
+                                Task {
+                                    if isLinked {
+                                        await controller.unlinkMeetingFromEvent(
+                                            meetingID: meetingID,
+                                            eventID: event.id
+                                        )
+                                    } else {
+                                        await controller.linkMeetingToEvent(
+                                            meetingID: meetingID,
+                                            event: event
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                .frame(maxHeight: 360)
+            }
+        }
+        .frame(minWidth: 260)
+    }
+
+    @ViewBuilder
+    private func eventPopoverRow(
+        event: UnifiedCalendarEvent,
+        isLinked: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Image(systemName: isLinked ? "calendar.circle.fill" : "calendar.circle")
+                    .font(.system(size: 14))
+                    .foregroundStyle(isLinked ? MuesliTheme.accent : MuesliTheme.textTertiary)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(event.title)
+                        .font(MuesliTheme.callout())
+                        .foregroundStyle(MuesliTheme.textPrimary)
+                        .lineLimit(1)
+                    Text(eventPickerSubtitle(event))
+                        .font(.system(size: 10))
+                        .foregroundStyle(MuesliTheme.textTertiary)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 8)
+                if isLinked {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(MuesliTheme.accent)
+                }
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(isLinked ? "Remove this meeting from \(event.title)" : "Add this meeting to \(event.title)")
+    }
+
     private var transcriptCTA: some View {
         HStack(spacing: MuesliTheme.spacing8) {
             if hasApiKey {
@@ -1769,6 +2032,13 @@ struct MeetingDetailView: View {
         scheduleManualNotesSaveStatusCheck(meetingID: meetingID, notes: notes)
     }
 
+    /// Writes edited manual notes immediately (used by the completed-meeting
+    /// editor). Keeps the live cache warm so later edits coalesce as usual.
+    private func commitManualNotes(meetingID: Int64, notes: String) {
+        manualNotesSaveStatus = .saving
+        controller.updateMeetingManualNotes(id: meetingID, notes: notes)
+    }
+
     private func scheduleManualNotesSaveStatusCheck(meetingID: Int64, notes: String) {
         manualNotesSaveStatusTask?.cancel()
         let item = DispatchWorkItem {
@@ -1891,6 +2161,7 @@ struct MeetingDetailView: View {
         if meetingChanged {
             documentMode = meeting.map(Self.defaultDocumentMode(for:)) ?? .notes
             isEditingNotes = false
+            isEditingManualNotes = false
             isEditingTranscript = false
             showFolderPopover = false
             showNewFolderPrompt = false

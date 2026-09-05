@@ -94,6 +94,7 @@ struct MeetingEventLinkage {
         event: UnifiedCalendarEvent?,
         meetings: [MeetingRecord],
         now: Date = Date(),
+        additionalLinkedMeetingIDs: Set<Int64> = [],
         isCurrentlyRecording: Bool = false
     ) -> MeetingEventLinkage {
         guard let event else {
@@ -109,7 +110,11 @@ struct MeetingEventLinkage {
         }
 
         let isCancelled = event.isCancelled || event.isDeclined
-        let linked = MeetingCalendarLinkage.linkedMeeting(event: event, meetings: meetings)
+        let linked = MeetingCalendarLinkage.linkedMeeting(
+            event: event,
+            meetings: meetings,
+            additionalLinkedMeetingIDs: additionalLinkedMeetingIDs
+        )
         let recordingInProgress = linked?.status == .recording
 
         let state: MeetingEventState
@@ -199,16 +204,19 @@ enum MeetingCalendarLinkage {
     /// The recorded meeting for a calendar event, newest meeting first on
     /// ties. Matching precedence (deterministic, documented):
     ///
-    /// 1. Occurrence identity key equality — per-instance identity that
+    /// 1. Explicit "Add to Event" attachments (`additionalLinkedMeetingIDs`,
+    ///    the id set of meetings explicitly linked to this event) — surfaced
+    ///    before recorded keys so an attached meeting is the event's meeting.
+    /// 2. Occurrence identity key equality — per-instance identity that
     ///    survives EventKit identifier regeneration (recurring series use
     ///    the stable external identifier + original start). This is the only
     ///    match that can tell two instances of one recurring series apart.
-    /// 2. Stored event identifier equality (`calendarEventID` or the
+    /// 3. Stored event identifier equality (`calendarEventID` or the
     ///    occurrence `eventID`). For recurring series these equal the series
     ///    master identifier, so an instance match is only returned when the
     ///    meeting's recorded occurrence start falls on this event's instance
     ///    start; otherwise no cross-instance link is made.
-    /// 3. Title + time-window fallback: an entirely unlinked meeting (no
+    /// 4. Title + time-window fallback: an entirely unlinked meeting (no
     ///    calendar keys) whose title matches the event and that started
     ///    within the event's span (±5 min grace) is treated as the recording
     ///    for this event. Manual recordings started mid-meeting with the
@@ -216,11 +224,19 @@ enum MeetingCalendarLinkage {
     static func linkedMeeting(
         event: UnifiedCalendarEvent,
         meetings: [MeetingRecord],
-        now: Date = Date()
+        now: Date = Date(),
+        additionalLinkedMeetingIDs: Set<Int64> = []
     ) -> MeetingRecord? {
         let occurrence = event.resolvedCalendarOccurrence
         let idMatches = meetings.filter {
             lookupKeys(for: $0).contains(event.id)
+        }
+
+        if let explicitlyLinked = additionalLinkedMeetingIDs
+            .compactMap({ id in meetings.first { $0.id == id } })
+            .sorted(by: { $0.id > $1.id })
+            .first {
+            return explicitlyLinked
         }
 
         if let instanceMatch = idMatches.first(where: {

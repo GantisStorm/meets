@@ -100,6 +100,9 @@ struct MeetingSessionResult {
     let durationSeconds: Double
     let rawTranscript: String
     let formattedNotes: String
+    /// Manual notes the user typed during the meeting, captured at stop time.
+    /// Persisted verbatim as the meeting's raw manual notes after completion.
+    var manualNotes: String = ""
     let retainedRecordingURL: URL?
     let retainedRecordingError: Error?
     let systemRecordingURL: URL?
@@ -129,6 +132,7 @@ extension MeetingSessionResult {
             durationSeconds: resolvedDuration,
             rawTranscript: rawTranscript,
             formattedNotes: formattedNotes,
+            manualNotes: manualNotes,
             retainedRecordingURL: retainedRecordingURL,
             retainedRecordingError: retainedRecordingError,
             systemRecordingURL: systemRecordingURL,
@@ -210,6 +214,21 @@ final class MeetingSession {
     var onSystemAudioHealthEpisode: ((MeetingSystemAudioHealthEvent) -> Void)?
     var manualNotesProvider: (() async -> String?)?
     var liveTitleProvider: (() async -> String?)?
+    /// Manual notes snapshot captured synchronously at stop time. When set, the
+    /// stop flow reads this single frozen value for both title generation and
+    /// the summary instead of re-sampling the controller's live cache (which
+    /// can change while transcription runs). Set by the controller immediately
+    /// before `stop()`; the provider below falls back to it.
+    var stopManualNotesSnapshot: String? = nil
+    /// Manual notes to use during `stop()`: prefers the synchronous stop-time
+    /// snapshot so summary generation, failure notes, and the persisted raw
+    /// notes all agree on the same value.
+    func resolvedStopManualNotes() async -> String? {
+        if let snapshot = stopManualNotesSnapshot {
+            return snapshot
+        }
+        return await manualNotesProvider?()
+    }
     /// Formatted notes of the predecessor meeting when this session records a
     /// follow-up; injected into the summary prompt for action-item carry-forward.
     var previousMeetingNotes: String?
@@ -674,6 +693,7 @@ final class MeetingSession {
         }
         micChunkCollector.cancelAll()
         systemChunkCollector.cancelAll()
+        stopManualNotesSnapshot = nil
         fputs("[meeting] recording discarded\n", stderr)
     }
 
@@ -876,7 +896,7 @@ final class MeetingSession {
             meetingStart: meetingStart
         )
 
-        let titleManualNotes = await manualNotesProvider?()
+        let titleManualNotes = await resolvedStopManualNotes()
         let generatedTitle: String
         onProgress?(.generatingTitle)
         if let liveTitle = await userEditedLiveTitle() {
@@ -902,7 +922,7 @@ final class MeetingSession {
         Self.logger.info("visual context drained chars=\(visualContext.count) includedInPrompt=\(!visualContext.isEmpty) useOCR=\(self.config.useCoreAudioTap)")
         fputs("[meeting] visual context drained chars=\(visualContext.count) includedInPrompt=\(!visualContext.isEmpty) useOCR=\(config.useCoreAudioTap)\n", stderr)
         onProgress?(.summarizingNotes)
-        let manualNotes = await manualNotesProvider?()
+        let manualNotes = await resolvedStopManualNotes()
         let formattedNotes: String
         do {
             formattedNotes = try await MeetingSummaryClient.summarize(
@@ -951,6 +971,7 @@ final class MeetingSession {
             durationSeconds: max(endTime.timeIntervalSince(meetingStart), 0),
             rawTranscript: rawTranscript,
             formattedNotes: formattedNotes,
+            manualNotes: manualNotes ?? "",
             retainedRecordingURL: retainedRecordingURL,
             retainedRecordingError: retainedRecordingWriterError,
             systemRecordingURL: systemAudioURL,

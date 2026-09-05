@@ -46,6 +46,7 @@ struct CalendarEventDetailView: View {
         MeetingEventLinkage.derive(
             event: event,
             meetings: appState.meetingRows,
+            additionalLinkedMeetingIDs: controller.meetingIDsLinked(toEvent: event),
             isCurrentlyRecording: appState.isMeetingRecording || appState.isMeetingStarting
         )
     }

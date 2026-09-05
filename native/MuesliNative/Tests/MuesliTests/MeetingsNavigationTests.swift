@@ -1182,6 +1182,51 @@ struct MeetingsNavigationTests {
         #expect(storedMeeting.formattedNotes == "## Summary\nFollow-up items discussed.")
     }
 
+    @Test("persistCompletedMeetingResult writes the stop-time manual notes snapshot")
+    func persistCompletedMeetingResultCarriesStopTimeManualNotes() async throws {
+        let store = try makeStore()
+        let controller = MuesliController(
+            runtime: RuntimePaths(
+                repoRoot: FileManager.default.temporaryDirectory,
+                menuIcon: nil,
+                appIcon: nil,
+                bundlePath: nil
+            ),
+            dictationStore: store
+        )
+        let start = Date()
+        let liveID = try store.createLiveMeeting(title: "Meeting", calendarEventID: nil, startTime: start)
+
+        // Simulates the user typing during the recording and the controller
+        // freezing the notes at stop: the completed row must keep the raw
+        // notes even though the row never received a debounced write.
+        let result = MeetingSessionResult(
+            title: "Generated Summary Title",
+            originalTitle: "Meeting",
+            calendarEventID: nil,
+            startTime: start,
+            endTime: start.addingTimeInterval(120),
+            durationSeconds: 120,
+            rawTranscript: "Discussed the roadmap.",
+            formattedNotes: "## Summary\nRoadmap reviewed.\n\n### Written notes\n\n- Ship today",
+            manualNotes: "- Ship today",
+            retainedRecordingURL: nil,
+            retainedRecordingError: nil,
+            systemRecordingURL: nil,
+            templateSnapshot: MeetingTemplates.auto.snapshot
+        )
+
+        _ = try controller.persistCompletedMeetingResult(
+            result,
+            existingMeetingID: liveID,
+            preparedRecordingSave: .none
+        )
+
+        let storedMeeting = try #require(try store.meeting(id: liveID))
+        #expect(storedMeeting.status == .completed)
+        #expect(storedMeeting.manualNotes == "- Ship today")
+    }
+
     @Test("resummary context strips appended written notes section")
     func resummaryContextStripsWrittenNotesSection() {
         let meeting = makeMeeting(
@@ -1706,6 +1751,171 @@ struct MeetingsNavigationTests {
             selectedTemplateKind: .auto,
             selectedTemplatePrompt: ""
         )
+    }
+
+    // MARK: - Add to Event (meeting ↔ calendar event links)
+
+    private func makeManualMeeting(in store: DictationStore) throws -> Int64 {
+        let start = Date(timeIntervalSince1970: 1_775_000_000)
+        return try store.insertMeeting(
+            title: "Manual Sync",
+            calendarEventID: nil,
+            startTime: start,
+            endTime: start.addingTimeInterval(1800),
+            rawTranscript: "Transcript",
+            formattedNotes: "## Notes",
+            micAudioPath: nil,
+            systemAudioPath: nil
+        )
+    }
+
+    private func makeTestEvent(
+        id: String = "event-id-1",
+        title: String = "Design Sync",
+        start: Date = Date(timeIntervalSince1970: 1_775_000_000),
+        attendees: [MeetingParticipantDraft] = []
+    ) -> UnifiedCalendarEvent {
+        UnifiedCalendarEvent(
+            id: id,
+            title: title,
+            startDate: start,
+            endDate: start.addingTimeInterval(3600),
+            isAllDay: false,
+            source: .eventKit,
+            calendarID: "cal-a",
+            attendees: attendees.map { draft in
+                CalendarAttendee(
+                    identifier: draft.emailAddress.map { "mailto:\($0)" } ?? draft.participantIdentifier,
+                    displayName: draft.displayName,
+                    emailAddress: draft.emailAddress
+                )!
+            }
+        )
+    }
+
+    private func waitForAttendees(
+        _ expected: Int,
+        in store: DictationStore,
+        meetingID: Int64
+    ) async throws {
+        // Attendees persist through a chained Task.detached queue; poll the
+        // store until the rows land (bounded).
+        for _ in 0..<200 {
+            if try store.listMeetingParticipants(meetingID: meetingID).count >= expected {
+                return
+            }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        throw MeetingLinkTestError.timedOut
+    }
+
+    private enum MeetingLinkTestError: Error {
+        case timedOut
+    }
+
+    @Test("linkMeetingToEvent attaches a manual meeting and auto-adds event attendees")
+    func linkMeetingToEventAttachesAndAddsAttendees() async throws {
+        let store = try makeStore()
+        let controller = makeController(dictationStore: store)
+        let meetingID = try makeManualMeeting(in: store)
+        controller.syncAppState()
+
+        let event = makeTestEvent(attendees: [
+            MeetingParticipantDraft(
+                participantIdentifier: "email:alice@example.test",
+                displayName: "Alice Example",
+                emailAddress: "alice@example.test"
+            )
+        ])
+        await controller.linkMeetingToEvent(meetingID: meetingID, event: event)
+        try await waitForAttendees(1, in: store, meetingID: meetingID)
+
+        let meeting = try #require(try store.meeting(id: meetingID))
+        // A meeting with no calendar identity adopts the first event as its
+        // primary event.
+        #expect(meeting.calendarEventID == "event-id-1")
+        #expect(meeting.calendarOccurrence?.identityKey == event.resolvedCalendarOccurrence.identityKey)
+        #expect(controller.eventIDsLinked(toMeeting: meeting) == ["event-id-1"])
+
+        // Attendees arrive as calendar-sourced people, deduped by identifier.
+        let participants = try store.listMeetingParticipants(meetingID: meetingID)
+        #expect(participants.count == 1)
+        #expect(participants.first?.displayName == "Alice Example")
+
+        // Linking the same event again is a no-op (no duplicate link, no
+        // duplicate attendee).
+        await controller.linkMeetingToEvent(meetingID: meetingID, event: event)
+        try await waitForAttendees(1, in: store, meetingID: meetingID)
+        #expect(try store.meetingEventLinks(meetingID: meetingID).count == 1)
+        #expect(try store.listMeetingParticipants(meetingID: meetingID).count == 1)
+    }
+
+    @Test("linkMeetingToEvent supports multiple events and unlink removes one")
+    func linkMeetingToEventSupportsMultipleAndUnlink() async throws {
+        let store = try makeStore()
+        let controller = makeController(dictationStore: store)
+        let meetingID = try makeManualMeeting(in: store)
+        controller.syncAppState()
+
+        let first = makeTestEvent(id: "event-1", title: "Standup", start: Date(timeIntervalSince1970: 1_775_000_000))
+        let second = makeTestEvent(id: "event-2", title: "Planning", start: Date(timeIntervalSince1970: 1_775_100_000))
+        await controller.linkMeetingToEvent(meetingID: meetingID, event: first)
+        await controller.linkMeetingToEvent(meetingID: meetingID, event: second)
+        controller.syncAppState()
+
+        let meeting = try #require(try store.meeting(id: meetingID))
+        // Primary stays the first-linked event.
+        #expect(meeting.calendarEventID == "event-1")
+        // Both events surface as linked; the controller-side lookup is
+        // id-based and cannot see the primary after regeneration, so it is
+        // driven by meetingEventLinks + calendarEventID in eventIDsLinked.
+        let linkedIDs = controller.eventIDsLinked(toMeeting: meeting)
+        #expect(linkedIDs.contains("event-1"))
+        #expect(linkedIDs.contains("event-2"))
+        #expect(controller.meetingEventLinks(meetingID: meetingID).count == 2)
+
+        // The store's event-side reverse lookup sees both links.
+        #expect(Set(try store.meetingsLinked(toEventID: "event-1")) == [meetingID])
+        #expect(Set(try store.meetingsLinked(toEventID: "event-2")) == [meetingID])
+
+        // Unlinking the second event removes only that link; the primary
+        // identity stays intact.
+        await controller.unlinkMeetingFromEvent(meetingID: meetingID, eventID: "event-2")
+        let remaining = try store.meetingEventLinks(meetingID: meetingID)
+        #expect(remaining.count == 1)
+        #expect(remaining.first?.eventID == "event-1")
+        let after = try #require(try store.meeting(id: meetingID))
+        #expect(after.calendarEventID == "event-1")
+    }
+
+    @Test("linkage derive surfaces explicitly linked meetings as recorded")
+    func linkageDeriveSurfacesExplicitlyLinkedMeetings() throws {
+        let meeting = makeMeeting(id: 1, title: "Manual Sync")
+        let event = UnifiedCalendarEvent(
+            id: "event-1",
+            title: "Design Sync",
+            startDate: Date(timeIntervalSince1970: 1_775_000_000),
+            endDate: Date(timeIntervalSince1970: 1_775_003_600),
+            isAllDay: false,
+            source: .eventKit,
+            calendarID: "cal-a"
+        )
+        let meetings: [MeetingRecord] = []
+
+        // Without the explicit link the event has no meeting (no keys, and
+        // the title-window fallback needs a matching start time).
+        let unlinked = MeetingEventLinkage.derive(event: event, meetings: meetings)
+        #expect(unlinked.linkedMeeting == nil)
+
+        // The explicit link id resolves the attached meeting as the event's
+        // meeting even though it was never recorded from the calendar.
+        let withMeeting = MeetingEventLinkage.derive(
+            event: event,
+            meetings: [meeting],
+            additionalLinkedMeetingIDs: [1]
+        )
+        #expect(withMeeting.linkedMeeting?.id == 1)
+        #expect(withMeeting.state == .completed)
     }
 }
 
