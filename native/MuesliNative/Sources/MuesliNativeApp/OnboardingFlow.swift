@@ -25,6 +25,7 @@ enum OnboardingFlow {
         case permissions = 3
         case dictationTest = 4
         case meetingSummary = 5
+        case transcriptCleanup = 6
     }
 
     static let dictationTestStep = Step.dictationTest.rawValue
@@ -124,7 +125,7 @@ enum OnboardingFlow {
             steps += [Step.permissions.rawValue]
         }
         if useCase.includesMeetings {
-            steps += [Step.meetingSummary.rawValue]
+            steps += [Step.meetingSummary.rawValue, Step.transcriptCleanup.rawValue]
         }
         return steps
     }

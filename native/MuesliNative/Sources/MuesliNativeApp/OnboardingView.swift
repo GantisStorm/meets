@@ -149,6 +149,7 @@ struct OnboardingView: View {
                 case OnboardingFlow.Step.model.rawValue: modelStep
                 case OnboardingFlow.Step.permissions.rawValue: permissionsStep
                 case OnboardingFlow.Step.meetingSummary.rawValue: meetingSummaryStep
+                case OnboardingFlow.Step.transcriptCleanup.rawValue: transcriptCleanupStep
                 default: EmptyView()
                 }
             }
@@ -237,6 +238,10 @@ struct OnboardingView: View {
                 advancePastPermissions()
             }
         case OnboardingFlow.Step.meetingSummary.rawValue:
+            onboardingButton("Continue", enabled: true) {
+                goToNextStep()
+            }
+        case OnboardingFlow.Step.transcriptCleanup.rawValue:
             HStack(spacing: MuesliTheme.spacing16) {
                 Button("Skip for now") {
                     finishOnboarding(withKey: true)
@@ -825,12 +830,6 @@ struct OnboardingView: View {
 
                     summaryProviderTabs
                     summaryProviderConfig
-
-                    Divider()
-                        .background(MuesliTheme.surfaceBorder)
-                        .padding(.vertical, MuesliTheme.spacing8)
-
-                    summaryCleanupSection
                 }
                 .padding(.horizontal, MuesliTheme.spacing32)
                 .padding(.bottom, MuesliTheme.spacing16)
@@ -857,6 +856,52 @@ struct OnboardingView: View {
         }
         .onChange(of: currentStep) { _, newStep in
             if newStep == OnboardingFlow.Step.meetingSummary.rawValue {
+                loadACPConfigOptionsIfNeeded()
+            }
+        }
+    }
+
+    /// Step 6: AI Transcript Cleanup — a separate page after Meeting
+    /// Summaries, mirroring the Settings layout (toggle + source + detail).
+    private var transcriptCleanupStep: some View {
+        VStack(spacing: 0) {
+            ScrollView {
+                VStack(spacing: MuesliTheme.spacing16) {
+                    VStack(spacing: MuesliTheme.spacing8) {
+                        Text("AI Transcript Cleanup")
+                            .font(MuesliTheme.title1())
+                            .foregroundStyle(MuesliTheme.textPrimary)
+
+                        Text("Automatically clean finished transcripts — remove filler words and disfluencies.\nYou can set this up later in Settings.")
+                            .font(MuesliTheme.body())
+                            .foregroundStyle(MuesliTheme.textSecondary)
+                            .multilineTextAlignment(.center)
+                    }
+                    .padding(.top, MuesliTheme.spacing24)
+
+                    summaryCleanupSection
+                }
+                .padding(.horizontal, MuesliTheme.spacing32)
+                .padding(.bottom, MuesliTheme.spacing16)
+                .frame(maxWidth: .infinity)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .onAppear {
+            loadACPConfigOptionsIfNeeded()
+        }
+        .onDisappear {
+            acpConfigOptionsLoadTask?.cancel()
+            acpConfigOptionsLoadTask = nil
+        }
+        .onChange(of: appState.config.acpAgentCommand) { _, _ in
+            loadACPConfigOptionsIfNeeded()
+        }
+        .onChange(of: appState.config.postProcessorBackend) { _, _ in
+            loadACPConfigOptionsIfNeeded()
+        }
+        .onChange(of: currentStep) { _, newStep in
+            if newStep == OnboardingFlow.Step.transcriptCleanup.rawValue {
                 loadACPConfigOptionsIfNeeded()
             }
         }
