@@ -211,7 +211,6 @@ struct InsightsView: View {
     private func meetingsSegment(_ data: InsightsSnapshot) -> some View {
         meetingsHero(data)
         meetingActivityChart(data)
-        activityPanel(data)
         foldersPanel(data)
         recurringPanel(data)
         meetingReadouts(data)
@@ -220,9 +219,7 @@ struct InsightsView: View {
     private func transcriptionsSegment(_ data: InsightsSnapshot) -> some View {
         Group {
             transcriptionsHero(data)
-            usagePanel(data)
             transcriptionQualityPanel(data)
-            wordClouds(data)
         }
     }
 
@@ -291,27 +288,42 @@ struct InsightsView: View {
         return components.joined(separator: " · ")
     }
 
+    /// Hero for the Transcriptions segment: total recorded hours is the
+    /// headline (not word count — a meetings app is about time captured).
     private func transcriptionsHero(_ data: InsightsSnapshot) -> some View {
-        VStack(alignment: .leading, spacing: 22) {
+        let stats = data.lifetimeMeetingStats
+        let hours = stats.totalDurationSeconds / 3600
+        let minutes = Int(stats.totalDurationSeconds) % 3600 / 60
+        let heroValue: String
+        if hours >= 1 {
+            heroValue = hours >= 10
+                ? "\(Int(hours))h"
+                : String(format: "%.1fh", hours)
+        } else {
+            heroValue = "\(minutes)m"
+        }
+        return VStack(alignment: .leading, spacing: 22) {
             VStack(alignment: .leading, spacing: 6) {
                 Text("Your time with Meets")
                     .font(.system(size: 18, weight: .semibold))
                     .tracking(-0.4)
                     .foregroundStyle(MuesliTheme.textPrimary)
-                Text(data.lifetime.meetingWords.formatted())
+                Text(heroValue)
                     .font(.system(size: 58, weight: .bold, design: .rounded))
                     .tracking(-2.4)
                     .monospacedDigit()
                     .foregroundStyle(MuesliTheme.textPrimary)
-                Text("Meeting words captured")
+                Text("Recorded & transcribed")
                     .font(.system(size: 15, weight: .medium))
                     .foregroundStyle(InsightsPalette.secondaryText)
             }
 
             HStack(spacing: 0) {
-                heroDatum("Meetings", value: format(data.lifetime.meetings))
+                heroDatum("Meetings", value: format(stats.totalMeetings))
                 divider
-                heroDatum("Average pace", value: "\(Int(data.lifetime.averageWPM.rounded())) WPM")
+                heroDatum("Avg length", value: stats.totalMeetings > 0 ? durationLine(stats.totalDurationSeconds / Double(stats.totalMeetings)) : "—")
+                divider
+                heroDatum("Words per hour", value: wordsPerHourLabel(stats))
             }
         }
         .padding(26)
@@ -330,6 +342,12 @@ struct InsightsView: View {
         .shadow(color: Color.black.opacity(0.12), radius: 24, y: 10)
     }
 
+    private func wordsPerHourLabel(_ stats: MeetingActivityStats) -> String {
+        guard stats.totalDurationSeconds > 0 else { return "—" }
+        let perHour = Double(stats.totalWords) / (stats.totalDurationSeconds / 3600)
+        return format(Int(perHour.rounded()))
+    }
+
     private func meetingActivityChart(_ data: InsightsSnapshot) -> some View {
         let buckets = data.meetingBuckets
         return VStack(alignment: .leading, spacing: 18) {
@@ -346,38 +364,6 @@ struct InsightsView: View {
             } else {
                 MeetingBarChart(buckets: buckets)
                     .frame(height: 200)
-            }
-        }
-        .insightsPanel()
-    }
-
-    private func activityPanel(_ data: InsightsSnapshot) -> some View {
-        VStack(alignment: .leading, spacing: 18) {
-            HStack(alignment: .firstTextBaseline) {
-                panelTitle("DAILY ACTIVITY", subtitle: "Meetings by day")
-                Spacer()
-            }
-            if data.dailyActivity.allSatisfy({ $0.meetings == 0 }) {
-                emptyState(
-                    icon: "calendar",
-                    message: "No meetings recorded in this time period."
-                )
-                .frame(minHeight: 156)
-            } else {
-                ActivityHeatmap(activity: data.dailyActivity)
-                    .frame(minHeight: 156)
-                HStack(spacing: 8) {
-                    Text("QUIET")
-                    ForEach(0..<5, id: \.self) { level in
-                        RoundedRectangle(cornerRadius: 3)
-                            .fill(InsightsPalette.intensity(level))
-                            .frame(width: 15, height: 15)
-                    }
-                    Text("LOUD")
-                }
-                .font(.system(size: 9, weight: .bold))
-                .tracking(1.2)
-                .foregroundStyle(InsightsPalette.tertiaryText)
             }
         }
         .insightsPanel()
@@ -449,15 +435,12 @@ struct InsightsView: View {
     }
 
     private func meetingReadouts(_ data: InsightsSnapshot) -> some View {
-        let stats = data.meetingStats
-        let total = max(1, stats.totalMeetings)
         return VStack(alignment: .leading, spacing: 18) {
-            panelTitle("DETAILS", subtitle: "Activity for the selected time period")
+            panelTitle("HABITS", subtitle: "Consistency over the selected time period")
             VStack(alignment: .leading, spacing: 12) {
-                readout("Recording rate", percent(stats.meetingsWithRecording, of: total))
-                readout("Calendar-linked", percent(stats.meetingsLinkedToCalendar, of: total))
-                readout("Follow-ups", format(stats.followUpMeetings))
-                readout("Imports", format(stats.importedMeetings))
+                readout("Current streak", "\(data.currentStreakDays) day\(data.currentStreakDays == 1 ? "" : "s")")
+                readout("Longest streak", "\(data.longestStreakDays) day\(data.longestStreakDays == 1 ? "" : "s")")
+                readout("Active days", "\(data.activeDaysInRange) day\(data.activeDaysInRange == 1 ? "" : "s")")
             }
         }
         .insightsPanel()
@@ -659,81 +642,36 @@ struct InsightsView: View {
         "\(Int((Double(part) / Double(total) * 100).rounded()))%"
     }
 
-    private func usagePanel(_ data: InsightsSnapshot) -> some View {
-        HStack(spacing: 20) {
-            VStack(alignment: .leading, spacing: 20) {
-                panelTitle("MEETINGS", subtitle: "Activity for the selected time period")
-                HStack(alignment: .lastTextBaseline, spacing: 8) {
-                    Text(format(data.selected.meetingWords))
-                        .font(.system(size: 40, weight: .bold, design: .rounded))
-                        .tracking(-1.5)
-                        .monospacedDigit()
-                    Text("words")
-                        .foregroundStyle(InsightsPalette.tertiaryText)
-                }
-                VStack(alignment: .leading, spacing: 12) {
-                    HStack {
-                        usageLegend("Meeting words", data.selected.meetingWords, .cyan)
-                        Spacer()
-                        usageLegend("Completed meetings", data.selected.meetings, MuesliTheme.accent)
-                    }
-                    readout("Average pace", "\(Int(data.selected.averageWPM.rounded())) WPM")
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            VStack(alignment: .leading, spacing: 16) {
-                Text("OVERVIEW")
-                    .font(.system(size: 10, weight: .bold)).tracking(1.5)
-                    .foregroundStyle(InsightsPalette.tertiaryText)
-                readout("Meeting words", format(data.selected.meetingWords))
-                readout("Completed meetings", format(data.selected.meetings))
-                readout("Average pace", "\(Int(data.selected.averageWPM.rounded())) WPM")
-                readout("Active days", format(data.activeDaysInRange))
-            }
-            .padding(20)
-            .frame(width: 300, alignment: .leading)
-            .background(MuesliTheme.backgroundDeep.opacity(0.6))
-            .clipShape(RoundedRectangle(cornerRadius: 10))
-            .overlay(RoundedRectangle(cornerRadius: 10).stroke(MuesliTheme.surfaceBorder))
-        }
-        .insightsPanel()
-    }
-
-    /// Phase 2: transcription-quality readouts derived from the snapshot.
+    /// Transcription-value readouts for the selected time period — time
+    /// captured, meeting shape, and the recording-rate signal. Words-era
+    /// pace/avg-words metrics are gone: they added noise, not insight.
     private func transcriptionQualityPanel(_ data: InsightsSnapshot) -> some View {
-        let selected = data.selected
         let stats = data.meetingStats
-        let avgWordsPerMeeting = selected.meetings > 0 ? selected.meetingWords / selected.meetings : 0
-        let recordedCount = stats.meetingsWithRecording
-        let totalMeetings = max(1, stats.totalMeetings)
+        let total = max(1, stats.totalMeetings)
         return VStack(alignment: .leading, spacing: 18) {
-            panelTitle("TRANSCRIPTION", subtitle: "Quality readouts for the selected time period")
+            panelTitle("CAPTURE", subtitle: "What this time period produced")
             HStack(alignment: .top, spacing: 24) {
                 VStack(alignment: .leading, spacing: 12) {
-                    readout("Words captured", format(selected.meetingWords))
-                    readout("Avg words per meeting", format(avgWordsPerMeeting))
-                    readout("Average pace", "\(Int(selected.averageWPM.rounded())) WPM")
+                    readout("Recorded", durationLine(stats.totalDurationSeconds))
+                    readout("Meetings", format(stats.totalMeetings))
+                    readout("Avg length", stats.totalMeetings > 0 ? durationLine(stats.totalDurationSeconds / Double(stats.totalMeetings)) : "—")
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 VStack(alignment: .leading, spacing: 12) {
-                    readout("Recorded meetings", "\(stats.meetingsWithRecording)/\(stats.totalMeetings) (\(percent(recordedCount, of: totalMeetings)))")
+                    readout("With audio", "\(stats.meetingsWithRecording) (\(percent(stats.meetingsWithRecording, of: total)))")
+                    readout("Calendar-linked", "\(stats.meetingsLinkedToCalendar) (\(percent(stats.meetingsLinkedToCalendar, of: total)))")
+                    readout("Follow-ups made", format(stats.followUpMeetings))
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                VStack(alignment: .leading, spacing: 12) {
+                    readout("Failed", format(stats.failedMeetings))
                     readout("Audio imports", format(stats.importedMeetings))
-                    readout("Calendar-linked", format(stats.meetingsLinkedToCalendar))
+                    readout("Words captured", format(stats.totalWords))
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
         .insightsPanel()
-    }
-
-    private func wordClouds(_ data: InsightsSnapshot) -> some View {
-        VStack(alignment: .leading, spacing: 16) {
-            panelTitle("MOST-USED WORDS", subtitle: "Common words from your meetings")
-            HStack(alignment: .top, spacing: 16) {
-                WordCloudPanel(title: "MEETINGS", icon: "person.2.wave.2", words: data.meetingWords)
-            }
-        }
     }
 
     private var loadingState: some View {
@@ -926,32 +864,6 @@ private enum InsightsPalette {
     }
 }
 
-enum ActivityHeatmapCalendarLayout {
-    static func weeks(
-        from activity: [InsightsDailyActivity],
-        calendar: Calendar
-    ) -> [[InsightsDailyActivity]] {
-        Dictionary(grouping: activity) { day -> Date in
-            let startOfDay = calendar.startOfDay(for: day.date)
-            let daysSinceSunday = calendar.component(.weekday, from: startOfDay) - 1
-            return calendar.date(byAdding: .day, value: -daysSinceSunday, to: startOfDay) ?? startOfDay
-        }
-        .sorted { $0.key < $1.key }
-        .map { _, days in days.sorted { $0.date < $1.date } }
-    }
-
-    static func monthMarker(
-        for week: [InsightsDailyActivity],
-        at index: Int,
-        calendar: Calendar
-    ) -> Date? {
-        if let monthStart = week.first(where: { calendar.component(.day, from: $0.date) == 1 }) {
-            return monthStart.date
-        }
-        return index == 0 ? week.first?.date : nil
-    }
-}
-
 private struct MeetingBarChart: View {
     let buckets: [MeetingActivityBucket]
 
@@ -1120,254 +1032,6 @@ private struct FolderStatRow: View {
     private var barRatio: CGFloat {
         guard maximum > 0 else { return 0 }
         return CGFloat(count) / CGFloat(maximum)
-    }
-}
-
-private struct ActivityHeatmap: View {
-    let activity: [InsightsDailyActivity]
-    private let cell: CGFloat = 14
-    private let gap: CGFloat = 4
-    private let monthLabelHeight: CGFloat = 14
-    private let weekdayLabels = ["", "Mon", "", "Wed", "", "Fri", ""]
-
-    var body: some View {
-        ScrollViewReader { proxy in
-            HStack(alignment: .top, spacing: 8) {
-                VStack(alignment: .trailing, spacing: gap) {
-                    Color.clear.frame(width: 24, height: monthLabelHeight)
-                    ForEach(Array(weekdayLabels.enumerated()), id: \.offset) { _, label in
-                        Text(label)
-                            .font(.system(size: 9, weight: .medium))
-                            .foregroundStyle(InsightsPalette.tertiaryText)
-                            .frame(width: 24, height: cell, alignment: .trailing)
-                    }
-                }
-
-                ScrollView(.horizontal, showsIndicators: false) {
-                    LazyHStack(alignment: .top, spacing: gap) {
-                        ForEach(Array(weeks.enumerated()), id: \.offset) { index, week in
-                            VStack(alignment: .leading, spacing: gap) {
-                                Color.clear
-                                    .frame(width: cell, height: monthLabelHeight)
-                                    .overlay(alignment: .leading) {
-                                        if let marker = ActivityHeatmapCalendarLayout.monthMarker(
-                                            for: week,
-                                            at: index,
-                                            calendar: calendar
-                                        ) {
-                                            Text(marker.formatted(.dateTime.month(.abbreviated)))
-                                                .font(.system(size: 9, weight: .medium))
-                                                .foregroundStyle(InsightsPalette.tertiaryText)
-                                                .fixedSize()
-                                        }
-                                    }
-                                VStack(spacing: gap) {
-                                    ForEach(0..<7, id: \.self) { weekday in
-                                        if let day = week.first(where: {
-                                            calendar.component(.weekday, from: $0.date) - 1 == weekday
-                                        }) {
-                                            cellView(day)
-                                        } else {
-                                            Color.clear.frame(width: cell, height: cell)
-                                        }
-                                    }
-                                }
-                                .id(week.first?.date)
-                            }
-                        }
-                    }
-                    .padding(.vertical, 3)
-                }
-            }
-            .onAppear { scrollToLatest(proxy) }
-            .onChange(of: activity.last?.date) { _, _ in scrollToLatest(proxy) }
-            .accessibilityLabel("Daily meeting activity")
-        }
-    }
-
-    private func scrollToLatest(_ proxy: ScrollViewProxy) {
-        guard let latestWeek = weeks.last?.first?.date else { return }
-        DispatchQueue.main.async {
-            proxy.scrollTo(latestWeek, anchor: .trailing)
-        }
-    }
-
-    private var calendar: Calendar { Calendar.current }
-
-    private var weeks: [[InsightsDailyActivity]] {
-        ActivityHeatmapCalendarLayout.weeks(from: activity, calendar: calendar)
-    }
-
-    private var maximum: Int {
-        max(1, activity.map(value).max() ?? 1)
-    }
-
-    private func value(_ day: InsightsDailyActivity) -> Int {
-        day.meetings
-    }
-
-    private func level(_ count: Int) -> Int {
-        guard count > 0 else { return 0 }
-        let ratio = log(Double(count) + 1) / log(Double(maximum) + 1)
-        return min(4, max(1, Int(ceil(ratio * 4))))
-    }
-
-    private func cellView(_ day: InsightsDailyActivity) -> some View {
-        let count = value(day)
-        return ActivityHeatmapCell(
-            day: day,
-            count: count,
-            level: level(count),
-            size: cell
-        )
-    }
-}
-
-private struct ActivityHeatmapCell: View {
-    let day: InsightsDailyActivity
-    let count: Int
-    let level: Int
-    let size: CGFloat
-    @State private var isHovered = false
-
-    private var dateText: String {
-        day.date.formatted(.dateTime.weekday(.wide).month(.abbreviated).day().year())
-    }
-
-    private var countText: String {
-        count == 1 ? "1 meeting" : "\(count.formatted()) meetings"
-    }
-
-    var body: some View {
-        RoundedRectangle(cornerRadius: 3)
-            .fill(InsightsPalette.intensity(level))
-            .frame(width: size, height: size)
-            .overlay {
-                if count > 0 {
-                    Circle().fill(Color.white.opacity(0.42)).frame(width: 2.5, height: 2.5)
-                }
-            }
-            .overlay {
-                if isHovered {
-                    RoundedRectangle(cornerRadius: 3)
-                        .strokeBorder(InsightsPalette.secondaryText, lineWidth: 1.5)
-                }
-            }
-            .onHover { isHovered = $0 }
-            .popover(isPresented: $isHovered, attachmentAnchor: .rect(.bounds), arrowEdge: .bottom) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(countText)
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(MuesliTheme.textPrimary)
-                    Text(dateText)
-                        .font(.system(size: 11))
-                        .foregroundStyle(InsightsPalette.secondaryText)
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 9)
-                .fixedSize()
-                .allowsHitTesting(false)
-            }
-            .focusable(true)
-            .accessibilityElement()
-            .accessibilityLabel("\(dateText), \(countText)")
-    }
-}
-
-private struct WordCloudPanel: View {
-    let title: String
-    let icon: String
-    let words: [InsightsWordFrequency]
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Label(title, systemImage: icon)
-                .font(.system(size: 10, weight: .bold))
-                .tracking(1.5)
-                .foregroundStyle(InsightsPalette.tertiaryText)
-            if words.isEmpty {
-                Text("No words to show for this time period.")
-                    .font(.system(size: 13))
-                    .foregroundStyle(InsightsPalette.tertiaryText)
-                    .frame(maxWidth: .infinity, minHeight: 120, alignment: .center)
-            } else {
-                WordFlowLayout(spacing: 9) {
-                    ForEach(displayedWords) { item in
-                        Text(item.word)
-                            .font(.system(
-                                size: InsightsWordCloudSizing.fontSize(for: item, displayedWords: displayedWords),
-                                weight: item.count == displayedWords.first?.count ? .bold : .medium,
-                                design: .rounded
-                            ))
-                            .foregroundStyle(wordColor(item))
-                            .help("Used \(item.count.formatted()) times")
-                            .accessibilityLabel("\(item.word), used \(item.count.formatted()) times")
-                    }
-                }
-                .frame(maxWidth: .infinity, minHeight: 150, alignment: .topLeading)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .topLeading)
-        .insightsPanel()
-    }
-
-    private var displayedWords: [InsightsWordFrequency] {
-        Array(words.prefix(32))
-    }
-
-    private func wordColor(_ item: InsightsWordFrequency) -> Color {
-        guard item.id != words.first?.id else { return .cyan }
-        return item.count >= (words.first?.count ?? 0) / 2 ? MuesliTheme.accent : InsightsPalette.secondaryText
-    }
-}
-
-enum InsightsWordCloudSizing {
-    static func fontSize(for item: InsightsWordFrequency, displayedWords: [InsightsWordFrequency]) -> CGFloat {
-        let high = max(1, displayedWords.first?.count ?? 1)
-        let low = max(1, displayedWords.last?.count ?? 1)
-        guard high > low else { return 18 }
-        let ratio = log(Double(item.count - low + 1)) / log(Double(high - low + 1))
-        return 13 + CGFloat(ratio) * 20
-    }
-}
-
-struct WordFlowLayout: Layout {
-    let spacing: CGFloat
-
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        layout(proposal: proposal, subviews: subviews).size
-    }
-
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        let result = layout(proposal: ProposedViewSize(width: bounds.width, height: proposal.height), subviews: subviews)
-        for (index, point) in result.points.enumerated() {
-            subviews[index].place(at: CGPoint(x: bounds.minX + point.x, y: bounds.minY + point.y), anchor: .topLeading, proposal: .unspecified)
-        }
-    }
-
-    func layout(sizes: [CGSize], width: CGFloat) -> (size: CGSize, points: [CGPoint]) {
-        var points: [CGPoint] = []
-        var x: CGFloat = 0
-        var y: CGFloat = 0
-        var rowHeight: CGFloat = 0
-        for size in sizes {
-            if x > 0, x + size.width > width {
-                x = 0
-                y += rowHeight + spacing
-                rowHeight = 0
-            }
-            points.append(CGPoint(x: x, y: y))
-            x += size.width + spacing
-            rowHeight = max(rowHeight, size.height)
-        }
-        return (CGSize(width: width, height: y + rowHeight), points)
-    }
-
-    private func layout(proposal: ProposedViewSize, subviews: Subviews) -> (size: CGSize, points: [CGPoint]) {
-        layout(
-            sizes: subviews.map { $0.sizeThatFits(.unspecified) },
-            width: proposal.width ?? 420
-        )
     }
 }
 
