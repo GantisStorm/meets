@@ -41,7 +41,16 @@ actor FluidAudioTranscriber {
             )
             progress?(0.95, preparing.message)
             progressSnapshot?(preparing)
-            let models = try await AsrModels.load(from: modelDirectory, version: version)
+            let models = try await AsrModels.load(
+                from: modelDirectory,
+                version: version,
+                // Desktop Mac throughput: FluidAudio measured the conformer
+                // encoder on GPU (.cpuAndGPU) at ~+8% end-to-end RTFx with
+                // identical WER (ANE 23.5ms -> GPU 17.8ms encoder latency).
+                // The power-efficiency argument for ANE is iOS-only; this is
+                // a Mac app, so take the faster placement.
+                encoderComputeUnits: .cpuAndGPU
+            )
             let manager = AsrManager(config: .default)
             try await manager.loadModels(models)
             return manager

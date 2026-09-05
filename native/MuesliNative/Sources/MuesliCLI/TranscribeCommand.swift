@@ -679,7 +679,11 @@ actor FluidAudioCLITranscriber: AudioTranscribing {
             }
         ) { modelDirectory in
             progress("preparing model")
-            let models = try await AsrModels.load(from: modelDirectory, version: asrModelVersion)
+            let models = try await AsrModels.load(
+                from: modelDirectory,
+                version: asrModelVersion,
+                encoderComputeUnits: .cpuAndGPU
+            )
             let manager = AsrManager(config: .default)
             try await manager.loadModels(models)
             return manager
