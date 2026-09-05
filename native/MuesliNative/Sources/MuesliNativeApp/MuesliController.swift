@@ -236,6 +236,9 @@ public final class MuesliController: NSObject {
     private let dictationStore: DictationStore
     private let meetingHookDispatcher: MeetingHookDispatching
     private let meetingMarkdownAutoExporter: MeetingMarkdownAutoExporting
+    /// Zero-device cloud-folder mirror: copies completed meetings into a folder
+    /// the user's cloud app already syncs (no accounts/API keys/entitlements).
+    private let cloudMirror = MeetingCloudMirror()
     private let launchAtLoginCoordinator: LaunchAtLoginCoordinator
     let transcriptionCoordinator = TranscriptionCoordinator()
     /// Local Qwen3 GGUF cleanup engine, created on first use and reused across
@@ -1221,6 +1224,47 @@ public final class MuesliController: NSObject {
             applyMeetingInputDevice(dictationAudioRoutingController.preferredInputDeviceIDForMeeting())
         }
         syncAppState()
+    }
+
+    // MARK: - Cloud Sync
+
+    /// Cloud folders available to mirror into, most useful first (iCloud,
+    /// Dropbox, then CloudStorage providers). Pure local file checks — safe on
+    /// the main actor and fast enough to call on every settings render.
+    func cloudSyncLocations() -> [CloudSyncLocation] {
+        CloudSyncDetector.detect()
+    }
+
+    /// Persists the cloud-mirror configuration. Mirroring takes effect on the
+    /// next completed meeting (or the next "Sync Now").
+    func setCloudSync(enabled: Bool, folderPath: String, includesAudio: Bool) {
+        let trimmedFolder = folderPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        updateConfig { config in
+            config.cloudSyncEnabled = enabled
+            config.cloudSyncFolderPath = trimmedFolder
+            config.cloudSyncIncludesAudio = includesAudio
+        }
+    }
+
+    /// Mirrors the given completed meeting into the configured cloud folder.
+    /// No-op when cloud sync is off or the folder path is not configured.
+    func mirrorCompletedMeeting(record: MeetingRecord) async {
+        guard config.cloudSyncEnabled,
+              cloudMirror.isCloudSyncConfigured(config) else { return }
+        await cloudMirror.mirror(meeting: record, config: config)
+    }
+
+    /// Mirrors every meeting in the store into the configured cloud folder
+    /// ("Sync Now"). Returns a human-readable status line, or nil when nothing
+    /// was mirrored (feature off / no destination / no meetings).
+    func syncAllToCloud() async -> String? {
+        guard cloudMirror.isCloudSyncConfigured(config) else { return nil }
+        guard let meetings = try? dictationStore.recentMeetings() else { return nil }
+        guard !meetings.isEmpty else { return nil }
+        let mirroredCount = await cloudMirror.mirrorAllMeetings(meetings: meetings, config: config)
+        guard mirroredCount > 0 else { return nil }
+        let total = meetings.count
+        return "Mirrored \(mirroredCount) of \(total) meeting\(total == 1 ? "" : "s") to cloud folder"
     }
 
     /// Applies the configured theme to app-level chrome. The fullscreen
@@ -5810,10 +5854,18 @@ public final class MuesliController: NSObject {
             completedAt: result.endTime,
             config: config
         )
-        if config.autoExportMarkdownEnabled {
+        if config.autoExportMarkdownEnabled || config.cloudSyncEnabled {
             do {
                 if let record = try dictationStore.meeting(id: persistenceResult.meetingID) {
-                    meetingMarkdownAutoExporter.exportIfConfigured(meeting: record, config: config)
+                    if config.autoExportMarkdownEnabled {
+                        meetingMarkdownAutoExporter.exportIfConfigured(meeting: record, config: config)
+                    }
+                    if config.cloudSyncEnabled {
+                        let cloudSyncConfig = config
+                        Task { [weak self] in
+                            await self?.cloudMirror.mirror(meeting: record, config: cloudSyncConfig)
+                        }
+                    }
                 } else {
                     meetingMarkdownAutoExporter.recordMeetingLookupFailure(
                         meetingID: persistenceResult.meetingID,

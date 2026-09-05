@@ -86,6 +86,9 @@ struct SettingsView: View {
     @State private var isShowingCalendarSettings = false
     @State private var isShowingCleanupPromptManager = false
     @State private var cleanupDownloads: [String: Double] = [:]
+    @State private var isSyncingCloud = false
+    @State private var cloudSyncOutcome: String?
+    @State private var cloudSyncOutcomeIsError = false
 
     init(appState: AppState, controller: MuesliController) {
         self.appState = appState
@@ -1018,6 +1021,8 @@ struct SettingsView: View {
                     .padding(.horizontal, MuesliTheme.spacing16)
             }
 
+            cloudSyncSettingsSection
+
             settingsSection("Meeting Notifications") {
                 settingsRow("Scheduled meetings") {
                     settingsSwitch(isOn: appState.config.showScheduledMeetingNotifications) { newValue in
@@ -1106,6 +1111,169 @@ struct SettingsView: View {
         }
         .onAppear {
             refreshMeetingCalendarSourcesIfNeeded()
+        }
+    }
+
+    // MARK: - Cloud Sync
+
+    private var cloudSyncSettingsSection: some View {
+        settingsSection("Cloud Sync") {
+            settingsRow(
+                "Sync library to a cloud folder",
+                description: "Mirrors your meetings into a folder your cloud app already syncs — no accounts or keys needed. Notes, audio, and an index appear on your other devices automatically."
+            ) {
+                settingsSwitch(
+                    isOn: appState.config.cloudSyncEnabled,
+                    onChange: { newValue in
+                        if newValue {
+                            cloudSyncEnable()
+                        } else {
+                            controller.setCloudSync(
+                                enabled: false,
+                                folderPath: appState.config.cloudSyncFolderPath,
+                                includesAudio: appState.config.cloudSyncIncludesAudio
+                            )
+                            cloudSyncOutcome = nil
+                            cloudSyncOutcomeIsError = false
+                        }
+                    }
+                )
+            }
+            if appState.config.cloudSyncEnabled {
+                Divider().background(MuesliTheme.surfaceBorder)
+                if !cloudSyncLocations.isEmpty {
+                    settingsRow("Cloud folder", controlWidth: meetingControlWidth) {
+                        settingsMenu(
+                            selection: selectedCloudSyncLocationName,
+                            options: cloudSyncLocations.map(\.name),
+                            onChange: { label in
+                                guard let location = cloudSyncLocations.first(where: { $0.name == label }) else { return }
+                                controller.setCloudSync(
+                                    enabled: true,
+                                    folderPath: location.path + "/" + CloudSyncDetector.mirrorFolderName,
+                                    includesAudio: appState.config.cloudSyncIncludesAudio
+                                )
+                                cloudSyncOutcome = nil
+                                cloudSyncOutcomeIsError = false
+                            }
+                        )
+                    }
+                } else {
+                    settingsRow("Cloud folder") {
+                        Text("No synced folders found — sign in to iCloud Drive, Dropbox, Google Drive, or OneDrive on this Mac.")
+                            .font(.system(size: 12))
+                            .foregroundStyle(MuesliTheme.textTertiary)
+                            .lineLimit(3)
+                            .frame(maxWidth: .infinity, alignment: .trailing)
+                    }
+                }
+                Divider().background(MuesliTheme.surfaceBorder)
+                settingsRow("Include audio recordings") {
+                    settingsSwitch(
+                        isOn: appState.config.cloudSyncIncludesAudio,
+                        onChange: { newValue in
+                            controller.setCloudSync(
+                                enabled: true,
+                                folderPath: appState.config.cloudSyncFolderPath,
+                                includesAudio: newValue
+                            )
+                        }
+                    )
+                }
+                Divider().background(MuesliTheme.surfaceBorder)
+                settingsRow("Sync Now") {
+                    compactActionButton(isSyncingCloud ? "Syncing…" : "Sync Now", systemImage: "arrow.triangle.2.circlepath") {
+                        syncNowToCloud()
+                    }
+                    .disabled(isSyncingCloud)
+                }
+                if let cloudSyncOutcome {
+                    Text(cloudSyncOutcome)
+                        .font(MuesliTheme.caption())
+                        .foregroundStyle(cloudSyncOutcomeIsError ? MuesliTheme.recording : MuesliTheme.textSecondary)
+                        .padding(.horizontal, MuesliTheme.spacing16)
+                }
+            }
+            Text("Meetings are saved to \(cloudSyncFolderName) as Markdown notes (+ audio). Open that folder in iCloud Drive / Dropbox / Drive on your iPhone to read them.")
+                .font(MuesliTheme.caption())
+                .foregroundStyle(MuesliTheme.textTertiary)
+                .padding(.horizontal, MuesliTheme.spacing16)
+        }
+    }
+
+    private var cloudSyncLocations: [CloudSyncLocation] {
+        controller.cloudSyncLocations().filter(\.isAvailable)
+    }
+
+    private var selectedCloudSyncLocationName: String {
+        guard !appState.config.cloudSyncFolderPath.isEmpty else { return cloudSyncLocations.first?.name ?? "Choose…" }
+        for location in cloudSyncLocations where appState.config.cloudSyncFolderPath.hasPrefix(location.path + "/") {
+            return location.name
+        }
+        return cloudSyncLocations.first?.name ?? "Choose…"
+    }
+
+    private var cloudSyncFolderName: String {
+        let folderPath = appState.config.cloudSyncFolderPath
+        guard !folderPath.isEmpty else { return "the chosen folder" }
+        return folderPath.hasSuffix("/" + CloudSyncDetector.mirrorFolderName)
+            ? CloudSyncDetector.mirrorFolderName
+            : (folderPath as NSString).lastPathComponent
+    }
+
+    private func cloudSyncEnable() {
+        let locations = cloudSyncLocations
+        if locations.contains(where: {
+            appState.config.cloudSyncFolderPath.hasPrefix($0.path + "/")
+        }) {
+            // The configured folder is still available — keep its path.
+            controller.setCloudSync(
+                enabled: true,
+                folderPath: appState.config.cloudSyncFolderPath,
+                includesAudio: appState.config.cloudSyncIncludesAudio
+            )
+        } else if let first = locations.first {
+            controller.setCloudSync(
+                enabled: true,
+                folderPath: first.path + "/" + CloudSyncDetector.mirrorFolderName,
+                includesAudio: appState.config.cloudSyncIncludesAudio
+            )
+        } else {
+            controller.setCloudSync(
+                enabled: true,
+                folderPath: "",
+                includesAudio: appState.config.cloudSyncIncludesAudio
+            )
+        }
+        cloudSyncOutcome = nil
+        cloudSyncOutcomeIsError = false
+    }
+
+    private func syncNowToCloud() {
+        guard !isSyncingCloud else { return }
+        isSyncingCloud = true
+        cloudSyncOutcome = nil
+        cloudSyncOutcomeIsError = false
+        Task {
+            let outcome: String?
+            let isError: Bool
+            if appState.config.cloudSyncEnabled,
+               !appState.config.cloudSyncFolderPath.isEmpty {
+                if let text = await controller.syncAllToCloud() {
+                    outcome = text
+                    isError = false
+                } else {
+                    outcome = "Nothing to mirror — meetings will sync automatically as they complete."
+                    isError = false
+                }
+            } else {
+                outcome = "Turn on cloud sync and choose a folder first."
+                isError = true
+            }
+            guard !Task.isCancelled else { return }
+            isSyncingCloud = false
+            cloudSyncOutcome = outcome
+            cloudSyncOutcomeIsError = isError
         }
     }
 

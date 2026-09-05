@@ -1498,6 +1498,11 @@ struct AppConfig: Codable {
     var autoExportMarkdownFolderPath: String = ""
     var autoExportMarkdownContent: String = MeetingExportContent.notes.rawValue
     var autoExportFileFormat: String = MeetingAutoExportFileFormat.markdown.rawValue
+    /// Mirrors completed meeting notes (and optionally audio) into a folder the
+    /// user's cloud app already syncs; the provider's own client does the sync.
+    var cloudSyncEnabled: Bool = false
+    var cloudSyncFolderPath: String = ""
+    var cloudSyncIncludesAudio: Bool = true
     var iCloudSyncEnabled: Bool = false
     var showIOSCompanionPrompt: Bool = true
     var contributionPromptNextMeetingCount: Int?
@@ -1601,6 +1606,9 @@ struct AppConfig: Codable {
         case autoExportMarkdownFolderPath = "auto_export_markdown_folder_path"
         case autoExportMarkdownContent = "auto_export_markdown_content"
         case autoExportFileFormat = "auto_export_file_format"
+        case cloudSyncEnabled = "cloud_sync_enabled"
+        case cloudSyncFolderPath = "cloud_sync_folder_path"
+        case cloudSyncIncludesAudio = "cloud_sync_include_audio"
         case iCloudSyncEnabled = "icloud_sync_enabled"
         case showIOSCompanionPrompt = "show_ios_companion_prompt"
         case contributionPromptNextMeetingCount = "contribution_prompt_next_meeting_count"
@@ -1764,6 +1772,9 @@ struct AppConfig: Codable {
         autoExportMarkdownContent = MeetingExportContent(rawValue: decodedAutoExportMarkdownContent)?.rawValue ?? defaults.autoExportMarkdownContent
         let decodedAutoExportFileFormat = (try? c.decode(String.self, forKey: .autoExportFileFormat)) ?? defaults.autoExportFileFormat
         autoExportFileFormat = MeetingAutoExportFileFormat(rawValue: decodedAutoExportFileFormat)?.rawValue ?? defaults.autoExportFileFormat
+        cloudSyncEnabled = (try? c.decode(Bool.self, forKey: .cloudSyncEnabled)) ?? defaults.cloudSyncEnabled
+        cloudSyncFolderPath = (try? c.decode(String.self, forKey: .cloudSyncFolderPath)) ?? defaults.cloudSyncFolderPath
+        cloudSyncIncludesAudio = (try? c.decode(Bool.self, forKey: .cloudSyncIncludesAudio)) ?? defaults.cloudSyncIncludesAudio
         contributionPromptNextMeetingCount = try? c.decode(Int.self, forKey: .contributionPromptNextMeetingCount)
         contributionGitHubStarClicked = (try? c.decode(Bool.self, forKey: .contributionGitHubStarClicked)) ?? defaults.contributionGitHubStarClicked
         contributionBuyMeCoffeeClicked = (try? c.decode(Bool.self, forKey: .contributionBuyMeCoffeeClicked)) ?? defaults.contributionBuyMeCoffeeClicked
