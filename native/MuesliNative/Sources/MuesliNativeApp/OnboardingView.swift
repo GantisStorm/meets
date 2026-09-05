@@ -51,13 +51,6 @@ struct OnboardingView: View {
     @State private var hasFinishedOnboarding = false
 
     static let permissionsStep = OnboardingFlow.Step.permissions.rawValue
-    private static let bundledMuesliLogo: NSImage = {
-        if let url = Bundle.main.url(forResource: "muesli_app_icon", withExtension: "png"),
-           let image = NSImage(contentsOf: url) {
-            return image
-        }
-        return NSApplication.shared.applicationIconImage
-    }()
 
     private var orderedSteps: [Int] {
         OnboardingFlow.orderedSteps(for: OnboardingUseCase.meetings)
@@ -440,12 +433,11 @@ struct OnboardingView: View {
         VStack(spacing: MuesliTheme.spacing16) {
             Spacer()
 
-            Image(nsImage: Self.bundledMuesliLogo)
-                .resizable()
-                .interpolation(.high)
-                .scaledToFit()
-                .frame(width: 64, height: 64)
-                .accessibilityLabel("Muesli")
+            Text("Meets.")
+                .font(.system(size: 44, weight: .bold, design: .rounded))
+                .tracking(-1.6)
+                .foregroundStyle(MuesliTheme.textPrimary)
+                .accessibilityLabel("Meets")
 
             VStack(spacing: MuesliTheme.spacing8) {
                 Text("Welcome to Meets")

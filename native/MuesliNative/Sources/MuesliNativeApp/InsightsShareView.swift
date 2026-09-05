@@ -305,7 +305,7 @@ private struct InsightsShareCard: View {
                         .foregroundStyle(pale.opacity(0.88))
                         .shadow(color: Color.black.opacity(0.48), radius: 3, y: 1)
                     Spacer()
-                    Text("meets")
+                    Text("Meets.")
                         .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(cyan)
                         .shadow(color: Color.black.opacity(0.48), radius: 3, y: 1)
@@ -357,21 +357,12 @@ private struct MuesliShareMark: View {
     let color: Color
 
     var body: some View {
-        HStack(spacing: 11) {
-            if let icon = InsightsBrandAssets.appIcon {
-                Image(nsImage: icon)
-                    .resizable()
-                    .interpolation(.high)
-                    .frame(width: 54, height: 54)
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
-            }
-            Text("meets")
-                .font(Font(AppFonts.bold(30)))
-                .tracking(-1.1)
-                .foregroundStyle(color)
-        }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Meets")
+        Text("Meets.")
+            .font(Font(AppFonts.bold(30)))
+            .tracking(-1.1)
+            .foregroundStyle(color)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Meets")
     }
 }
 
@@ -381,11 +372,7 @@ enum InsightsBrandAssets {
         extension: "png",
         repositoryPath: "assets/insights-share-background.png"
     )
-    static let appIcon = image(
-        bundledName: "muesli_app_icon",
-        extension: "png",
-        repositoryPath: "assets/muesli_app_icon.png"
-    )
+    static let appIcon: NSImage? = nil
 
     private static func image(bundledName: String, extension fileExtension: String, repositoryPath: String) -> NSImage? {
         if let bundledURL = Bundle.main.url(forResource: bundledName, withExtension: fileExtension),

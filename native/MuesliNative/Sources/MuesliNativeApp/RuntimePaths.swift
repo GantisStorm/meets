@@ -3,7 +3,6 @@ import MuesliCore
 
 struct RuntimePaths {
     let repoRoot: URL
-    let menuIcon: URL?
     let appIcon: URL?
     let bundlePath: URL?
 
@@ -11,7 +10,6 @@ struct RuntimePaths {
         if let bundleResource = Bundle.main.resourceURL {
             return RuntimePaths(
                 repoRoot: bundleResource,
-                menuIcon: bundleResource.appendingPathComponent("menu_m_template.png"),
                 appIcon: bundleResource.appendingPathComponent("muesli.icns"),
                 bundlePath: Bundle.main.bundleURL
             )
@@ -25,7 +23,6 @@ struct RuntimePaths {
             if fileManager.fileExists(atPath: candidate.path) {
                 return RuntimePaths(
                     repoRoot: searchURL,
-                    menuIcon: searchURL.appendingPathComponent("assets/menu_m_template.png"),
                     appIcon: candidate,
                     bundlePath: nil
                 )

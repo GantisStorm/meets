@@ -257,28 +257,15 @@ struct SidebarView: View {
     private var sidebarHeader: some View {
         HStack(alignment: .top) {
             VStack(alignment: .leading, spacing: MuesliTheme.spacing4) {
-                HStack(spacing: MuesliTheme.spacing12) {
-                    Group {
-                        if appState.config.menuBarIcon == "muesli",
-                           let img = MenuBarIconRenderer.make(choice: "muesli") {
-                            Image(nsImage: img)
-                                .resizable()
-                                .scaledToFit()
-                        } else {
-                            Image(systemName: appState.config.menuBarIcon)
-                        }
-                    }
-                    .frame(width: 22, height: 22)
-                    .foregroundStyle(MuesliTheme.accent)
-                    Text("Meets")
-                        .font(MuesliTheme.title2())
-                        .foregroundStyle(MuesliTheme.textPrimary)
-                }
+                Text("Meets.")
+                    .font(MuesliTheme.title2())
+                    .foregroundStyle(MuesliTheme.textPrimary)
+                    .accessibilityLabel("Meets")
                 if !userName.isEmpty {
                     Text("Hi, \(userName)")
                         .font(MuesliTheme.caption())
                         .foregroundStyle(MuesliTheme.textTertiary)
-                        .padding(.leading, 34)
+                        .padding(.leading, 2)
                 }
             }
             Spacer(minLength: MuesliTheme.spacing8)
