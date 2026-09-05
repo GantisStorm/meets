@@ -346,6 +346,11 @@ public final class MuesliController: NSObject {
     private var importTask: Task<Void, Never>?
     private var importSessionID: UUID?
     private var canceledMeetingStartIDs = Set<Int64>()
+    /// Coalescing + dedupe for `handleCalendarEventChange`: EventKit change
+    /// notifications arrive in bursts. Each call bumps the token; the caller
+    /// that still owns the token after the settle window runs the sync pass.
+    private var calendarChangeLastRunEventTitles: [String: String] = [:]
+    private var calendarChangeDebounceToken = 0
     /// Prior transcript captured when resuming a finished meeting, keyed by meeting id.
     /// Present only while a resume is in flight; consumed at stop to merge old + new
     /// transcript, and cleared on success or restored-on-failure.
@@ -1861,6 +1866,15 @@ public final class MuesliController: NSObject {
     /// around the fetch.
     func refreshCalendarEvents() async {
         appState.isCalendarPageLoading = true
+        await fetchCalendarEventsIntoAppState()
+        appState.isCalendarPageLoading = false
+    }
+
+    /// Fetches calendar events into `appState.calendarEvents` without toggling
+    /// the page loading flag — used by background sync passes
+    /// (`applyCalendarTitleSyncPass`) that must not flash the Calendar page's
+    /// spinner on every EventKit change notification.
+    func fetchCalendarEventsIntoAppState() async {
         let disabledIDs = Set(config.disabledCalendarIDs)
         let now = Date()
         let calendar = Calendar.current
@@ -1872,12 +1886,8 @@ public final class MuesliController: NSObject {
                 || EKEventStore.authorizationStatus(for: .event) == .authorized else { return [] }
             return Self.calendarEvents(store: store, from: pastStart, to: futureEnd, disabledIDs: disabledIDs)
         }.value
-        guard !Task.isCancelled else {
-            appState.isCalendarPageLoading = false
-            return
-        }
+        guard !Task.isCancelled else { return }
         appState.calendarEvents = events
-        appState.isCalendarPageLoading = false
     }
 
     /// Enumerates EventKit events into UnifiedCalendarEvents on a background
@@ -1909,6 +1919,7 @@ public final class MuesliController: NSObject {
                 ),
                 meetingURL: CalendarMonitor.extractMeetingURL(from: event),
                 attendees: CalendarMonitor.attendees(from: event),
+                location: event.location,
                 isCancelled: event.status == .canceled,
                 isDeclined: Self.isDeclined(event)
             )
@@ -2046,6 +2057,9 @@ public final class MuesliController: NSObject {
                 )
                 self.checkUpcomingCalendarNotifications()
                 self.meetingMonitor.refreshState(trigger: .calendarChanged)
+                // Calendar title edits propagate to linked meeting titles.
+                // Coalesced + idempotent; cheap when nothing changed.
+                _ = await self.handleCalendarEventChange()
             }
         }
 
@@ -3238,6 +3252,229 @@ public final class MuesliController: NSObject {
 
     func cacheMeetingTitle(id: Int64, title: String) {
         liveMeetingTitleCache[id] = title
+    }
+
+    // MARK: - Calendar Event Linkage (record + title sync)
+    //
+    // Mutation entry points for the calendar ↔ meeting linkage core
+    // (MeetingCalendarLinkage.swift). Callee-driven: views derive state via
+    // `MeetingEventLinkage` and call these to act on it.
+
+    /// Records the given calendar event as a meeting. Refuses when recording
+    /// is already running/starting or the calendar cannot be read (no full
+    /// access). Returns false when the recording did not start — callers can
+    /// then surface the app's existing error/status UI.
+    /// - Parameters:
+    ///   - event: The calendar event to record. Its title, occurrence
+    ///     identity, and end date (for auto-stop) seed the recording.
+    /// - Returns: True when the recording started, false otherwise (already
+    ///   recording, no calendar access, model missing, ...).
+    @discardableResult
+    func recordCalendarEvent(_ event: UnifiedCalendarEvent) async -> Bool {
+        guard calendarEventKitManager.canReadEvents else {
+            fputs("[calendar-linkage] recordCalendarEvent declined: no calendar read access\n", stderr)
+            return false
+        }
+        let linkage = MeetingEventLinkage.derive(
+            event: event,
+            meetings: appState.meetingRows,
+            now: Date(),
+            isCurrentlyRecording: isMeetingRecording() || isStartingMeetingRecording
+        )
+        guard linkage.canRecord else {
+            fputs("[calendar-linkage] recordCalendarEvent declined: event not recordable (state=\(linkage.state.tintName))\n", stderr)
+            return false
+        }
+        // Recordings are per-occurrence; an event the user recorded before can
+        // be recorded again, but a placeholder meeting created from this event
+        // (CalendarPage's "add to meetings") is idempotent — never open a
+        // second live session for an event that only has an empty placeholder.
+        let occurrence = event.resolvedCalendarOccurrence
+        if let existing = try? dictationStore.meetingByCalendarOccurrence(occurrence),
+           existing.calendarOccurrence != nil,
+           existing.rawTranscript.isEmpty,
+           existing.formattedNotes.isEmpty,
+           existing.status == .noteOnly || existing.status == .completed {
+            fputs("[calendar-linkage] event already has a placeholder meeting \(existing.id); opening it instead of recording\n", stderr)
+            showMeetingDocument(id: existing.id)
+            return false
+        }
+
+        let didStart = startMeetingRecordingFromEntryPoint(
+            title: event.title,
+            calendarEventID: event.id,
+            calendarOccurrence: occurrence,
+            endDate: event.endDate,
+            autoStopSource: event.meetingURL.flatMap { MeetingAutoStopSource(meetingURL: $0) },
+            presentation: .foregroundNotes,
+            startOrigin: .calendarEvent
+        )
+        if didStart {
+            fputs("[calendar-linkage] started recording for calendar event \(event.id) (\(event.title))\n", stderr)
+        }
+        return didStart
+    }
+
+    /// Renames a calendar event directly in EventKit, keeping the app's
+    /// calendar copy authoritative for its own meeting title sync. The
+    /// rename persists through the shared `CalendarEventKitManager` store;
+    /// the calendar page refreshes from the resulting
+    /// `EKEventStoreChanged` notification. Cancelled/declined events are not
+    /// renamed (they can belong to another organizer). Returns false when
+    /// the event cannot be resolved or saved.
+    func renameCalendarEvent(_ event: UnifiedCalendarEvent, to newTitle: String) -> Bool {
+        let trimmed = newTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              !event.isCancelled,
+              !event.isDeclined,
+              calendarEventKitManager.canReadEvents,
+              let ekEvent = calendarEventKitManager.store.event(withIdentifier: event.id) else {
+            return false
+        }
+        guard ekEvent.status != .canceled else { return false }
+        ekEvent.title = trimmed
+        do {
+            try calendarEventKitManager.store.save(ekEvent, span: .thisEvent, commit: true)
+            return true
+        } catch {
+            fputs("[calendar-linkage] failed to rename calendar event \(event.id): \(error)\n", stderr)
+            return false
+        }
+    }
+
+    /// Renames a stored meeting's title to a calendar event's title — only
+    /// when the meeting's title is a stale copy of the calendar's previous
+    /// title (see `MeetingCalendarLinkage.titleSyncDecision`). Never touches
+    /// user-authored titles; otherwise a no-op.
+    func syncMeetingTitleWithCalendarEvent(meetingID: Int64, event: UnifiedCalendarEvent) async {
+        guard let meeting = meeting(id: meetingID) else {
+            fputs("[calendar-linkage] syncMeetingTitle: meeting \(meetingID) not found\n", stderr)
+            return
+        }
+        await syncMeetingTitleWithCalendarEventIfNeeded(meeting: meeting, event: event)
+    }
+
+    /// Called when EventKit reports calendar changes. EventKit delivers many
+    /// notifications per user edit, so the pass itself is coalesced: while
+    /// change notifications keep arriving (a 0.75s settle window), each call
+    /// bumps the token and only the call that still owns it after the window
+    /// runs the diff. The pass refreshes the event list, compares it against
+    /// what the previous pass observed, and propagates a changed event title
+    /// to meetings that still carry the *old* calendar title. User-authored
+    /// titles are never overwritten: a meeting title that does not equal the
+    /// event's pre-change title is left alone. Idempotent: re-running without
+    /// an event change applies nothing.
+    /// - Returns: The number of meetings whose titles were updated.
+    @discardableResult
+    func handleCalendarEventChange() async -> Int {
+        let token = calendarChangeDebounceToken &+ 1
+        calendarChangeDebounceToken = token
+
+        do {
+            try await Task.sleep(for: .milliseconds(750))
+        } catch {
+            return 0 // cancelled
+        }
+        guard calendarChangeDebounceToken == token else {
+            return 0 // a newer change superseded this call — it will sync
+        }
+        return await applyCalendarTitleSyncPass()
+    }
+
+    /// The diffing half of `handleCalendarEventChange`. Refreshes
+    /// `appState.calendarEvents`, records each observed event's current title
+    /// as the "old" title for the next pass, and renames meetings whose stored
+    /// title equals that old title to the event's new title. Public so tests
+    /// can drive a sync pass without touching EventKit.
+    /// - Returns: Number of meetings whose titles were updated.
+    @discardableResult
+    func applyCalendarTitleSyncPass() async -> Int {
+        let previousTitles = calendarChangeLastRunEventTitles
+        await fetchCalendarEventsIntoAppState()
+        let events = appState.calendarEvents
+
+        // Record current titles first so a later event change is diffed
+        // against exactly this snapshot — even if a rename below mutates
+        // meeting titles, the next pass still knows what the calendar said
+        // before that rename.
+        var observedTitles: [String: String] = [:]
+        for event in events {
+            if event.isCancelled || event.isDeclined { continue }
+            observedTitles[event.id] = event.title
+        }
+        calendarChangeLastRunEventTitles = observedTitles
+
+        var updatedCount = 0
+        for meeting in appState.meetingRows {
+            // A live session owns its title until stop() persists the final
+            // one; renaming mid-recording would be clobbered or corrupt the
+            // stop flow. Processed meetings are excluded for the same reason.
+            guard meeting.status != .recording, meeting.status != .processing else { continue }
+            guard let event = Self.event(in: events, matching: meeting) else { continue }
+            guard event.title != meeting.title else { continue }
+
+            // Only a title known from a *previous* pass can be an "old"
+            // calendar title. The meeting's stored title must equal it
+            // exactly (a pure calendar copy); any user-authored divergence
+            // stops the sync. First pass after launch sees no previous
+            // titles, so nothing is renamed until the calendar next changes.
+            guard let oldTitle = previousTitles[event.id],
+                  meeting.title == oldTitle,
+                  MeetingCalendarLinkage.titleSyncDecision(
+                      event: event,
+                      meeting: meeting,
+                      oldTitle: oldTitle
+                  ) else { continue }
+
+            updateMeetingTitle(id: meeting.id, title: event.title)
+            updatedCount += 1
+        }
+        if updatedCount > 0 {
+            syncAppState()
+        }
+        return updatedCount
+    }
+
+    /// Matches a stored meeting to the calendar event it was recorded from
+    /// (same key rules as `MeetingCalendarLinkage.linkedMeeting`, without the
+    /// title-window fallback: title sync must never guess).
+    private static func event(
+        in events: [UnifiedCalendarEvent],
+        matching meeting: MeetingRecord
+    ) -> UnifiedCalendarEvent? {
+        guard meeting.calendarEventID != nil || meeting.calendarOccurrence != nil else { return nil }
+        let occurrenceKey = meeting.calendarOccurrence?.identityKey
+        let ids = [meeting.calendarEventID, meeting.calendarOccurrence?.eventID].compactMap { $0 }
+
+        // Prefer the exact occurrence (recurring instances), then stored ids.
+        if let occurrenceKey {
+            if let match = events.first(where: {
+                $0.resolvedCalendarOccurrence.identityKey == occurrenceKey
+            }) {
+                return match
+            }
+        }
+        return events.first { event in
+            ids.contains(event.id)
+        }
+    }
+
+    /// Per-meeting title sync core for the explicit (non-diff) path, driven
+    /// from the Calendar UI. True when a rename was applied.
+    private func syncMeetingTitleWithCalendarEventIfNeeded(
+        meeting: MeetingRecord,
+        event: UnifiedCalendarEvent
+    ) async -> Bool {
+        guard meeting.title != event.title,
+              MeetingCalendarLinkage.titleSyncDecision(
+                  event: event,
+                  meeting: meeting,
+                  oldTitle: nil // no pre-change snapshot; fresh-copy heuristic
+              ) else {
+            return false
+        }
+        updateMeetingTitle(id: meeting.id, title: event.title)
+        return true
     }
 
     func updateMeetingNotes(id: Int64, notes: String) {

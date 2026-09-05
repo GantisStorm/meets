@@ -136,6 +136,7 @@ final class CalendarEventKitManager {
                 ),
                 meetingURL: CalendarMonitor.extractMeetingURL(from: event),
                 attendees: CalendarMonitor.attendees(from: event),
+                location: event.location,
                 isCancelled: event.status == .canceled,
                 isDeclined: Self.isDeclined(event)
             )

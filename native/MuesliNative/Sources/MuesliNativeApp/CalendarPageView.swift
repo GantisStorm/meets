@@ -12,8 +12,14 @@ struct CalendarPageView: View {
     @State private var visibleMonth: Date
     @State private var selectedDate: Date
     @State private var hideCancelled = false
+    /// Client-side filter for the list view (All | Upcoming | Past | Recorded | Unrecorded).
+    @State private var listFilter: CalendarListFilter = .all
     /// Incremented to ask the list view to jump to today's section.
     @State private var listTodayScrollRequest = 0
+    /// The event whose detail panel is presented, if any. Single-clicking a
+    /// day/list row opens the panel (rows previously jumped straight to the
+    /// meeting document); month chip taps keep drilling to the day.
+    @State private var selectedEvent: UnifiedCalendarEvent?
 
     init(appState: AppState, controller: MuesliController) {
         self.appState = appState
@@ -43,6 +49,14 @@ struct CalendarPageView: View {
             if authorization == .fullAccess {
                 Task { await controller.refreshCalendarEvents() }
             }
+        }
+        .sheet(item: $selectedEvent) { event in
+            CalendarEventDetailView(
+                appState: appState,
+                controller: controller,
+                event: event,
+                onClose: { selectedEvent = nil }
+            )
         }
     }
 
@@ -173,6 +187,10 @@ struct CalendarPageView: View {
             PageTitle("Calendar")
             toolbar
 
+            if pageMode == .list {
+                listFilterBar
+            }
+
             Group {
                 switch pageMode {
                 case .month:
@@ -188,6 +206,39 @@ struct CalendarPageView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .padding(.horizontal, 40)
         .padding(.top, MuesliTheme.pageTop)
+    }
+
+    // MARK: - List filter bar
+
+    private var listFilterBar: some View {
+        HStack(spacing: MuesliTheme.spacing12) {
+            Picker("Filter events", selection: $listFilter) {
+                ForEach(CalendarListFilter.allCases) { filter in
+                    Text(filter.title).tag(filter)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .fixedSize()
+            .accessibilityLabel("Filter events")
+
+            Text(listResultsCountText)
+                .font(MuesliTheme.caption())
+                .foregroundStyle(MuesliTheme.textTertiary)
+                .monospacedDigit()
+                .fixedSize()
+
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: 1000, alignment: .leading)
+    }
+
+    private var listResultsCountText: String {
+        let count = filteredListSections.reduce(0) { $0 + $1.events.count }
+        if count == 1 {
+            return "1 event"
+        }
+        return "\(count) events"
     }
 
     private var toolbar: some View {
@@ -359,14 +410,17 @@ struct CalendarPageView: View {
         let isSelected = cell.date.map { Calendar.current.isDate($0, inSameDayAs: selectedDate) } ?? false
         let dayNumber = cell.date.map { CalendarPageLogic.dayNumberFormatter.string(from: $0) } ?? ""
         let events = cell.events.sorted { $0.startDate < $1.startDate }
+        let dayHelp = cell.date.map { CalendarPageLogic.fullDayFormatter.string(from: $0) } ?? ""
 
-        return Button {
+        func openDay() {
             if let date = cell.date {
                 selectedDate = date
                 pageMode = .day
             }
-        } label: {
-            VStack(alignment: .leading, spacing: 4) {
+        }
+
+        return VStack(alignment: .leading, spacing: 4) {
+            Button(action: openDay) {
                 Text(dayNumber)
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(isSelected
@@ -381,34 +435,38 @@ struct CalendarPageView: View {
                         Circle()
                             .strokeBorder(isToday ? MuesliTheme.accent : Color.clear, lineWidth: 1.5)
                     )
-
-                VStack(alignment: .leading, spacing: 2) {
-                    ForEach(events.prefix(CalendarPageLogic.maxChipsPerDay)) { event in
-                        monthChip(event)
-                    }
-                    if events.count > CalendarPageLogic.maxChipsPerDay {
-                        Text("+\(events.count - CalendarPageLogic.maxChipsPerDay) more")
-                            .font(.system(size: 9))
-                            .foregroundStyle(MuesliTheme.textTertiary)
-                            .padding(.leading, 2)
-                    }
-                }
-                Spacer(minLength: 0)
             }
-            .frame(maxWidth: .infinity, minHeight: 58, maxHeight: .infinity, alignment: .topLeading)
-            .padding(4)
-            .background(
-                RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall)
-                    .fill(backgroundFill(isSelected: isSelected, isToday: isToday, isCurrentMonth: cell.isCurrentMonth))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall)
-                    .strokeBorder(cell.isCurrentMonth ? MuesliTheme.surfaceBorder.opacity(0.5) : Color.clear, lineWidth: 1)
-            )
-            .contentShape(Rectangle())
+            .buttonStyle(.plain)
+
+            VStack(alignment: .leading, spacing: 2) {
+                ForEach(events.prefix(CalendarPageLogic.maxChipsPerDay)) { event in
+                    monthChip(event)
+                }
+                if events.count > CalendarPageLogic.maxChipsPerDay {
+                    Text("+\(events.count - CalendarPageLogic.maxChipsPerDay) more")
+                        .font(.system(size: 9))
+                        .foregroundStyle(MuesliTheme.textTertiary)
+                        .padding(.leading, 2)
+                }
+            }
+            Spacer(minLength: 0)
         }
-        .buttonStyle(.plain)
-        .help(cell.date.map { CalendarPageLogic.fullDayFormatter.string(from: $0) } ?? "")
+        .frame(maxWidth: .infinity, minHeight: 58, maxHeight: .infinity, alignment: .topLeading)
+        .padding(4)
+        .background(
+            RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall)
+                .fill(backgroundFill(isSelected: isSelected, isToday: isToday, isCurrentMonth: cell.isCurrentMonth))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall)
+                .strokeBorder(cell.isCurrentMonth ? MuesliTheme.surfaceBorder.opacity(0.5) : Color.clear, lineWidth: 1)
+        )
+        .contentShape(Rectangle())
+        // Blank cell area (and "+N more") opens the day, matching the former
+        // whole-cell button; chip rows and the record glyph are their own
+        // buttons so a record tap never also navigates.
+        .onTapGesture(perform: openDay)
+        .help(dayHelp)
     }
 
     private func backgroundFill(isSelected: Bool, isToday: Bool, isCurrentMonth: Bool) -> Color {
@@ -423,6 +481,9 @@ struct CalendarPageView: View {
 
     private func monthChip(_ event: UnifiedCalendarEvent) -> some View {
         let color = calendarColor(for: event) ?? MuesliTheme.accent
+        let linkage = linkage(for: event)
+        let cancelled = event.isCancelled || event.isDeclined
+
         return HStack(spacing: 3) {
             Circle()
                 .fill(color)
@@ -431,15 +492,64 @@ struct CalendarPageView: View {
                 .font(.system(size: 9.5, weight: .medium))
                 .lineLimit(1)
                 .truncationMode(.tail)
-                .strikethrough(event.isCancelled, color: MuesliTheme.textSecondary)
-                .foregroundStyle(event.isCancelled ? MuesliTheme.textTertiary : MuesliTheme.textPrimary.opacity(0.9))
+                .strikethrough(cancelled, color: MuesliTheme.textSecondary)
+                .foregroundStyle(cancelled ? MuesliTheme.textTertiary : MuesliTheme.textPrimary.opacity(0.9))
+
+            if cancelled {
+                Image(systemName: "calendar.badge.exclamationmark")
+                    .font(.system(size: 7.5, weight: .semibold))
+                    .foregroundStyle(MuesliTheme.textTertiary)
+            }
+
+            Spacer(minLength: 2)
+
+            // Compact state indicator; only `.recording` / `.processing` /
+            // `.completed` get a symbol so recorded days stay scannable.
+            switch linkage.state {
+            case .upcoming, .now:
+                if linkage.canRecord {
+                    monthRecordGlyph(event)
+                }
+            case .recording:
+                pulsingRecordingDot(size: 6)
+            case .processing:
+                ProgressView()
+                    .controlSize(.mini)
+            case .completed:
+                Image(systemName: "waveform")
+                    .font(.system(size: 7.5, weight: .semibold))
+                    .foregroundStyle(MuesliTheme.accent)
+            default:
+                EmptyView()
+            }
         }
         .padding(.horizontal, 4)
         .padding(.vertical, 2)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(color.opacity(0.18))
         .clipShape(RoundedRectangle(cornerRadius: 4))
-        .opacity(event.isCancelled ? 0.6 : 1)
+        .opacity(cancelled ? 0.6 : 1)
+    }
+
+    /// Tiny trailing record affordance on month chips — a full "Record"
+    /// capsule doesn't fit a chip, so this is a small round record icon.
+    /// Day/list rows carry the labeled button.
+    private func monthRecordGlyph(_ event: UnifiedCalendarEvent) -> some View {
+        let busy = appState.isMeetingRecording || appState.isMeetingStarting
+        return Button {
+            Task {
+                await controller.recordCalendarEvent(event)
+            }
+        } label: {
+            Image(systemName: "record.circle")
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundStyle(MuesliTheme.accent)
+        }
+        .buttonStyle(.plain)
+        .disabled(busy)
+        .help("Record \(event.title)")
+        .accessibilityLabel("Record \(event.title)")
+        .fixedSize()
     }
 
     private var monthEmptyState: some View {
@@ -525,7 +635,7 @@ struct CalendarPageView: View {
     // MARK: - List
 
     private var listView: some View {
-        let sections = listSections
+        let sections = filteredListSections
         let meetingLookup = meetingsByCalendarEventID
         return ScrollViewReader { proxy in
             ScrollView {
@@ -574,7 +684,9 @@ struct CalendarPageView: View {
                 Spacer(minLength: 0)
                 Text("\(section.events.count)")
                     .font(MuesliTheme.caption())
+                    .monospacedDigit()
                     .foregroundStyle(MuesliTheme.textTertiary)
+                    .help("\(section.events.count) event\(section.events.count == 1 ? "" : "s")")
             }
             .padding(.horizontal, 2)
 
@@ -586,17 +698,41 @@ struct CalendarPageView: View {
         }
     }
 
+    private var filteredListSections: [CalendarPageDaySection] {
+        listSections.compactMap { section in
+            let filtered = section.events.filter { event in
+                switch listFilter {
+                case .all:
+                    return true
+                case .upcoming:
+                    return event.endDate >= Date()
+                case .past:
+                    return event.endDate < Date()
+                case .recorded:
+                    return linkage(for: event).linkedMeeting != nil
+                case .unrecorded:
+                    return linkage(for: event).linkedMeeting == nil
+                }
+            }
+            guard !filtered.isEmpty else { return nil }
+            return CalendarPageDaySection(
+                date: section.date,
+                isToday: section.isToday,
+                title: section.title,
+                events: filtered
+            )
+        }
+    }
+
     private var listEmptyState: some View {
         VStack(alignment: .leading, spacing: MuesliTheme.spacing12) {
-            Image(systemName: "calendar")
+            Image(systemName: listFilter == .all ? "calendar" : "line.3.horizontal.decrease.circle")
                 .font(.system(size: 30, weight: .thin))
                 .foregroundStyle(MuesliTheme.textTertiary)
-            Text(hideCancelled ? "No matching events" : "No calendar events")
+            Text(listEmptyTitle)
                 .font(MuesliTheme.title3())
                 .foregroundStyle(MuesliTheme.textSecondary)
-            Text(hideCancelled
-                ? "All events in this window are cancelled. Turn off Hide cancelled to see them."
-                : "Events from your enabled calendars will appear here once they sync.")
+            Text(listEmptyMessage)
                 .font(MuesliTheme.callout())
                 .foregroundStyle(MuesliTheme.textTertiary)
         }
@@ -610,7 +746,40 @@ struct CalendarPageView: View {
         )
     }
 
+    private var listEmptyTitle: String {
+        if listFilter != .all {
+            return "No \(listFilter.title.lowercased()) events"
+        }
+        return hideCancelled ? "No matching events" : "No calendar events"
+    }
+
+    private var listEmptyMessage: String {
+        if listFilter == .recorded {
+            return "Record a meeting from an event and it will appear here."
+        }
+        if listFilter == .unrecorded {
+            return "Every event in this window already has a recording."
+        }
+        if listFilter != .all {
+            return "No events match this filter right now. Try another filter."
+        }
+        return hideCancelled
+            ? "All events in this window are cancelled. Turn off Hide cancelled to see them."
+            : "Events from your enabled calendars will appear here once they sync."
+    }
+
     // MARK: - Shared event row
+
+    /// Derives the linkage view-model for an event. All rows/chips in this
+    /// page derive through the same helper so the list, day, and month views
+    /// always agree (and update together with `appState`).
+    private func linkage(for event: UnifiedCalendarEvent) -> MeetingEventLinkage {
+        MeetingEventLinkage.derive(
+            event: event,
+            meetings: appState.meetingRows,
+            isCurrentlyRecording: appState.isMeetingRecording || appState.isMeetingStarting
+        )
+    }
 
     @ViewBuilder
     private func eventRow(
@@ -619,7 +788,9 @@ struct CalendarPageView: View {
         dimmedWhenPast: Bool = false
     ) -> some View {
         let color = calendarColor(for: event) ?? MuesliTheme.accent
+        let linkage = linkage(for: event)
         let isDimmed = (dimmedWhenPast && event.endDate < Date()) || event.isCancelled
+        let busy = appState.isMeetingRecording || appState.isMeetingStarting
 
         let row = HStack(alignment: .top, spacing: 8) {
             Text(CalendarPageLogic.startTimeFormatter.string(from: event.startDate))
@@ -638,21 +809,22 @@ struct CalendarPageView: View {
                 Text(event.title)
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(isDimmed ? MuesliTheme.textTertiary : MuesliTheme.textPrimary)
-                    .strikethrough(event.isCancelled, color: MuesliTheme.textTertiary)
+                    .strikethrough(event.isCancelled || event.isDeclined, color: MuesliTheme.textTertiary)
                     .lineLimit(1)
 
-                Text(CalendarPageLogic.rangeFormatter.timeRange(for: event))
-                    .font(.system(size: 11))
-                    .foregroundStyle(isDimmed ? MuesliTheme.textTertiary.opacity(0.8) : MuesliTheme.textSecondary)
-                    .lineLimit(1)
+                HStack(spacing: 6) {
+                    Text(CalendarPageLogic.rangeFormatter.timeRange(for: event))
+                        .font(.system(size: 11))
+                        .foregroundStyle(isDimmed ? MuesliTheme.textTertiary.opacity(0.8) : MuesliTheme.textSecondary)
+                        .lineLimit(1)
+                    if event.isCancelled || event.isDeclined {
+                        cancelledTag
+                    }
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            if let meeting {
-                recordingBadge
-            } else if let meetingURL = event.meetingURL {
-                joinLinkIcon(meetingURL)
-            }
+            stateTrailingControls(event: event, linkage: linkage, busy: busy)
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
@@ -662,22 +834,197 @@ struct CalendarPageView: View {
         )
         .overlay(
             RoundedRectangle(cornerRadius: MuesliTheme.cornerMedium)
-                .strokeBorder(MuesliTheme.surfaceBorder, lineWidth: 1)
+                .strokeBorder(linkage.state == .now ? MuesliTheme.accent.opacity(0.45) : MuesliTheme.surfaceBorder, lineWidth: 1)
         )
         .contentShape(Rectangle())
         .opacity(isDimmed ? 0.62 : 1)
 
-        if let meeting {
-            Button {
-                controller.showMeetingDocument(id: meeting.id)
-            } label: {
-                row
+        // Whole-row select affordance. Implemented as a tap gesture on the
+        // row rather than a wrapping Button: rows that carry trailing
+        // interactive controls (Record, join) must not nest buttons, and
+        // SwiftUI Buttons inside the row still consume their own taps.
+        // Selection opens the event detail panel — the meeting command
+        // center — which offers "Open transcript & notes" for recorded
+        // meetings (covering fallback matches the stored-key dictionary
+        // cannot see).
+        row
+            .contentShape(Rectangle())
+            .onTapGesture {
+                openDetailPanel(for: event)
             }
-            .buttonStyle(.plain)
-            .help("Open meeting notes for \(event.title)")
-        } else {
-            row
+            .help(openRowHelp(event: event, hasMeeting: (meeting ?? linkage.linkedMeeting) != nil))
+    }
+
+    /// Picks the row's tap target: selecting the event always opens the
+    /// detail panel, except while a live recording is starting/preparing —
+    /// the app's start flow opens the notes document itself.
+    private func openDetailPanel(for event: UnifiedCalendarEvent) {
+        guard !appState.isMeetingStarting else { return }
+        selectedEvent = event
+    }
+
+    private func openRowHelp(event: UnifiedCalendarEvent, hasMeeting: Bool) -> String {
+        if appState.isMeetingStarting {
+            return "Recording is starting…"
         }
+        if hasMeeting {
+            return "Open \(event.title) details"
+        }
+        return "Show \(event.title) details"
+    }
+
+    // MARK: Row state indicator + trailing controls
+
+    /// The pill / dot / tag that summarizes this event's meeting state on the
+    /// right edge of the row. Rendering per state:
+    ///   upcoming: subtle clock + "Record" (primary action when canRecord)
+    ///   now: accent "Record" button
+    ///   recording: red dot + "Recording…" (row opens live notes)
+    ///   processing: spinner + "Processing…"
+    ///   completed: waveform "Recorded" badge (row opens transcript)
+    ///   missed: dimmed "No recording" text
+    ///   cancelled: strikethrough handled by the title; a cancelled tag is
+    ///     shown next to the time and rows keep any recorded meeting openable.
+    @ViewBuilder
+    private func stateTrailingControls(
+        event: UnifiedCalendarEvent,
+        linkage: MeetingEventLinkage,
+        busy: Bool
+    ) -> some View {
+        switch linkage.state {
+        case .upcoming, .now:
+            HStack(spacing: 6) {
+                if linkage.canRecord {
+                    recordButton(for: event, prominent: linkage.state == .now, busy: busy)
+                }
+                if let joinURL = linkage.joinURL {
+                    joinLinkIcon(joinURL)
+                }
+            }
+            .fixedSize()
+        case .recording, .processing, .completed:
+            // Recorded rows keep the primary state chip and, when the event
+            // carries a join link, a secondary small join icon — the meeting
+            // is linkable even after it was recorded.
+            HStack(spacing: 6) {
+                switch linkage.state {
+                case .recording:
+                    recordingChip
+                case .processing:
+                    processingChip
+                default:
+                    recordingBadge
+                }
+                if let joinURL = linkage.joinURL {
+                    smallJoinLinkIcon(joinURL)
+                }
+            }
+            .fixedSize()
+        case .missed:
+            Text("No recording")
+                .font(.system(size: 10))
+                .foregroundStyle(MuesliTheme.textTertiary)
+                .fixedSize()
+        case .cancelledEvent:
+            // A cancelled event that still has a recording keeps the badge so
+            // the transcript stays reachable from the row; the title's
+            // strikethrough + Cancelled tag carry the cancellation signal.
+            // No join affordance on cancelled events.
+            if linkage.linkedMeeting != nil {
+                recordingBadge
+                    .fixedSize()
+            } else {
+                EmptyView()
+            }
+        case .noEvent:
+            EmptyView()
+        }
+    }
+
+    private func recordButton(for event: UnifiedCalendarEvent, prominent: Bool, busy: Bool) -> some View {
+        Button {
+            Task {
+                await controller.recordCalendarEvent(event)
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: prominent ? "record.circle" : "clock")
+                    .font(.system(size: 10, weight: .semibold))
+                Text("Record")
+                    .font(.system(size: 10, weight: .semibold))
+            }
+            .foregroundStyle(prominent ? MuesliTheme.backgroundBase : MuesliTheme.accent)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(prominent ? MuesliTheme.accent : MuesliTheme.accent.opacity(0.12))
+            .clipShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .disabled(busy)
+        .help("Record this \(event.title) meeting")
+        .fixedSize()
+        .accessibilityLabel("Record \(event.title)")
+    }
+
+    @ViewBuilder
+    private var recordingChip: some View {
+        HStack(spacing: 5) {
+            pulsingRecordingDot(size: 7)
+            Text("Recording…")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(MuesliTheme.textSecondary)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(MuesliTheme.recording.opacity(0.12))
+        .clipShape(Capsule())
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Recording in progress")
+    }
+
+    /// Small red dot that pulses while a recording is live.
+    private func pulsingRecordingDot(size: CGFloat) -> some View {
+        TimelineView(.periodic(from: .now, by: 0.5)) { timeline in
+            let phase = timeline.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 1.0)
+            Circle()
+                .fill(MuesliTheme.recording)
+                .frame(width: size, height: size)
+                .opacity(0.45 + 0.55 * (0.5 + 0.5 * cos(2 * .pi * phase)))
+        }
+    }
+
+    @ViewBuilder
+    private var processingChip: some View {
+        HStack(spacing: 5) {
+            ProgressView()
+                .controlSize(.small)
+            Text("Processing…")
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(MuesliTheme.transcribing)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(MuesliTheme.transcribing.opacity(0.12))
+        .clipShape(Capsule())
+        .fixedSize()
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Processing recording")
+    }
+
+    @ViewBuilder
+    private var cancelledTag: some View {
+        Text("Cancelled")
+            .font(.system(size: 8.5, weight: .semibold))
+            .foregroundStyle(MuesliTheme.textTertiary)
+            .padding(.horizontal, 5)
+            .padding(.vertical, 1)
+            .background(MuesliTheme.surfacePrimary)
+            .clipShape(Capsule())
+            .overlay(
+                Capsule()
+                    .strokeBorder(MuesliTheme.surfaceBorder, lineWidth: 0.5)
+            )
+            .fixedSize()
     }
 
     @ViewBuilder
@@ -707,6 +1054,31 @@ struct CalendarPageView: View {
                 .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(MuesliTheme.textSecondary)
                 .frame(width: 24, height: 24)
+                .background(MuesliTheme.surfacePrimary)
+                .clipShape(Circle())
+                .overlay(
+                    Circle()
+                        .strokeBorder(MuesliTheme.surfaceBorder, lineWidth: 1)
+                )
+        }
+        .buttonStyle(.plain)
+        .help("Open join link")
+        .fixedSize()
+        .accessibilityLabel("Open join link")
+    }
+
+    /// Compact secondary join icon for rows that already carry a state chip
+    /// (recording / processing / recorded); smaller than the primary 24pt
+    /// circle used on unrecorded upcoming/now rows.
+    @ViewBuilder
+    private func smallJoinLinkIcon(_ meetingURL: URL) -> some View {
+        Button {
+            NSWorkspace.shared.open(meetingURL)
+        } label: {
+            Image(systemName: "video")
+                .font(.system(size: 9, weight: .medium))
+                .foregroundStyle(MuesliTheme.textSecondary)
+                .frame(width: 18, height: 18)
                 .background(MuesliTheme.surfacePrimary)
                 .clipShape(Circle())
                 .overlay(
@@ -870,6 +1242,28 @@ private enum CalendarPageMode: String, CaseIterable, Identifiable {
         case .month: return "Month"
         case .day: return "Day"
         case .list: return "List"
+        }
+    }
+}
+
+// MARK: - List filter
+
+private enum CalendarListFilter: String, CaseIterable, Identifiable {
+    case all
+    case upcoming
+    case past
+    case recorded
+    case unrecorded
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .all: return "All"
+        case .upcoming: return "Upcoming"
+        case .past: return "Past"
+        case .recorded: return "Recorded"
+        case .unrecorded: return "Unrecorded"
         }
     }
 }

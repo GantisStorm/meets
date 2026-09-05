@@ -6,12 +6,13 @@ enum MeetingRecordingStartOrigin: Equatable {
     case calendarAutoRecord
     case scheduledMeetingPrompt
     case joinAndRecord
+    case calendarEvent
 
     var enablesMeetingAutoStop: Bool {
         switch self {
         case .manual:
             return false
-        case .detectedPrompt, .calendarAutoRecord, .scheduledMeetingPrompt, .joinAndRecord:
+        case .detectedPrompt, .calendarAutoRecord, .scheduledMeetingPrompt, .joinAndRecord, .calendarEvent:
             return true
         }
     }
@@ -27,7 +28,7 @@ enum MeetingRecordingStartOrigin: Equatable {
         switch self {
         case .manual:
             return nil
-        case .detectedPrompt, .calendarAutoRecord, .scheduledMeetingPrompt, .joinAndRecord:
+        case .detectedPrompt, .calendarAutoRecord, .scheduledMeetingPrompt, .joinAndRecord, .calendarEvent:
             return explicitSource ?? recentSource()
         }
     }

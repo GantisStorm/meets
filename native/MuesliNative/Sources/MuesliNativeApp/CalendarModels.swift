@@ -170,6 +170,8 @@ struct UnifiedCalendarEvent: Identifiable, Equatable {
     var calendarOccurrence: CalendarOccurrenceReference? = nil
     var meetingURL: URL? = nil
     var attendees: [CalendarAttendee] = []
+    /// Free-form location text carried by the event, if any.
+    var location: String? = nil
     /// True when the event was cancelled on the calendar.
     var isCancelled: Bool = false
     /// True when the current user declined the event.

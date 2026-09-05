@@ -227,7 +227,8 @@ final class CalendarMonitor {
                     startDate: startDate
                 ),
                 meetingURL: Self.extractMeetingURL(from: event),
-                attendees: Self.attendees(from: event)
+                attendees: Self.attendees(from: event),
+                location: event.location
             )
         }
         return UnifiedCalendarEvent
