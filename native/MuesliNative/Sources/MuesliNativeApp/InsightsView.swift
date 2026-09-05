@@ -7,6 +7,35 @@ struct InsightsView: View {
     let onBack: () -> Void
     let backLabel: String
 
+    private enum Segment: String, CaseIterable {
+        case meetings
+        case transcriptions
+        case llm
+        case calendar
+
+        var title: String {
+            switch self {
+            case .meetings: return "Meetings"
+            case .transcriptions: return "Transcriptions"
+            case .llm: return "LLM"
+            case .calendar: return "Calendar"
+            }
+        }
+
+        var scrollAnchor: String { "insights.segment.\(rawValue)" }
+
+        static let controlsAnchor = "insights.segment.controls"
+
+        static func initial(for section: InsightsSection) -> Segment {
+            switch section {
+            case .meetings: return .meetings
+            case .words, .pace: return .transcriptions
+            }
+        }
+    }
+
+    private let initialSegment: Segment
+    @State private var segment: Segment
     @State private var range: InsightsRange = .twelveMonths
     @State private var snapshot: InsightsSnapshot?
     @State private var errorMessage: String?
@@ -25,6 +54,9 @@ struct InsightsView: View {
         self.loadSnapshot = loadSnapshot
         self.onBack = onBack
         self.backLabel = backLabel
+        let segment = Segment.initial(for: initialSection)
+        self.initialSegment = segment
+        _segment = State(initialValue: segment)
     }
 
     var body: some View {
@@ -32,24 +64,47 @@ struct InsightsView: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 24) {
                     header
+                    Picker("Insights", selection: $segment) {
+                        ForEach(Segment.allCases, id: \.self) { value in
+                            Text(value.title).tag(value)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .accessibilityLabel("Insights")
+                    .frame(width: 360)
+                    .id(Segment.controlsAnchor)
+
                     Group {
                         if let snapshot {
-                            hero(snapshot)
-                            activityPanel(snapshot).id(InsightsSection.meetings)
-                            usagePanel(snapshot)
-                            wordClouds(snapshot)
+                            switch segment {
+                            case .meetings:
+                                meetingsSegment(snapshot)
+                            case .transcriptions:
+                                transcriptionsSegment(snapshot)
+                            case .llm:
+                                llmSegment(snapshot)
+                            case .calendar:
+                                calendarSegment(snapshot)
+                            }
                         } else if let errorMessage {
                             errorState(errorMessage)
                         } else {
                             loadingState
                         }
                     }
+                    .id(segment.scrollAnchor)
                 }
                 .padding(28)
                 .frame(maxWidth: 1240, alignment: .leading)
                 .frame(maxWidth: .infinity)
             }
             .background(insightsBackground)
+            .onChange(of: segment) { _, _ in
+                withAnimation(.easeInOut(duration: 0.28)) {
+                    proxy.scrollTo(Segment.controlsAnchor, anchor: .top)
+                }
+            }
             .sheet(isPresented: $isSharing) {
                 if let snapshot {
                     InsightsShareSheet(snapshot: snapshot, rangeLabel: range.label)
@@ -59,10 +114,10 @@ struct InsightsView: View {
                 await refresh()
                 guard initialScrollGate.consume(hasSnapshot: snapshot != nil) else { return }
                 if reduceMotion {
-                    proxy.scrollTo(initialSection, anchor: .top)
+                    proxy.scrollTo(initialSegment.scrollAnchor, anchor: .top)
                 } else {
                     withAnimation(.easeInOut(duration: 0.28)) {
-                        proxy.scrollTo(initialSection, anchor: .top)
+                        proxy.scrollTo(initialSegment.scrollAnchor, anchor: .top)
                     }
                 }
             }
@@ -147,21 +202,104 @@ struct InsightsView: View {
         }
     }
 
-    private func hero(_ data: InsightsSnapshot) -> some View {
+    @ViewBuilder
+    private func meetingsSegment(_ data: InsightsSnapshot) -> some View {
+        meetingsHero(data)
+        meetingActivityChart(data)
+        activityPanel(data)
+        foldersPanel(data)
+        recurringPanel(data)
+        meetingReadouts(data)
+    }
+
+    private func transcriptionsSegment(_ data: InsightsSnapshot) -> some View {
+        Group {
+            transcriptionsHero(data)
+            usagePanel(data)
+            wordClouds(data)
+        }
+    }
+
+    private func llmSegment(_ data: InsightsSnapshot) -> some View {
+        llmUsagePanel(data)
+    }
+
+    private func calendarSegment(_ data: InsightsSnapshot) -> some View {
+        calendarInsightsPanel(data)
+    }
+
+    private func meetingsHero(_ data: InsightsSnapshot) -> some View {
+        let stats = data.lifetimeMeetingStats
+        return VStack(alignment: .leading, spacing: 22) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Your time with Meets")
+                    .font(.system(size: 18, weight: .semibold))
+                    .tracking(-0.4)
+                    .foregroundStyle(MuesliTheme.textPrimary)
+                Text(format(stats.totalMeetings))
+                    .font(.system(size: 58, weight: .bold, design: .rounded))
+                    .tracking(-2.4)
+                    .monospacedDigit()
+                    .foregroundStyle(MuesliTheme.textPrimary)
+                Text("Meetings recorded")
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(InsightsPalette.secondaryText)
+                if stats.totalDurationSeconds > 0 {
+                    Text(heroDurationLine(stats))
+                        .font(.system(size: 13, weight: .medium))
+                        .monospacedDigit()
+                        .foregroundStyle(InsightsPalette.tertiaryText)
+                }
+            }
+
+            HStack(spacing: 0) {
+                heroDatum("Completed", value: format(stats.completedMeetings))
+                divider
+                heroDatum("Failed", value: format(stats.failedMeetings))
+                divider
+                heroDatum("With recording", value: format(stats.meetingsWithRecording))
+            }
+        }
+        .padding(26)
+        .background(
+            ZStack {
+                RoundedRectangle(cornerRadius: 14)
+                    .fill(MuesliTheme.backgroundRaised)
+                LinearGradient(
+                    colors: [MuesliTheme.accent.opacity(0.13), Color.cyan.opacity(0.025), .clear],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            }
+        )
+        .overlay(panelBorder)
+        .shadow(color: Color.black.opacity(0.12), radius: 24, y: 10)
+    }
+
+    private func heroDurationLine(_ stats: MeetingActivityStats) -> String {
+        var components: [String] = []
+        components.append("\(durationLine(stats.totalDurationSeconds)) recorded")
+        if stats.averageDurationSeconds > 0 {
+            components.append("\(durationLine(stats.averageDurationSeconds)) avg")
+        }
+        return components.joined(separator: " · ")
+    }
+
+    private func transcriptionsHero(_ data: InsightsSnapshot) -> some View {
         VStack(alignment: .leading, spacing: 22) {
             VStack(alignment: .leading, spacing: 6) {
-                    Text("Your time with Meets")
-                        .font(.system(size: 18, weight: .semibold))
-                        .tracking(-0.4)
-                        .foregroundStyle(MuesliTheme.textPrimary)
-                    Text(data.lifetime.meetingWords.formatted())
-                        .font(.system(size: 58, weight: .bold, design: .rounded))
-                        .tracking(-2.4)
-                        .monospacedDigit()
-                        .foregroundStyle(MuesliTheme.textPrimary)
-                    Text("Meeting words captured")
-                        .font(.system(size: 15, weight: .medium))
-                        .foregroundStyle(InsightsPalette.secondaryText)
+                Text("Your time with Meets")
+                    .font(.system(size: 18, weight: .semibold))
+                    .tracking(-0.4)
+                    .foregroundStyle(MuesliTheme.textPrimary)
+                Text(data.lifetime.meetingWords.formatted())
+                    .font(.system(size: 58, weight: .bold, design: .rounded))
+                    .tracking(-2.4)
+                    .monospacedDigit()
+                    .foregroundStyle(MuesliTheme.textPrimary)
+                Text("Meeting words captured")
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(InsightsPalette.secondaryText)
             }
 
             HStack(spacing: 0) {
@@ -186,28 +324,253 @@ struct InsightsView: View {
         .shadow(color: Color.black.opacity(0.12), radius: 24, y: 10)
     }
 
+    private func meetingActivityChart(_ data: InsightsSnapshot) -> some View {
+        let buckets = data.meetingBuckets
+        return VStack(alignment: .leading, spacing: 18) {
+            HStack(alignment: .firstTextBaseline) {
+                panelTitle("MEETING ACTIVITY", subtitle: "Meetings per day")
+                Spacer()
+            }
+            if buckets.isEmpty {
+                emptyState(
+                    icon: "chart.bar",
+                    message: "No meeting activity for this time period."
+                )
+                .frame(height: 200)
+            } else {
+                MeetingBarChart(buckets: buckets)
+                    .frame(height: 200)
+            }
+        }
+        .insightsPanel()
+    }
+
     private func activityPanel(_ data: InsightsSnapshot) -> some View {
         VStack(alignment: .leading, spacing: 18) {
             HStack(alignment: .firstTextBaseline) {
                 panelTitle("DAILY ACTIVITY", subtitle: "Meetings by day")
                 Spacer()
             }
-            ActivityHeatmap(activity: data.dailyActivity)
+            if data.dailyActivity.allSatisfy({ $0.meetings == 0 }) {
+                emptyState(
+                    icon: "calendar",
+                    message: "No meetings recorded in this time period."
+                )
                 .frame(minHeight: 156)
-            HStack(spacing: 8) {
-                Text("QUIET")
-                ForEach(0..<5, id: \.self) { level in
-                    RoundedRectangle(cornerRadius: 3)
-                        .fill(InsightsPalette.intensity(level))
-                        .frame(width: 15, height: 15)
+            } else {
+                ActivityHeatmap(activity: data.dailyActivity)
+                    .frame(minHeight: 156)
+                HStack(spacing: 8) {
+                    Text("QUIET")
+                    ForEach(0..<5, id: \.self) { level in
+                        RoundedRectangle(cornerRadius: 3)
+                            .fill(InsightsPalette.intensity(level))
+                            .frame(width: 15, height: 15)
+                    }
+                    Text("LOUD")
                 }
-                Text("LOUD")
+                .font(.system(size: 9, weight: .bold))
+                .tracking(1.2)
+                .foregroundStyle(InsightsPalette.tertiaryText)
             }
-            .font(.system(size: 9, weight: .bold))
-            .tracking(1.2)
-            .foregroundStyle(InsightsPalette.tertiaryText)
         }
         .insightsPanel()
+    }
+
+    private func foldersPanel(_ data: InsightsSnapshot) -> some View {
+        let folders = data.folderStats
+        return VStack(alignment: .leading, spacing: 18) {
+            HStack(alignment: .firstTextBaseline) {
+                panelTitle("FOLDERS", subtitle: "Meetings by folder")
+                Spacer()
+            }
+            if folders.isEmpty {
+                emptyState(
+                    icon: "folder",
+                    message: "No folder activity for this time period."
+                )
+                .frame(minHeight: 120)
+            } else {
+                let maximum = folders.map(\.meetings).max() ?? 1
+                VStack(alignment: .leading, spacing: 10) {
+                    ForEach(folders) { folder in
+                        FolderStatRow(
+                            name: folder.folderName,
+                            count: folder.meetings,
+                            maximum: maximum,
+                            format: format
+                        )
+                    }
+                }
+            }
+        }
+        .insightsPanel()
+    }
+
+    private func recurringPanel(_ data: InsightsSnapshot) -> some View {
+        let recurring = data.recurringMeetings
+        return VStack(alignment: .leading, spacing: 18) {
+            HStack(alignment: .firstTextBaseline) {
+                panelTitle("RECURRING MEETINGS", subtitle: "Titles you come back to")
+                Spacer()
+            }
+            if recurring.isEmpty {
+                emptyState(
+                    icon: "repeat",
+                    message: "No recurring meetings yet in this time period."
+                )
+                .frame(minHeight: 120)
+            } else {
+                VStack(alignment: .leading, spacing: 10) {
+                    ForEach(recurring) { item in
+                        HStack(spacing: 12) {
+                            Text(item.title)
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundStyle(MuesliTheme.textPrimary)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                            Spacer()
+                            Text(item.count == 1 ? "1 meeting" : "\(item.count.formatted()) meetings")
+                                .font(.system(size: 12, weight: .medium))
+                                .monospacedDigit()
+                                .foregroundStyle(InsightsPalette.secondaryText)
+                        }
+                    }
+                }
+            }
+        }
+        .insightsPanel()
+    }
+
+    private func meetingReadouts(_ data: InsightsSnapshot) -> some View {
+        let stats = data.meetingStats
+        let total = max(1, stats.totalMeetings)
+        return VStack(alignment: .leading, spacing: 18) {
+            panelTitle("DETAILS", subtitle: "Activity for the selected time period")
+            VStack(alignment: .leading, spacing: 12) {
+                readout("Recording rate", percent(stats.meetingsWithRecording, of: total))
+                readout("Calendar-linked", percent(stats.meetingsLinkedToCalendar, of: total))
+                readout("Follow-ups", format(stats.followUpMeetings))
+                readout("Imports", format(stats.importedMeetings))
+            }
+        }
+        .insightsPanel()
+    }
+
+    private func llmUsagePanel(_ data: InsightsSnapshot) -> some View {
+        let stats = data.llmStats
+        return VStack(alignment: .leading, spacing: 18) {
+            HStack(alignment: .firstTextBaseline) {
+                panelTitle("LLM USAGE", subtitle: "Activity for the selected time period")
+                Spacer()
+            }
+            if stats.totalRuns == 0 {
+                emptyState(
+                    icon: "brain",
+                    message: "No LLM activity yet."
+                )
+                .frame(minHeight: 160)
+            } else {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(format(stats.totalRuns))
+                        .font(.system(size: 40, weight: .bold, design: .rounded))
+                        .tracking(-1.5)
+                        .monospacedDigit()
+                    Text("runs")
+                        .foregroundStyle(InsightsPalette.tertiaryText)
+                }
+                VStack(alignment: .leading, spacing: 12) {
+                    readout("Successful", format(stats.successfulRuns))
+                    readout("Failed", format(stats.failedRuns))
+                    if stats.totalCharacters > 0 {
+                        readout("Characters", format(stats.totalCharacters))
+                    }
+                    if !stats.byKind.isEmpty {
+                        ForEach(kindRows(stats.byKind), id: \.0) { kind, count in
+                            readout(kind, format(count))
+                        }
+                    }
+                    if !stats.byBackend.isEmpty {
+                        ForEach(backendRows(stats.byBackend), id: \.0) { backend, count in
+                            readout(backend, format(count))
+                        }
+                    }
+                }
+            }
+        }
+        .insightsPanel()
+    }
+
+    private func calendarInsightsPanel(_ data: InsightsSnapshot) -> some View {
+        let stats = data.calendarStats
+        return VStack(alignment: .leading, spacing: 18) {
+            HStack(alignment: .firstTextBaseline) {
+                panelTitle("CALENDAR INSIGHTS", subtitle: "Activity for the selected time period")
+                Spacer()
+            }
+            emptyState(
+                icon: "calendar.badge.clock",
+                message: "Calendar insights arrive with calendar sync."
+            )
+            .frame(minHeight: 160)
+            if stats.eventsInRange > 0 {
+                VStack(alignment: .leading, spacing: 12) {
+                    readout("Events in range", format(stats.eventsInRange))
+                    readout("Recorded", format(stats.recordedEvents))
+                    readout("Missed", format(stats.missedEvents))
+                }
+            }
+        }
+        .insightsPanel()
+    }
+
+    private func emptyState(icon: String, message: String) -> some View {
+        VStack(spacing: 10) {
+            Image(systemName: icon)
+                .font(.system(size: 22, weight: .light))
+                .foregroundStyle(InsightsPalette.tertiaryText)
+            Text(message)
+                .font(.system(size: 13))
+                .multilineTextAlignment(.center)
+                .foregroundStyle(InsightsPalette.tertiaryText)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+    }
+
+    private func kindRows(_ byKind: [String: Int]) -> [(String, Int)] {
+        byKind.map { (displayKind($0.key), $0.value) }.sorted { $0.0 < $1.0 }
+    }
+
+    private func backendRows(_ byBackend: [String: Int]) -> [(String, Int)] {
+        byBackend.map { (displayBackend($0.key), $0.value) }.sorted { $0.0 < $1.0 }
+    }
+
+    private func displayKind(_ kind: String) -> String {
+        switch kind.lowercased() {
+        case "summary": return "Summaries"
+        case "cleanup": return "Cleanups"
+        case "title", "title_generation": return "Title generation"
+        default:
+            return kind.isEmpty ? "Other" : "\(kind) runs"
+        }
+    }
+
+    private func displayBackend(_ backend: String) -> String {
+        backend.isEmpty ? "Unknown backend" : backend
+    }
+
+    private func durationLine(_ seconds: Double) -> String {
+        let clamped = max(0, seconds)
+        let hours = Int(clamped) / 3600
+        let minutes = Int(clamped) % 3600 / 60
+        if hours > 0 {
+            return "\(hours)h \(minutes)m"
+        }
+        return "\(minutes)m"
+    }
+
+    private func percent(_ part: Int, of total: Int) -> String {
+        "\(Int((Double(part) / Double(total) * 100).rounded()))%"
     }
 
     private func usagePanel(_ data: InsightsSnapshot) -> some View {
@@ -473,6 +836,119 @@ enum ActivityHeatmapCalendarLayout {
             return monthStart.date
         }
         return index == 0 ? week.first?.date : nil
+    }
+}
+
+private struct MeetingBarChart: View {
+    let buckets: [MeetingActivityBucket]
+
+    private let barWidth: CGFloat = 7
+    private let barSpacing: CGFloat = 3
+    private let chartHeight: CGFloat = 128
+
+    private var maximum: Int {
+        max(1, buckets.map(\.meetings).max() ?? 1)
+    }
+
+    private var totalMeetings: Int {
+        buckets.reduce(0) { $0 + $1.meetings }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(alignment: .bottom, spacing: barSpacing) {
+                    ForEach(buckets) { bucket in
+                        VStack(spacing: 6) {
+                            RoundedRectangle(cornerRadius: 2)
+                                .fill(MuesliTheme.accent.opacity(0.78))
+                                .frame(
+                                    width: barWidth,
+                                    height: barHeight(for: bucket.meetings)
+                                )
+                                .help(barHelp(bucket))
+                                .accessibilityLabel(barHelp(bucket))
+                            Text(bucket.bucketStart.formatted(.dateTime.day()))
+                                .font(.system(size: 8, weight: .medium))
+                                .foregroundStyle(InsightsPalette.tertiaryText)
+                                .monospacedDigit()
+                        }
+                    }
+                }
+                .frame(height: chartHeight, alignment: .bottom)
+            }
+            HStack(spacing: 0) {
+                Text(bucketRangeLabel)
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundStyle(InsightsPalette.tertiaryText)
+                Spacer()
+                Text(totalLabel)
+                    .font(.system(size: 9, weight: .medium))
+                    .monospacedDigit()
+                    .foregroundStyle(InsightsPalette.tertiaryText)
+            }
+        }
+    }
+
+    private var bucketRangeLabel: String {
+        guard let first = buckets.first?.bucketStart, let last = buckets.last?.bucketStart else { return "" }
+        return "\(first.formatted(.dateTime.month(.abbreviated))) \(first.formatted(.dateTime.day())) – \(last.formatted(.dateTime.month(.abbreviated))) \(last.formatted(.dateTime.day()))"
+    }
+
+    private var totalLabel: String {
+        totalMeetings == 1 ? "1 meeting" : "\(totalMeetings.formatted()) meetings"
+    }
+
+    private func barHeight(for count: Int) -> CGFloat {
+        guard count > 0 else { return 2 }
+        let ratio = CGFloat(count) / CGFloat(maximum)
+        return max(3, (chartHeight - 24) * ratio)
+    }
+
+    private func barHelp(_ bucket: MeetingActivityBucket) -> String {
+        let date = bucket.bucketStart.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day().year())
+        let meetings = bucket.meetings == 1 ? "1 meeting" : "\(bucket.meetings.formatted()) meetings"
+        return "\(date), \(meetings)"
+    }
+}
+
+private struct FolderStatRow: View {
+    let name: String
+    let count: Int
+    let maximum: Int
+    let format: (Int) -> String
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Text(name)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(MuesliTheme.textPrimary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(width: 150, alignment: .leading)
+            GeometryReader { geometry in
+                ZStack(alignment: .leading) {
+                    Capsule()
+                        .fill(MuesliTheme.surfacePrimary.opacity(0.6))
+                    Capsule()
+                        .fill(MuesliTheme.accent.opacity(0.75))
+                        .frame(width: max(3, geometry.size.width * barRatio))
+                }
+            }
+            .frame(height: 6)
+            Text(format(count))
+                .font(.system(size: 12, weight: .semibold))
+                .monospacedDigit()
+                .foregroundStyle(InsightsPalette.secondaryText)
+                .frame(width: 46, alignment: .trailing)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(name), \(count.formatted()) meetings")
+    }
+
+    private var barRatio: CGFloat {
+        guard maximum > 0 else { return 0 }
+        return CGFloat(count) / CGFloat(maximum)
     }
 }
 

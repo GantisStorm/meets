@@ -2944,6 +2944,14 @@ public final class MuesliController: NSObject {
                     selectedTemplateKind: templateSnapshot.kind,
                     selectedTemplatePrompt: templateSnapshot.prompt
                 )
+                self.logLLMUsage(
+                    kind: "summary",
+                    backend: self.config.meetingSummaryBackend,
+                    model: self.config.meetingSummaryModel,
+                    status: "success",
+                    characters: meeting.rawTranscript.count,
+                    meetingID: meeting.id
+                )
                 await MainActor.run {
                     self.syncAppState()
                     self.historyWindowController?.reload()
@@ -2951,6 +2959,14 @@ public final class MuesliController: NSObject {
                 }
             } catch {
                 fputs("[muesli-native] failed to generate or persist meeting summary: \(error)\n", stderr)
+                self.logLLMUsage(
+                    kind: "summary",
+                    backend: self.config.meetingSummaryBackend,
+                    model: self.config.meetingSummaryModel,
+                    status: "failed",
+                    characters: meeting.rawTranscript.count,
+                    meetingID: meeting.id
+                )
                 await MainActor.run {
                     if error is MeetingSummaryError {
                         completion(.failure(error))
@@ -3019,8 +3035,24 @@ public final class MuesliController: NSObject {
                         existingNotes: self.notesContextForResummary(meeting),
                         manualNotesToRetain: meeting.manualNotes
                     )
+                    self.logLLMUsage(
+                        kind: "summary",
+                        backend: self.config.meetingSummaryBackend,
+                        model: self.config.meetingSummaryModel,
+                        status: "success",
+                        characters: rawTranscript.count,
+                        meetingID: meeting.id
+                    )
                 } catch {
                     fputs("[muesli-native] re-transcription summary generation failed: \(error)\n", stderr)
+                    self.logLLMUsage(
+                        kind: "summary",
+                        backend: self.config.meetingSummaryBackend,
+                        model: self.config.meetingSummaryModel,
+                        status: "failed",
+                        characters: rawTranscript.count,
+                        meetingID: meeting.id
+                    )
                     formattedNotes = MeetingSummaryClient.summaryFailureNotes(
                         transcript: rawTranscript,
                         meetingTitle: meeting.title,
@@ -3548,21 +3580,71 @@ public final class MuesliController: NSObject {
             guard !result.isEmpty else {
                 throw TranscriptCleanupError.rejectedOutput
             }
+            logLLMUsage(
+                kind: "cleanup",
+                backend: backend.backend,
+                model: option.label,
+                status: "success",
+                characters: text.count,
+                meetingID: id
+            )
             return result
         }
 
-        let result = try await TranscriptCleanupClient.clean(
-            text: text,
-            systemPrompt: systemPrompt,
-            appContext: nil,
-            backend: backend,
-            config: config
-        )
-        let cleaned = result.cleanedOutput.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !cleaned.isEmpty else {
-            throw TranscriptCleanupError.emptyResponse(backend.label)
+        do {
+            let result = try await TranscriptCleanupClient.clean(
+                text: text,
+                systemPrompt: systemPrompt,
+                appContext: nil,
+                backend: backend,
+                config: config
+            )
+            let cleaned = result.cleanedOutput.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !cleaned.isEmpty else {
+                throw TranscriptCleanupError.emptyResponse(backend.label)
+            }
+            logLLMUsage(
+                kind: "cleanup",
+                backend: backend.backend,
+                model: config.postProcessorChatGPTModel.isEmpty ? config.activePostProcessorId : config.postProcessorChatGPTModel,
+                status: "success",
+                characters: text.count,
+                meetingID: id
+            )
+            return cleaned
+        } catch {
+            logLLMUsage(
+                kind: "cleanup",
+                backend: backend.backend,
+                model: config.postProcessorChatGPTModel.isEmpty ? config.activePostProcessorId : config.postProcessorChatGPTModel,
+                status: "failed",
+                characters: text.count,
+                meetingID: id
+            )
+            throw error
         }
-        return cleaned
+    }
+
+    /// Records one LLM-pillar usage event into the local llm_usage_log table
+    /// (read by Insights). Fire-and-forget; failures are silent.
+    private func logLLMUsage(
+        kind: String,
+        backend: String,
+        model: String,
+        status: String,
+        retryCount: Int = 0,
+        characters: Int = 0,
+        meetingID: Int64? = nil
+    ) {
+        dictationStore.recordLLMUsage(
+            kind: kind,
+            backend: backend,
+            model: model,
+            status: status,
+            retryCount: retryCount,
+            characters: characters,
+            meetingID: meetingID
+        )
     }
 
     /// Cleans and persists the meeting transcript. Called from the meeting

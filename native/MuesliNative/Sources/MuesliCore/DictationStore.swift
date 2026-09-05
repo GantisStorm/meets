@@ -1251,6 +1251,7 @@ public final class DictationStore {
             let streaks = try meetingStreakDays(db: db, calendar: calendar)
             // v2 trinity aggregates.
             let meetingStats = try meetingActivityStats(db: db, sinceDay: startDay, calendar: calendar)
+            let lifetimeMeetingStats = try meetingActivityStats(db: db, sinceDay: nil, calendar: calendar)
             let bucketStart = startDate.map { calendar.startOfDay(for: $0) } ?? today
             let meetingBuckets = try meetingActivityBuckets(
                 db: db,
@@ -1273,6 +1274,7 @@ public final class DictationStore {
                 activeDaysInRange: activity.filter { $0.meetings > 0 }.count,
                 meetingWords: try cachedTopMeetingWords(db: db, sinceDay: startDay),
                 meetingStats: meetingStats,
+                lifetimeMeetingStats: lifetimeMeetingStats,
                 meetingBuckets: meetingBuckets,
                 folderStats: folderStats,
                 recurringMeetings: recurringMeetings,

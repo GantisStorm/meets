@@ -548,6 +548,7 @@ public struct InsightsSnapshot: Codable, Sendable, Equatable {
     public let meetingWords: [InsightsWordFrequency]
     // v2 — meeting infrastructure (defaulted so existing callers stay valid)
     public let meetingStats: MeetingActivityStats
+    public let lifetimeMeetingStats: MeetingActivityStats
     public let meetingBuckets: [MeetingActivityBucket]
     public let folderStats: [MeetingFolderStat]
     public let recurringMeetings: [RecurringMeetingStat]
@@ -568,6 +569,7 @@ public struct InsightsSnapshot: Codable, Sendable, Equatable {
         activeDaysInRange: Int,
         meetingWords: [InsightsWordFrequency],
         meetingStats: MeetingActivityStats = MeetingActivityStats(),
+        lifetimeMeetingStats: MeetingActivityStats = MeetingActivityStats(),
         meetingBuckets: [MeetingActivityBucket] = [],
         folderStats: [MeetingFolderStat] = [],
         recurringMeetings: [RecurringMeetingStat] = [],
@@ -585,6 +587,7 @@ public struct InsightsSnapshot: Codable, Sendable, Equatable {
         self.activeDaysInRange = activeDaysInRange
         self.meetingWords = meetingWords
         self.meetingStats = meetingStats
+        self.lifetimeMeetingStats = lifetimeMeetingStats
         self.meetingBuckets = meetingBuckets
         self.folderStats = folderStats
         self.recurringMeetings = recurringMeetings
