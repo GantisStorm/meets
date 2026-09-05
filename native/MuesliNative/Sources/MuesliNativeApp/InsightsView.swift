@@ -216,6 +216,7 @@ struct InsightsView: View {
         Group {
             transcriptionsHero(data)
             usagePanel(data)
+            transcriptionQualityPanel(data)
             wordClouds(data)
         }
     }
@@ -610,6 +611,33 @@ struct InsightsView: View {
             .background(MuesliTheme.backgroundDeep.opacity(0.6))
             .clipShape(RoundedRectangle(cornerRadius: 10))
             .overlay(RoundedRectangle(cornerRadius: 10).stroke(MuesliTheme.surfaceBorder))
+        }
+        .insightsPanel()
+    }
+
+    /// Phase 2: transcription-quality readouts derived from the snapshot.
+    private func transcriptionQualityPanel(_ data: InsightsSnapshot) -> some View {
+        let selected = data.selected
+        let stats = data.meetingStats
+        let avgWordsPerMeeting = selected.meetings > 0 ? selected.meetingWords / selected.meetings : 0
+        let recordedCount = stats.meetingsWithRecording
+        let totalMeetings = max(1, stats.totalMeetings)
+        return VStack(alignment: .leading, spacing: 18) {
+            panelTitle("TRANSCRIPTION", subtitle: "Quality readouts for the selected time period")
+            HStack(alignment: .top, spacing: 24) {
+                VStack(alignment: .leading, spacing: 12) {
+                    readout("Words captured", format(selected.meetingWords))
+                    readout("Avg words per meeting", format(avgWordsPerMeeting))
+                    readout("Average pace", "\(Int(selected.averageWPM.rounded())) WPM")
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                VStack(alignment: .leading, spacing: 12) {
+                    readout("Recorded meetings", "\(stats.meetingsWithRecording)/\(stats.totalMeetings) (\(percent(recordedCount, of: totalMeetings)))")
+                    readout("Audio imports", format(stats.importedMeetings))
+                    readout("Calendar-linked", format(stats.meetingsLinkedToCalendar))
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
         .insightsPanel()
     }
