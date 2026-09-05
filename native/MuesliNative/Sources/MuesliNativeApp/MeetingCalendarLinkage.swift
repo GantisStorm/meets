@@ -120,19 +120,11 @@ struct MeetingEventLinkage {
             case .processing:
                 state = .processing
             default:
-                // Past vs present decided below; `completed` also covers
-                // `.noteOnly` and `.failed` (a failed recording still means
-                // "an attempt exists for this event"; its needs-attention
-                // detail is surfaced from the meeting row itself).
-                if event.endDate <= now {
-                    state = .completed
-                } else if isCancelled {
-                    state = .cancelledEvent
-                } else if event.startDate > now {
-                    state = .upcoming
-                } else {
-                    state = .now
-                }
+                // A recorded meeting exists for this event. Show it as
+                // completed regardless of event timing — meetings can be
+                // recorded early (before the scheduled start) and must still
+                // surface as recorded, not as an upcoming/recordable event.
+                state = .completed
             }
         } else {
             if isCancelled {
