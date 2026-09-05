@@ -3,8 +3,7 @@ import EventKit
 import Foundation
 import MuesliCore
 
-/// A local attendee snapshot sourced exclusively from EventKit. Direct Google
-/// API events retain the default empty attendee list.
+/// A local attendee snapshot sourced exclusively from EventKit.
 struct CalendarAttendee: Identifiable, Equatable, Sendable {
     let id: String
     let displayName: String
@@ -54,17 +53,6 @@ struct UpcomingMeetingEvent {
     let startDate: Date
     var calendarOccurrence: CalendarOccurrenceReference? = nil
     var meetingURL: URL? = nil
-}
-
-/// A calendar exposed by EventKit (iCloud, On-My-Mac, Exchange, an Internet
-/// Account–linked Google calendar, etc.). Used by Settings to show which
-/// calendars Muesli is reading from and to drive per-calendar enable/disable.
-struct AvailableCalendar: Identifiable, Equatable, Sendable {
-    let id: String           // EKCalendar.calendarIdentifier
-    let title: String
-    let sourceTitle: String  // e.g. "iCloud", "spencer@dockstreet.com"
-    let colorHex: String?
-    let typeLabel: String
 }
 
 final class CalendarMonitor {
@@ -130,8 +118,8 @@ final class CalendarMonitor {
 
         // EKEventStoreChangedNotification fires whenever any calendar event
         // is added, modified, or deleted — including synced changes from
-        // Google Calendar, iCloud, Exchange, etc. This is push-based and
-        // works regardless of App Nap or LSUIElement status.
+        // iCloud, Exchange, linked Internet Accounts, etc. This is push-based
+        // and works regardless of App Nap or LSUIElement status.
         changeObserver = NotificationCenter.default.addObserver(
             forName: .EKEventStoreChanged,
             object: store,
@@ -208,21 +196,18 @@ final class CalendarMonitor {
         return nearby
     }
 
-    /// Returns upcoming timed events from the local macOS calendar (EventKit) for the selected calendar-day window.
-    /// All-day events are excluded — they're not useful for meeting recording.
-    /// Events from calendars listed in `disabledCalendarIDs` are filtered out.
-    func upcomingEvents(
-        daysAhead: Int = UpcomingMeetingsWindow.defaultDayCount,
-        disabledCalendarIDs: Set<String> = [],
-        now: Date = Date()
+    /// Returns timed events from the local macOS calendar (EventKit) within
+    /// `start...end`. All-day events are excluded — they're not useful for
+    /// meeting recording. Events from calendars listed in `disabledCalendarIDs`
+    /// are filtered out. A fresh store is used per call so externally synced
+    /// changes (made in another calendar app) are always reflected.
+    func events(
+        from start: Date,
+        to end: Date,
+        disabledCalendarIDs: Set<String> = []
     ) -> [UnifiedCalendarEvent] {
-        // Create a fresh EKEventStore each time to avoid stale cache.
-        // EKEventStore instances cache calendar data and don't automatically
-        // reflect external changes (e.g., events moved in Google Calendar).
-        // Uses a local instance to avoid racing with currentEvent()/currentOrNearbyEvent().
         let freshStore = EKEventStore()
-        guard let future = UpcomingMeetingsWindow.endDate(from: now, dayCount: daysAhead) else { return [] }
-        let predicate = freshStore.predicateForEvents(withStart: now, end: future, calendars: nil)
+        let predicate = freshStore.predicateForEvents(withStart: start, end: end, calendars: nil)
         let events = freshStore.events(matching: predicate)
         let unified: [UnifiedCalendarEvent] = events.compactMap { event in
             guard let startDate = event.startDate, let endDate = event.endDate else { return nil }
@@ -247,8 +232,32 @@ final class CalendarMonitor {
         }
         return UnifiedCalendarEvent
             .filter(unified, disabledCalendarIDs: disabledCalendarIDs)
-            .filter { $0.endDate > now && $0.startDate < future }
+            .filter { $0.startDate < end && $0.endDate > start }
             .sorted { $0.startDate < $1.startDate }
+    }
+
+    /// Returns events in the `daysPast...now` window (no all-day events).
+    func pastEvents(
+        daysPast: Int,
+        disabledCalendarIDs: Set<String> = [],
+        now: Date = Date()
+    ) -> [UnifiedCalendarEvent] {
+        guard daysPast > 0,
+              let pastStart = Calendar.current.date(byAdding: .day, value: -daysPast, to: now) else { return [] }
+        return events(from: pastStart, to: now, disabledCalendarIDs: disabledCalendarIDs)
+    }
+
+    /// Returns upcoming timed events from the local macOS calendar (EventKit)
+    /// for the selected calendar-day window. All-day events are excluded —
+    /// they're not useful for meeting recording. Events from calendars listed
+    /// in `disabledCalendarIDs` are filtered out.
+    func upcomingEvents(
+        daysAhead: Int = UpcomingMeetingsWindow.defaultDayCount,
+        disabledCalendarIDs: Set<String> = [],
+        now: Date = Date()
+    ) -> [UnifiedCalendarEvent] {
+        guard let future = UpcomingMeetingsWindow.endDate(from: now, dayCount: daysAhead) else { return [] }
+        return events(from: now, to: future, disabledCalendarIDs: disabledCalendarIDs)
     }
 
     static func occurrenceReference(
@@ -270,7 +279,10 @@ final class CalendarMonitor {
         )
     }
 
-    private static func attendees(from event: EKEvent) -> [CalendarAttendee] {
+    /// Maps an EKEvent's organizer + attendees into a deduplicated attendee
+    /// snapshot. Internal so CalendarEventKitManager and MuesliController can
+    /// reuse the same mapping.
+    static func attendees(from event: EKEvent) -> [CalendarAttendee] {
         let participants = [event.organizer].compactMap { $0 } + (event.attendees ?? [])
         let attendees = participants.compactMap { participant -> CalendarAttendee? in
             guard participant.participantType != .resource,
@@ -307,49 +319,6 @@ final class CalendarMonitor {
             return []
         }
         return Self.attendees(from: event)
-    }
-
-    /// Enumerate every event calendar EventKit exposes — iCloud, On-My-Mac,
-    /// Exchange, and any Google account linked via System Settings > Internet
-    /// Accounts. Used by Settings to surface which calendars Muesli is reading
-    /// from and to power per-calendar enable/disable.
-    /// Produces a value-only snapshot so EventKit objects never cross the
-    /// background boundary used by Settings and calendar-monitor refreshes.
-    static func availableCalendars() -> [AvailableCalendar] {
-        let freshStore = EKEventStore()
-        return freshStore.calendars(for: .event)
-            .map { cal in
-                AvailableCalendar(
-                    id: cal.calendarIdentifier,
-                    title: cal.title,
-                    sourceTitle: cal.source.title,
-                    colorHex: Self.hexString(from: cal.cgColor),
-                    typeLabel: Self.typeLabel(for: cal.type)
-                )
-            }
-            .sorted { lhs, rhs in
-                if lhs.sourceTitle != rhs.sourceTitle { return lhs.sourceTitle < rhs.sourceTitle }
-                return lhs.title < rhs.title
-            }
-    }
-
-    private static func hexString(from cgColor: CGColor?) -> String? {
-        guard let cgColor, let nsColor = NSColor(cgColor: cgColor)?.usingColorSpace(.sRGB) else { return nil }
-        let r = Int(round(nsColor.redComponent * 255))
-        let g = Int(round(nsColor.greenComponent * 255))
-        let b = Int(round(nsColor.blueComponent * 255))
-        return String(format: "%02x%02x%02x", r, g, b)
-    }
-
-    private static func typeLabel(for type: EKCalendarType) -> String {
-        switch type {
-        case .local: return "Local"
-        case .calDAV: return "CalDAV"
-        case .exchange: return "Exchange"
-        case .subscription: return "Subscription"
-        case .birthday: return "Birthday"
-        @unknown default: return "Calendar"
-        }
     }
 
     // MARK: - Meeting URL Extraction

@@ -146,6 +146,7 @@ struct SidebarView: View {
                 .padding(.bottom, MuesliTheme.spacing12)
 
             collapsedItem(tab: .meetings, icon: "person.2", label: "Meetings")
+            collapsedItem(tab: .calendar, icon: "calendar", label: "Calendar")
             collapsedItem(tab: .insights, icon: "chart.bar.xaxis", label: "Insights")
             collapsedItem(tab: .dictionary, icon: "character.book.closed", label: "Dictionary")
 
@@ -199,6 +200,7 @@ struct SidebarView: View {
             searchBar
 
             meetingsSection
+            sidebarItem(tab: .calendar, icon: "calendar", label: "Calendar")
             sidebarItem(tab: .insights, icon: "chart.bar.xaxis", label: "Insights")
             sidebarItem(tab: .dictionary, icon: "character.book.closed", label: "Dictionary")
 

@@ -384,7 +384,7 @@ cat > "$STAGED_APP_DIR/Contents/Info.plist" <<PLIST
   <key>NSScreenCaptureUsageDescription</key>
   <string>$APP_DISPLAY_NAME captures screen content for meeting context.</string>
   <key>NSCalendarsFullAccessUsageDescription</key>
-  <string>$APP_DISPLAY_NAME reads calendar events to help with meeting recordings.</string>
+  <string>$APP_DISPLAY_NAME reads your calendars to show upcoming meetings, send meeting reminders, and auto-detect when you are on a call.</string>
   <key>NSContactsUsageDescription</key>
   <string>$APP_DISPLAY_NAME lets you add people from Contacts to meeting notes.</string>
   <key>SUFeedURL</key>

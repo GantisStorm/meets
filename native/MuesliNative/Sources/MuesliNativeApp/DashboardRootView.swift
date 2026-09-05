@@ -218,6 +218,8 @@ struct DashboardRootView: View {
             SearchResultsView(appState: appState, controller: controller)
         } else {
             switch appState.selectedTab {
+            case .calendar:
+                CalendarPageView(appState: appState, controller: controller)
             case .insights:
                 InsightsView(
                     initialSection: appState.insightsInitialSection,

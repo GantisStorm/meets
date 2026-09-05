@@ -4,6 +4,7 @@ import MuesliCore
 
 enum DashboardTab: String, CaseIterable {
     case meetings
+    case calendar
     case insights
     case dictionary
     case models
@@ -65,13 +66,6 @@ enum SparkleUpdateStatus: Equatable {
     case failed(message: String)
 }
 
-enum GoogleCalendarListLoadState: Equatable {
-    case idle
-    case loading
-    case loaded
-    case failed(String)
-}
-
 struct ActiveMeetingAudioWarning: Equatable {
     let meetingID: Int64
     let message: String
@@ -126,14 +120,13 @@ final class AppState {
     var hasStoredOpenRouterCredential: Bool = false
     var openRouterSummaryModels: [SummaryModelPreset] = []
     var openRouterSummaryCatalogState: OpenRouterModelCatalogLoadState = .idle
-    var isGoogleCalendarAvailable: Bool = false
-    var isGoogleCalendarVerified: Bool = false
-    var isGoogleCalendarAuthenticated: Bool = false
+    var calendarAuthorization: CalendarAuthState = .unknown
+    var isCalendarPageLoading: Bool = false
+    var eventKitCalendars: [EKCalendarModel] = []
+    var calendarAccounts: [EKAccountModel] = []
+    var calendarEvents: [UnifiedCalendarEvent] = []
     var upcomingCalendarEvents: [UnifiedCalendarEvent] = []
     var hiddenCalendarEventIDs: Set<String> = []
-    var availableEventKitCalendars: [AvailableCalendar] = []
-    var availableGoogleCalendars: [GoogleCalendarSummary] = []
-    var googleCalendarListLoadState: GoogleCalendarListLoadState = .idle
     var sparkleUpdateStatus: SparkleUpdateStatus = .idle
     var sparkleLastCheckedAt: Date?
     var contributionMilestonePrompt: ContributionMilestonePrompt?

@@ -403,16 +403,14 @@ struct MeetingsView: View {
                     .font(.custom("Cormorant Garamond", size: 22).weight(.medium))
                     .foregroundStyle(MuesliTheme.textPrimary)
 
-                if appState.isGoogleCalendarAuthenticated {
+                if appState.calendarAuthorization != .fullAccess {
                     Button {
-                        if let url = URL(string: "x-apple.systempreferences:com.apple.Internet-Accounts-Settings.extension") {
-                            NSWorkspace.shared.open(url)
-                        }
+                        controller.openSystemCalendarAccountSettings()
                     } label: {
                         HStack(spacing: 4) {
                             Image(systemName: "arrow.triangle.2.circlepath")
                                 .font(.system(size: 9))
-                            Text("Add Google to macOS Calendar for real-time sync")
+                            Text("Open System Settings to grant Calendar access")
                                 .font(.system(size: 11))
                         }
                         .foregroundStyle(MuesliTheme.accent)

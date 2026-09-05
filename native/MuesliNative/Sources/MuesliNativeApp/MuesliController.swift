@@ -1,6 +1,7 @@
 import AppKit
 import AVFoundation
 import CoreAudio
+import EventKit
 import Foundation
 import Sparkle
 import TelemetryDeck
@@ -261,8 +262,6 @@ public final class MuesliController: NSObject {
     private let chatGPTAuth = ChatGPTAuthManager.shared
     private let openRouterAuth: OpenRouterAuthManager
     private let openRouterModelCatalogClient: OpenRouterModelCatalogClient
-    private let googleCalAuth = GoogleCalendarAuthManager.shared
-    private let googleCalClient = GoogleCalendarClient()
     private var calendarCheckTimer: Timer?
     private var calendarMonitoringStarted = false
     private var meetingStartingNowTimers = [String: Timer]()
@@ -552,6 +551,12 @@ public final class MuesliController: NSObject {
         // running for existing users who enabled meeting feature settings before
         // onboarding use cases existed.
         syncCalendarMonitor()
+
+        // Surface EventKit authorization/calendars to app state without
+        // prompting: the prompt fires on first explicit calendar use.
+        Task { [weak self] in
+            await self?.refreshCalendarAccess()
+        }
 
         // Defer permission-triggering monitors until after onboarding
         if canRunMainApp && shouldRunMeetingFeatureMonitors {
@@ -912,9 +917,6 @@ public final class MuesliController: NSObject {
         appState.isOpenRouterAuthenticated = openRouterAuth.isAuthenticated
         appState.isOpenRouterEnvironmentManaged = openRouterAuth.hasEnvironmentCredential
         appState.hasStoredOpenRouterCredential = openRouterAuth.hasStoredCredential
-        appState.isGoogleCalendarAvailable = googleCalAuth.isAvailable
-        appState.isGoogleCalendarVerified = googleCalAuth.isVerified
-        appState.isGoogleCalendarAuthenticated = googleCalAuth.isAuthenticated
         // Keep appState in sync with persisted hidden event IDs
         let persisted = Set(config.hiddenCalendarEventIDs)
         if appState.hiddenCalendarEventIDs != persisted {
@@ -1750,69 +1752,186 @@ public final class MuesliController: NSObject {
         }
     }
 
-    // MARK: - Google Calendar
+    // MARK: - Calendar Access & EventKit Calendars
 
-    func signInWithGoogleCalendar() async -> String? {
-        do {
-            try await googleCalAuth.signIn()
-            syncAppState()
-            Task {
-                await refreshUpcomingCalendarEvents()
-                await refreshGoogleCalendarList()
+    private var calendarEventKitManager: CalendarEventKitManager {
+        .shared
+    }
+
+    /// Re-reads EventKit authorization and the calendar/account list into
+    /// appState, requesting full access on first launch (macOS prompts the
+    /// user). Call from UI entry points and after the user changes calendar
+    /// permission in System Settings.
+    func refreshCalendarAccess() async {
+        let manager = calendarEventKitManager
+        switch manager.authorizationState {
+        case .unknown:
+            let granted = await manager.requestFullAccessToEvents()
+            appState.calendarAuthorization = granted ? .fullAccess : .denied
+            if granted {
+                await refreshEventKitCalendars()
             }
-            return nil
-        } catch {
-            fputs("[muesli-native] Google Calendar sign-in failed: \(error)\n", stderr)
-            return error.localizedDescription
+        case .denied, .writeOnly, .fullAccess:
+            appState.calendarAuthorization = manager.authorizationState
+            if manager.canReadEvents {
+                await refreshEventKitCalendars()
+            }
         }
     }
 
-    func signOutGoogleCalendar() {
-        invalidateGoogleCalendarAuth()
+    /// Refreshes `appState.eventKitCalendars` and `appState.calendarAccounts`
+    /// from EventKit without blocking the main actor on the synchronous store
+    /// enumeration. Snapshot happens on a utility thread; the manager's
+    /// long-lived EKEventStore is intentionally NOT used there (EventKit
+    /// stores are not thread-safe), so this enumerates via a fresh store.
+    func refreshEventKitCalendars() async {
+        let snapshot: (calendars: [EKCalendarModel], accounts: [EKAccountModel]) = await Task.detached(priority: .utility) {
+            let store = EKEventStore()
+            guard EKEventStore.authorizationStatus(for: .event) == .fullAccess
+                || EKEventStore.authorizationStatus(for: .event) == .authorized else {
+                return (calendars: [], accounts: [])
+            }
+            let calendars = store.calendars(for: .event)
+            let accounts = Set(calendars.compactMap(\.source))
+            return (
+                calendars: calendars.map { EKCalendarModel.from($0, source: $0.source) },
+                accounts: accounts.map(EKAccountModel.from)
+            )
+        }.value
+        guard !Task.isCancelled else { return }
+        appState.eventKitCalendars = snapshot.calendars
+        appState.calendarAccounts = snapshot.accounts
+    }
+
+    /// Enables or disables a calendar for Meets (Coming Up, notifications,
+    /// meeting detection) by persisting its EK calendar identifier in
+    /// AppConfig.disabledCalendarIDs, then refreshes the event list.
+    func setCalendarEnabled(id: String, enabled: Bool) {
+        updateConfig { config in
+            var disabled = Set(config.disabledCalendarIDs)
+            if enabled {
+                disabled.remove(id)
+            } else {
+                disabled.insert(id)
+            }
+            config.disabledCalendarIDs = disabled.sorted()
+        }
         Task { await refreshUpcomingCalendarEvents() }
     }
 
-    private func invalidateGoogleCalendarAuth() {
-        googleCalAuth.signOut()
-        googleCalClient.resetSync()
-        appState.availableGoogleCalendars = []
-        appState.googleCalendarListLoadState = .idle
-        syncAppState()
-    }
-
-    /// Refresh the EventKit-available calendars list without making the main
-    /// actor wait for EventKit's synchronous calendar-store enumeration.
-    func refreshAvailableEventKitCalendars() async {
-        let calendars = await Task.detached(priority: .utility) {
-            CalendarMonitor.availableCalendars()
+    /// Deletes a calendar (and its events) from the user's Calendar. Refuses
+    /// immutable/read-only calendars (Birthdays, subscriptions, Exchange or
+    /// linked Internet Account calendars). Returns an error message when the
+    /// deletion cannot be performed, nil on success.
+    func deleteCalendar(id: String) async -> String? {
+        let removed: String? = await Task.detached(priority: .userInitiated) {
+            let store = EKEventStore()
+            guard let calendar = store.calendar(withIdentifier: id) else {
+                return "Could not find that calendar."
+            }
+            guard !calendar.isImmutable, calendar.allowsContentModifications else {
+                return "macOS does not allow deleting this calendar. Remove it in Calendar or System Settings instead."
+            }
+            do {
+                try store.removeCalendar(calendar, commit: true)
+                return nil
+            } catch {
+                return "Could not delete the calendar: \(error.localizedDescription)"
+            }
         }.value
-        guard !Task.isCancelled else { return }
-        appState.availableEventKitCalendars = calendars
+        guard !Task.isCancelled else { return nil }
+        if removed == nil {
+            await refreshEventKitCalendars()
+            await refreshCalendarEvents()
+        }
+        return removed
     }
 
-    /// Refresh the Google calendar list via the Calendar API. No-op when OAuth
-    /// is not available or the user is not authenticated.
-    func refreshGoogleCalendarList() async {
-        guard googleCalAuth.isAuthenticated else {
-            appState.availableGoogleCalendars = []
-            appState.googleCalendarListLoadState = .idle
+    /// Opens System Settings > Internet Accounts, where users connect Google,
+    /// Exchange, CalDAV, or iCloud accounts to macOS Calendar.
+    func openSystemCalendarAccountSettings() {
+        guard let url = URL(string: "x-apple.systempreferences:com.apple.Internet-Accounts") else { return }
+        NSWorkspace.shared.open(url)
+    }
+
+    /// Fetches calendar events for the past year and the coming year from
+    /// EventKit into `appState.calendarEvents`, applying the currently
+    /// disabled-calendar filter. All-day events are excluded (they are not
+    /// useful for meeting recording). Populates `isCalendarPageLoading`
+    /// around the fetch.
+    func refreshCalendarEvents() async {
+        appState.isCalendarPageLoading = true
+        let disabledIDs = Set(config.disabledCalendarIDs)
+        let now = Date()
+        let calendar = Calendar.current
+        let pastStart = calendar.date(byAdding: .year, value: -1, to: now) ?? now
+        let futureEnd = calendar.date(byAdding: .year, value: 1, to: now) ?? now
+        let events: [UnifiedCalendarEvent] = await Task.detached(priority: .utility) { [disabledIDs] in
+            let store = EKEventStore()
+            guard EKEventStore.authorizationStatus(for: .event) == .fullAccess
+                || EKEventStore.authorizationStatus(for: .event) == .authorized else { return [] }
+            return Self.calendarEvents(store: store, from: pastStart, to: futureEnd, disabledIDs: disabledIDs)
+        }.value
+        guard !Task.isCancelled else {
+            appState.isCalendarPageLoading = false
             return
         }
-        appState.googleCalendarListLoadState = .loading
-        do {
-            let list = try await googleCalClient.fetchCalendarList()
-            appState.availableGoogleCalendars = list
-            appState.googleCalendarListLoadState = .loaded
-        } catch GoogleCalendarAuthError.notAuthenticated {
-            invalidateGoogleCalendarAuth()
-            fputs("[muesli-native] Google Calendar token invalid while loading calendar list, signed out\n", stderr)
-        } catch GoogleCalendarAuthError.refreshFailed(let message) {
-            fputs("[muesli-native] Google Calendar token refresh failed while loading calendar list: \(message)\n", stderr)
-            appState.googleCalendarListLoadState = .failed("Token refresh failed: \(message)")
-        } catch {
-            fputs("[muesli-native] Google calendarList fetch failed: \(error)\n", stderr)
-            appState.googleCalendarListLoadState = .failed(error.localizedDescription)
+        appState.calendarEvents = events
+        appState.isCalendarPageLoading = false
+    }
+
+    /// Enumerates EventKit events into UnifiedCalendarEvents on a background
+    /// thread (static + nonisolated so the detached task does not touch
+    /// MainActor-isolated state).
+    private nonisolated static func calendarEvents(
+        store: EKEventStore,
+        from start: Date,
+        to end: Date,
+        disabledIDs: Set<String>
+    ) -> [UnifiedCalendarEvent] {
+        let predicate = store.predicateForEvents(withStart: start, end: end, calendars: nil)
+        let unified: [UnifiedCalendarEvent] = store.events(matching: predicate).compactMap { event -> UnifiedCalendarEvent? in
+            guard let startDate = event.startDate, let endDate = event.endDate else { return nil }
+            guard !event.isAllDay else { return nil }
+            let eventID = event.eventIdentifier ?? UUID().uuidString
+            return UnifiedCalendarEvent(
+                id: eventID,
+                title: event.title ?? "Meeting",
+                startDate: startDate,
+                endDate: endDate,
+                isAllDay: false,
+                source: .eventKit,
+                calendarID: event.calendar?.calendarIdentifier,
+                calendarOccurrence: CalendarMonitor.occurrenceReference(
+                    for: event,
+                    eventID: eventID,
+                    startDate: startDate
+                ),
+                meetingURL: CalendarMonitor.extractMeetingURL(from: event),
+                attendees: CalendarMonitor.attendees(from: event),
+                isCancelled: event.status == .canceled,
+                isDeclined: Self.isDeclined(event)
+            )
         }
+        return UnifiedCalendarEvent
+            .filter(unified, disabledCalendarIDs: disabledIDs)
+            .filter { $0.startDate < end && $0.endDate > start }
+            .sorted { $0.startDate < $1.startDate }
+    }
+
+    /// True when the current user declined the event. Matches the current
+    /// user's attendee entry (EKParticipant.isCurrentUser).
+    private nonisolated static func isDeclined(_ event: EKEvent) -> Bool {
+        guard let attendees = event.attendees, !attendees.isEmpty else { return false }
+        for attendee in attendees where attendee.participantStatus == .declined {
+            if attendee.isCurrentUser {
+                return true
+            }
+            if let organizerURL = event.organizer?.url, attendee.url == organizerURL {
+                return true
+            }
+        }
+        return false
     }
 
     @discardableResult
@@ -1821,35 +1940,13 @@ public final class MuesliController: NSObject {
         let refreshStartOfDay = Calendar.current.startOfDay(for: refreshNow)
         let disabledIDs = Set(config.disabledCalendarIDs)
         let dayCount = UpcomingMeetingsWindow.resolve(dayCount: config.upcomingMeetingsDayCount).dayCount
-        var ekEvents = calendarMonitor.upcomingEvents(
+        let ekEvents = calendarMonitor.upcomingEvents(
             daysAhead: dayCount,
             disabledCalendarIDs: disabledIDs,
             now: refreshNow
         )
         var observedEventIDs = Set(ekEvents.map(\.id))
-        var canConfirmMissingGoogleEvents = false
-
-        if googleCalAuth.isAuthenticated {
-            do {
-                let googleResult = try await googleCalClient.fetchUpcomingEvents(
-                    daysAhead: dayCount,
-                    disabledCalendarIDs: disabledIDs,
-                    now: refreshNow
-                )
-                canConfirmMissingGoogleEvents = googleResult.wasComplete
-                observedEventIDs.formUnion(googleResult.events.map(\.id))
-                ekEvents = GoogleCalendarClient.mergeEvents(eventKit: ekEvents, google: googleResult.events)
-            } catch GoogleCalendarAuthError.notAuthenticated {
-                invalidateGoogleCalendarAuth()
-                fputs("[muesli-native] Google Calendar token invalid, signed out\n", stderr)
-            } catch GoogleCalendarAuthError.refreshFailed(let message) {
-                fputs("[muesli-native] Google Calendar token refresh failed: \(message)\n", stderr)
-            } catch GoogleCalendarClientError.staleRequest {
-                return false
-            } catch {
-                fputs("[muesli-native] Google Calendar fetch failed: \(error)\n", stderr)
-            }
-        }
+        let canConfirmMissingEventKitEvents = calendarMonitor.canConfirmMissingEvents
 
         let currentDisabledIDs = Set(config.disabledCalendarIDs)
         let currentDayCount = UpcomingMeetingsWindow.resolve(dayCount: config.upcomingMeetingsDayCount).dayCount
@@ -1865,21 +1962,20 @@ public final class MuesliController: NSObject {
         // Prune hidden IDs only when the widest supported window still cannot see the event.
         observedEventIDs.formUnion(ekEvents.map(\.id))
         let sourceHints = config.hiddenCalendarEventSourceHints
-        let canConfirmMissingEventKitEvents = calendarMonitor.canConfirmMissingEvents
         let canPruneHiddenEvents = disabledIDs.isEmpty
         let staleIDs = UpcomingMeetingsWindow.staleHiddenEventIDs(
             hiddenIDs: appState.hiddenCalendarEventIDs,
             visibleEventIDs: observedEventIDs,
             dayCount: dayCount,
-            canConfirmMissingEvents: canPruneHiddenEvents,
+            canConfirmMissingEvents: canPruneHiddenEvents && canConfirmMissingEventKitEvents,
             canConfirmMissingEventID: { eventID in
                 guard canPruneHiddenEvents else { return false }
+                // Legacy Google-sourced events cannot be confirmed missing
+                // (the API is gone); EventKit-sourced ones can.
                 switch sourceHints[eventID].flatMap(UnifiedCalendarEvent.CalendarSource.init(rawValue:)) {
                 case .some(.eventKit):
                     return canConfirmMissingEventKitEvents
-                case .some(.googleCalendar):
-                    return canConfirmMissingGoogleEvents
-                case .none:
+                case .some(.googleCalendar), .none:
                     return false
                 }
             }
@@ -1899,8 +1995,8 @@ public final class MuesliController: NSObject {
     }
 
     /// Reconciles only EventKit-backed meetings that have not started. This is
-    /// called from EKEventStoreChangedNotification, never from the Google
-    /// Calendar fallback timer, so participant freshness remains event-driven.
+    /// called from EKEventStoreChangedNotification, so participant freshness
+    /// remains event-driven.
     func reconcilePendingEventKitCalendarAttendees(
         events: [UnifiedCalendarEvent],
         now: Date = Date()
@@ -1942,7 +2038,7 @@ public final class MuesliController: NSObject {
         calendarMonitor.onCalendarChanged = { [weak self] in
             guard let self else { return }
             Task { @MainActor in
-                await self.refreshAvailableEventKitCalendars()
+                await self.refreshEventKitCalendars()
                 let refreshed = await self.refreshUpcomingCalendarEvents()
                 guard refreshed else { return }
                 await self.reconcilePendingEventKitCalendarAttendees(
@@ -1953,18 +2049,16 @@ public final class MuesliController: NSObject {
             }
         }
 
-        // 60s fallback timer: polls Google Calendar API (sync token makes this
-        // efficient) and checks the notification window for time-based triggers.
-        // EKEventStoreChangedNotification handles EventKit reactively, but Google
-        // Calendar OAuth has no push mechanism — this timer is the only way to
-        // pick up new/moved events from the API. May be suspended by App Nap on
-        // macOS 26, but combined with the EventKit push path, most cases are covered.
+        // 60s fallback timer: re-checks EventKit and fires time-based
+        // notification triggers. EKEventStoreChangedNotification is the
+        // primary reactive path; this timer covers cases the notification
+        // misses (e.g. App Nap suspension windows on older macOS).
         calendarCheckTimer?.invalidate()
         calendarCheckTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
             guard let self else { return }
             Task { @MainActor in
                 self.calendarMonitor.start()
-                await self.refreshAvailableEventKitCalendars()
+                await self.refreshEventKitCalendars()
                 let refreshed = await self.refreshUpcomingCalendarEvents()
                 guard refreshed else { return }
                 self.checkUpcomingCalendarNotifications()
@@ -1975,7 +2069,7 @@ public final class MuesliController: NSObject {
         // Run one initial reconciliation so changes made while Muesli was not
         // running are reflected without waiting for another EventKit change.
         Task { @MainActor in
-            await self.refreshAvailableEventKitCalendars()
+            await self.refreshEventKitCalendars()
             let refreshed = await self.refreshUpcomingCalendarEvents()
             guard refreshed else { return }
             await self.reconcilePendingEventKitCalendarAttendees(
@@ -2034,7 +2128,7 @@ public final class MuesliController: NSObject {
         }
     }
 
-    /// Check all upcoming calendar events (EventKit + Google) for events entering the configured prompt window.
+    /// Check all upcoming calendar events (EventKit) for events entering the configured prompt window.
     /// With a pre-start lead time, shows a notification when the event enters that window and schedules a second
     /// "Meeting starting now" notification at event start time. With the default start-time policy, waits until
     /// the event has started so calendar prompts do not fire before the user is expected to join.

@@ -54,6 +54,10 @@ public struct LiveTranscriptCheckpointEntry: Sendable, Equatable {
 }
 
 public struct CalendarOccurrenceReference: Codable, Equatable, Sendable {
+    /// Provider kinds persisted by this app. `.googleCalendar` is retained as
+    /// a decodable value only so occurrences recorded by pre-EventKit builds
+    /// still decode; the Google Calendar integration is removed and no new
+    /// reference is ever created with this provider.
     public enum Provider: String, Codable, Sendable {
         case eventKit
         case googleCalendar

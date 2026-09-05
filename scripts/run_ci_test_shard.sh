@@ -112,7 +112,6 @@ case "${shard}" in
       MeetingTemplatesDefaultFallbackTests
       RouteAwareMeetingMicRecorderTests
       DisabledCalendarFilterTests
-      GoogleCalendarTests
     )
     ;;
   *)
