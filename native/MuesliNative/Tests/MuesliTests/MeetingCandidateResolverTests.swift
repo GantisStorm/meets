@@ -19,6 +19,7 @@ struct MeetingCandidateResolverTests {
         runningApps: [RunningAppInfo] = [],
         browserMeetings: [BrowserMeetingContext] = [],
         audioInputProcesses: [AudioProcessActivity] = [],
+        audioOutputProcesses: [AudioProcessActivity] = [],
         foregroundBundleID: String? = nil,
         now: Date? = nil
     ) -> MeetingSignalSnapshot {
@@ -29,6 +30,7 @@ struct MeetingCandidateResolverTests {
             runningApps: runningApps,
             browserMeetings: browserMeetings,
             audioInputProcesses: audioInputProcesses,
+            audioOutputProcesses: audioOutputProcesses,
             foregroundBundleID: foregroundBundleID,
             now: now ?? self.now
         )
@@ -1021,5 +1023,119 @@ struct MeetingCandidateResolverTests {
     func googleMeetURLNormalizationRejectsLandingPages() {
         #expect(MeetingURLNormalizer.normalize("https://meet.google.com/landing") == nil)
         #expect(MeetingURLNormalizer.normalize("https://meet.google.com/") == nil)
+    }
+
+    private func outputProcess(
+        pid: Int32 = 4321,
+        bundleID: String,
+        appName: String
+    ) -> AudioProcessActivity {
+        AudioProcessActivity(
+            pid: pid,
+            bundleID: bundleID,
+            appName: appName,
+            isRunningInput: false,
+            isRunningOutput: true
+        )
+    }
+
+    @Test("Muted Discord emitting audio resolves without microphone")
+    func mutedDiscordOutputResolvesWithoutMicrophone() {
+        let candidate = resolver().resolve(snapshot(
+            micActive: false,
+            cameraActive: false,
+            audioOutputProcesses: [
+                outputProcess(bundleID: "com.hnc.discord", appName: "Discord"),
+            ]
+        ))
+
+        #expect(candidate?.appName == "Discord")
+        #expect(candidate?.evidence.contains(.audioOutputProcess) == true)
+        #expect(candidate?.evidence.contains(.dedicatedApp) == true)
+        #expect(candidate?.evidence.contains(.audioInputProcess) == false)
+        #expect(candidate?.sourcePID == 4321)
+        #expect(candidate?.suppressionID.hasPrefix("app:com.hnc.discord:session:") == true)
+    }
+
+    @Test("Unmuted Discord keeps input attribution over output")
+    func unmutedDiscordPrefersInputAttribution() {
+        let candidate = resolver().resolve(snapshot(
+            micActive: true,
+            cameraActive: false,
+            audioInputProcesses: [
+                AudioProcessActivity(
+                    pid: 4321,
+                    bundleID: "com.hnc.discord",
+                    appName: "Discord",
+                    isRunningInput: true,
+                    isRunningOutput: true
+                ),
+            ],
+            audioOutputProcesses: [
+                outputProcess(bundleID: "com.hnc.discord", appName: "Discord"),
+            ]
+        ))
+
+        #expect(candidate?.appName == "Discord")
+        #expect(candidate?.evidence.contains(.audioInputProcess) == true)
+        #expect(candidate?.evidence.contains(.audioOutputProcess) == false)
+    }
+
+    @Test("Weak Slack output alone does not resolve")
+    func weakSlackOutputAloneResolvesNothing() {
+        let candidate = resolver().resolve(snapshot(
+            micActive: false,
+            cameraActive: false,
+            audioOutputProcesses: [
+                outputProcess(bundleID: "com.tinyspeck.slackmacgap", appName: "Slack"),
+            ]
+        ))
+
+        #expect(candidate == nil)
+    }
+
+    @Test("Music output alone does not resolve")
+    func musicOutputAloneResolvesNothing() {
+        let candidate = resolver().resolve(snapshot(
+            micActive: false,
+            cameraActive: false,
+            audioOutputProcesses: [
+                outputProcess(bundleID: "com.apple.Music", appName: "Music"),
+            ]
+        ))
+
+        #expect(candidate == nil)
+    }
+
+    @Test("Browser output alone without a meeting does not resolve")
+    func browserOutputAloneResolvesNothing() {
+        let candidate = resolver().resolve(snapshot(
+            micActive: false,
+            cameraActive: false,
+            runningApps: [
+                RunningAppInfo(bundleID: "com.google.Chrome", isActive: false),
+            ],
+            audioOutputProcesses: [
+                outputProcess(bundleID: "com.google.Chrome", appName: "Chrome"),
+            ]
+        ))
+
+        #expect(candidate == nil)
+    }
+
+    @Test("Custom call app output resolves like a built-in")
+    func customCallAppOutputResolves() {
+        let r = resolver()
+        r.customDedicatedApps = ["com.example.fonecall": (name: "FoneCall", platform: .unknown)]
+        let candidate = r.resolve(snapshot(
+            micActive: false,
+            cameraActive: false,
+            audioOutputProcesses: [
+                outputProcess(bundleID: "com.example.fonecall", appName: "FoneCall"),
+            ]
+        ))
+
+        #expect(candidate?.appName == "FoneCall")
+        #expect(candidate?.evidence.contains(.audioOutputProcess) == true)
     }
 }

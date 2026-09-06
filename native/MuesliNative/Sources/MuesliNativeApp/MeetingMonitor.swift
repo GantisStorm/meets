@@ -570,6 +570,9 @@ private actor MeetingDetectionService {
         async let audioAttributionResult = audioAttributionService.activeInputProcesses(
             refresh: refreshDecision.refreshAudioAttribution
         )
+        async let audioOutputAttributionResult = audioAttributionService.activeOutputProcesses(
+            refresh: refreshDecision.refreshAudioAttribution
+        )
         let collectedSignals = await signalCollector.collect(
             micDeviceID: context.micDeviceID,
             runningApps: context.runningApps,
@@ -580,6 +583,7 @@ private actor MeetingDetectionService {
             now: now
         )
         let audioResult = await audioAttributionResult
+        let audioOutputResult = await audioOutputAttributionResult
         guard !Task.isCancelled, isStarted else { return }
         if refreshDecision.refreshAudioAttribution {
             signalRefreshState.lastAudioAttributionRefreshAt = now
@@ -611,6 +615,7 @@ private actor MeetingDetectionService {
             runningApps: collectedSignals.runningApps,
             browserMeetings: collectedSignals.browserMeetings,
             audioInputProcesses: mediaSignals.audioInputProcesses,
+            audioOutputProcesses: audioOutputResult.processes,
             foregroundBundleID: collectedSignals.foregroundBundleID,
             now: now
         )
@@ -906,6 +911,7 @@ private struct AudioAttributionResult {
 private actor AudioAttributionService {
     private let collector = AudioProcessAttributionCollector()
     private var cachedInputProcesses: [AudioProcessActivity] = []
+    private var cachedOutputProcesses: [AudioProcessActivity] = []
 
     func activeInputProcesses(refresh: Bool) -> AudioAttributionResult {
         guard refresh else {
@@ -921,8 +927,23 @@ private actor AudioAttributionService {
         )
     }
 
+    func activeOutputProcesses(refresh: Bool) -> AudioAttributionResult {
+        guard refresh else {
+            return AudioAttributionResult(processes: cachedOutputProcesses, duration: 0)
+        }
+
+        let start = Date()
+        let processes = collector.activeOutputProcesses()
+        cachedOutputProcesses = processes
+        return AudioAttributionResult(
+            processes: processes,
+            duration: Date().timeIntervalSince(start)
+        )
+    }
+
     func reset() {
         cachedInputProcesses = []
+        cachedOutputProcesses = []
     }
 }
 

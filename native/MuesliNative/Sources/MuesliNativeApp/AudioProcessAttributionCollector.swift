@@ -28,6 +28,37 @@ struct AudioProcessActivity: Equatable {
 }
 
 final class AudioProcessAttributionCollector {
+    /// Processes with an active audio OUTPUT stream (hearing a call while
+    /// muted, media playback, notification pings). Enumerating HAL clients
+    /// needs no entitlement; output-active says nothing about audibility.
+    /// https://developer.apple.com/documentation/coreaudio/audiohardwareprocess
+    func activeOutputProcesses() -> [AudioProcessActivity] {
+        processObjectIDs().compactMap { processID in
+            guard boolProperty(kAudioProcessPropertyIsRunningOutput, objectID: processID) else {
+                return nil
+            }
+            guard let pid = pidProperty(objectID: processID),
+                  pid > 0 else { return nil }
+
+            let bundleID = stringProperty(kAudioProcessPropertyBundleID, objectID: processID)
+                ?? NSRunningApplication(processIdentifier: pid)?.bundleIdentifier
+                ?? "pid:\(pid)"
+            let appName = NSRunningApplication(processIdentifier: pid)?.localizedName
+                ?? MeetingCandidateResolver.browserApps[bundleID]
+                ?? MeetingCandidateResolver.dedicatedApps[bundleID]?.name
+                ?? bundleID
+
+            return AudioProcessActivity(
+                pid: pid,
+                bundleID: bundleID,
+                appName: appName,
+                isRunningInput: boolProperty(kAudioProcessPropertyIsRunningInput, objectID: processID),
+                isRunningOutput: true,
+                deviceIDs: []
+            )
+        }
+    }
+
     func activeInputProcesses() -> [AudioProcessActivity] {
         processObjectIDs().compactMap { processID in
             guard boolProperty(kAudioProcessPropertyIsRunningInput, objectID: processID) else {

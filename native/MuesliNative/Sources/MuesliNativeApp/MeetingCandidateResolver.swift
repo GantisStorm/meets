@@ -39,6 +39,10 @@ struct MeetingCandidate: Equatable {
         case foregroundApp
         case dedicatedApp
         case audioInputProcess
+        /// A dedicated call app is emitting audio (hearing the call while
+        /// muted). Never set for browsers or media apps — see
+        /// bestMeetingAudioOutputProcess.
+        case audioOutputProcess
     }
 
     let id: String
@@ -128,6 +132,9 @@ struct MeetingSignalSnapshot {
     let runningApps: [RunningAppInfo]
     let browserMeetings: [BrowserMeetingContext]
     let audioInputProcesses: [AudioProcessActivity]
+    /// Output-active processes (hearing a call while muted). Resolver matches
+    /// these against dedicated call apps only — never browsers or media apps.
+    let audioOutputProcesses: [AudioProcessActivity]
     let foregroundBundleID: String?
     let now: Date
 
@@ -138,6 +145,7 @@ struct MeetingSignalSnapshot {
         runningApps: [RunningAppInfo],
         browserMeetings: [BrowserMeetingContext],
         audioInputProcesses: [AudioProcessActivity] = [],
+        audioOutputProcesses: [AudioProcessActivity] = [],
         foregroundBundleID: String?,
         now: Date
     ) {
@@ -147,6 +155,7 @@ struct MeetingSignalSnapshot {
         self.runningApps = runningApps
         self.browserMeetings = browserMeetings
         self.audioInputProcesses = audioInputProcesses
+        self.audioOutputProcesses = audioOutputProcesses
         self.foregroundBundleID = foregroundBundleID
         self.now = now
     }
@@ -453,6 +462,27 @@ final class MeetingCandidateResolver {
             )
         }
 
+        // Output-only: a dedicated native call app emitting audio while our
+        // mic sees nothing (muted/deafened join). Shares the input path's
+        // session id so one call never prompts twice. Runs after the input
+        // branch, so an unmuted call keeps input attribution and evidence.
+        if let audioApp = bestMeetingAudioOutputProcess(from: snapshot.audioOutputProcesses) {
+            let platform = platform(for: audioApp.bundleID) ?? .unknown
+            let appSessionID = appAudioSessionID(for: audioApp, now: snapshot.now)
+            return candidate(
+                id: appSessionID,
+                platform: platform,
+                appName: audioApp.appName,
+                url: nil,
+                title: nil,
+                evidence: mediaEvidence(from: snapshot).union([.audioOutputProcess, .dedicatedApp]),
+                sourceBundleID: audioApp.bundleID,
+                sourcePID: validSourcePID(audioApp.pid),
+                suppressionID: appSessionID,
+                now: snapshot.now
+            )
+        }
+
         if let foregroundCameraApp = bestForegroundCameraApp(from: snapshot) {
             return candidate(
                 id: "app:\(foregroundCameraApp.bundleID)",
@@ -526,6 +556,23 @@ final class MeetingCandidateResolver {
             if lhsWeak != rhsWeak { return !lhsWeak && rhsWeak }
             return lhs.appName < rhs.appName
         }.first
+    }
+
+    /// Dedicated native call apps with output running, regardless of input.
+    /// Excludes browsers (YouTube is not a meeting), weak apps (Slack and
+    /// WhatsApp pings are not calls), and ourselves. Music and system sounds
+    /// never match: they are not in the dedicated catalog. Transient blips
+    /// die in the prompt machine's stability delay and dismiss suppression.
+    private func bestMeetingAudioOutputProcess(from processes: [AudioProcessActivity]) -> AudioProcessActivity? {
+        let candidates = processes.filter { process in
+            guard process.bundleID != selfBundleID else { return false }
+            guard process.isRunningOutput else { return false }
+            guard match(for: process.bundleID) != nil else { return false }
+            guard !Self.weakDedicatedAppBundleIDs.contains(process.bundleID) else { return false }
+            return true
+        }
+
+        return candidates.sorted { $0.appName < $1.appName }.first
     }
 
     private func bestMeetingAudioProcess(from processes: [AudioProcessActivity]) -> AudioProcessActivity? {
@@ -606,6 +653,17 @@ final class MeetingCandidateResolver {
 
     private func hasMediaActivity(_ snapshot: MeetingSignalSnapshot) -> Bool {
         snapshot.micActive || snapshot.cameraActive || snapshot.audioInputProcesses.contains { $0.isRunningInput }
+            || hasDedicatedAudioOutputActivity(snapshot)
+    }
+
+    /// Output gate mirroring the output branch: dedicated, non-weak, non-self.
+    private func hasDedicatedAudioOutputActivity(_ snapshot: MeetingSignalSnapshot) -> Bool {
+        snapshot.audioOutputProcesses.contains { process in
+            process.bundleID != selfBundleID
+                && process.isRunningOutput
+                && match(for: process.bundleID) != nil
+                && !Self.weakDedicatedAppBundleIDs.contains(process.bundleID)
+        }
     }
 
     private func activeInputProcess(
