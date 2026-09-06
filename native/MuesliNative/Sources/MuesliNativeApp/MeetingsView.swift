@@ -242,18 +242,6 @@ struct MeetingsView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(MuesliTheme.backgroundBase)
-        .sheet(
-            isPresented: Binding(
-                get: { appState.isMeetingTemplatesManagerPresented },
-                set: { appState.isMeetingTemplatesManagerPresented = $0 }
-            )
-        ) {
-            MeetingTemplatesManagerView(
-                appState: appState,
-                controller: controller,
-                onClose: { appState.isMeetingTemplatesManagerPresented = false }
-            )
-        }
     }
 
     @ViewBuilder

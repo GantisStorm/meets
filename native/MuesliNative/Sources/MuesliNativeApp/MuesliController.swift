@@ -2950,8 +2950,10 @@ public final class MuesliController: NSObject {
         presentHistoryWindow()
     }
 
+    /// Opens the templates manager as a sheet over whatever is showing
+    /// (Settings, Meetings, an open meeting). Previously this forced the
+    /// Meetings tab first because the sheet was hosted there.
     func showMeetingTemplatesManager() {
-        appState.selectedTab = .meetings
         appState.isMeetingTemplatesManagerPresented = true
     }
 

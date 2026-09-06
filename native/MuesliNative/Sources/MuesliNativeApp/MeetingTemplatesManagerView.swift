@@ -50,13 +50,23 @@ struct MeetingTemplatesManagerView: View {
             }
 
             ScrollView {
-                VStack(alignment: .leading, spacing: MuesliTheme.spacing12) {
-                    if controller.customMeetingTemplates().isEmpty {
-                        emptyState
-                    } else {
+                VStack(alignment: .leading, spacing: MuesliTheme.spacing16) {
+                    templateSection(title: "Built-in Templates") {
                         VStack(spacing: MuesliTheme.spacing8) {
-                            ForEach(controller.customMeetingTemplates()) { template in
-                                customTemplateRow(template)
+                            ForEach(controller.builtInMeetingTemplates()) { template in
+                                builtInTemplateRow(template)
+                            }
+                        }
+                    }
+
+                    templateSection(title: "Custom Templates") {
+                        if controller.customMeetingTemplates().isEmpty {
+                            emptyState
+                        } else {
+                            VStack(spacing: MuesliTheme.spacing8) {
+                                ForEach(controller.customMeetingTemplates()) { template in
+                                    customTemplateRow(template)
+                                }
                             }
                         }
                     }
@@ -92,6 +102,59 @@ struct MeetingTemplatesManagerView: View {
         } message: {
             Text("This template will be permanently removed. Existing meetings will keep their saved template snapshot.")
         }
+    }
+
+    private func templateSection<Content: View>(title: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: MuesliTheme.spacing8) {
+            Text(title.uppercased())
+                .font(MuesliTheme.captionMedium())
+                .foregroundStyle(MuesliTheme.textTertiary)
+            content()
+        }
+    }
+
+    @ViewBuilder
+    private func builtInTemplateRow(_ template: MeetingTemplateDefinition) -> some View {
+        VStack(alignment: .leading, spacing: MuesliTheme.spacing8) {
+            HStack(alignment: .top, spacing: MuesliTheme.spacing12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 6) {
+                        Image(systemName: template.icon)
+                            .font(.system(size: 10))
+                            .foregroundStyle(MuesliTheme.accent)
+                        Text(template.title)
+                            .font(MuesliTheme.captionMedium())
+                            .foregroundStyle(MuesliTheme.textPrimary)
+                    }
+                    Text(template.promptBody)
+                        .font(MuesliTheme.caption())
+                        .foregroundStyle(MuesliTheme.textSecondary)
+                        .lineLimit(2)
+                }
+                Spacer()
+                HStack(spacing: MuesliTheme.spacing8) {
+                    actionButton("Duplicate", systemImage: "doc.on.doc") {
+                        beginDuplicatingTemplate(template)
+                    }
+                }
+            }
+        }
+        .padding(MuesliTheme.spacing12)
+        .background(MuesliTheme.backgroundRaised)
+        .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
+        .overlay(
+            RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall)
+                .strokeBorder(MuesliTheme.surfaceBorder, lineWidth: 1)
+        )
+    }
+
+    private func beginDuplicatingTemplate(_ template: MeetingTemplateDefinition) {
+        isCreatingTemplate = true
+        editingTemplateID = nil
+        draftTemplateName = "\(template.title) Copy"
+        draftTemplatePrompt = template.promptBody
+        draftTemplateIcon = MeetingTemplates.normalizedCustomIcon(named: template.icon)
+        clearValidationErrors()
     }
 
     @ViewBuilder

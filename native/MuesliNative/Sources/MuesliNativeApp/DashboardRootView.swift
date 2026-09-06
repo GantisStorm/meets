@@ -189,6 +189,18 @@ struct DashboardRootView: View {
                 onDismiss: { controller.dismissDiagnosticIncidentPrompt() }
             )
         }
+        .sheet(
+            isPresented: Binding(
+                get: { appState.isMeetingTemplatesManagerPresented },
+                set: { appState.isMeetingTemplatesManagerPresented = $0 }
+            )
+        ) {
+            MeetingTemplatesManagerView(
+                appState: appState,
+                controller: controller,
+                onClose: { appState.isMeetingTemplatesManagerPresented = false }
+            )
+        }
     }
 
     private var hasOpenMeeting: Bool {
