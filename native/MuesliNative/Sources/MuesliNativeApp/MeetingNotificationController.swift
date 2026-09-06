@@ -478,8 +478,10 @@ final class MeetingNotificationController {
         height: CGFloat,
         margin: CGFloat
     ) -> NSRect? {
+        // Main screen outranks the mouse screen: a cursor parked on a
+        // secondary display sent cards where nobody looks.
         let orderedScreens = uniqueScreens(
-            [preferredScreen, NSScreen.main, screenForMouse()].compactMap { $0 } + NSScreen.screens
+            [preferredScreen, NSScreen.main].compactMap { $0 } + NSScreen.screens
         )
 
         for screen in orderedScreens {
@@ -490,11 +492,6 @@ final class MeetingNotificationController {
         }
         guard let fallbackScreen = NSScreen.main ?? NSScreen.screens.first else { return nil }
         return notificationFrame(on: fallbackScreen, width: width, height: height, margin: margin)
-    }
-
-    private func screenForMouse() -> NSScreen? {
-        let mouseLocation = NSEvent.mouseLocation
-        return NSScreen.screens.first(where: { NSMouseInRect(mouseLocation, $0.frame, false) })
     }
 
     private func notificationFrame(
