@@ -143,6 +143,18 @@ struct OnboardingView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            // Download status lives in normal flow (centered banner), never
+            // floating over step content. Still auto-dismisses 6s after ready.
+            if shouldShowModelDownloadIndicator {
+                HStack {
+                    Spacer(minLength: 0)
+                    modelDownloadIndicator
+                    Spacer(minLength: 0)
+                }
+                .padding(.top, MuesliTheme.spacing16)
+                .padding(.horizontal, MuesliTheme.spacing32)
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
             Group {
                 switch currentStep {
                 case OnboardingFlow.Step.welcome.rawValue: welcomeStep
@@ -210,13 +222,6 @@ struct OnboardingView: View {
         }
         .onChange(of: selectedCohereLanguage) { _, _ in
             saveProgress(atStep: currentStep)
-        }
-        .overlay(alignment: .topTrailing) {
-            if shouldShowModelDownloadIndicator {
-                modelDownloadIndicator
-                    .padding(.top, MuesliTheme.spacing16)
-                    .padding(.trailing, MuesliTheme.spacing16)
-            }
         }
     }
 
