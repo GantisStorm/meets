@@ -20,7 +20,7 @@ case "${shard}" in
       ConfigStoreTests
       DictationStoreTests
       MuesliCKSyncEngineTests
-      MuesliCLITests
+      MeetsCLITests
       ChatGPTAuthTests
       ChatGPTResponsesTransportTests
       ChatGPTTokenStorageTests
@@ -125,7 +125,7 @@ if [[ "${list_filters}" == true ]]; then
   exit 0
 fi
 
-args=(--package-path native/MuesliNative)
+args=(--package-path native/MeetsNative)
 if [[ -n "${MUESLI_SWIFTPM_SCRATCH_PATH:-}" ]]; then
   args+=(--scratch-path "${MUESLI_SWIFTPM_SCRATCH_PATH}")
 fi

@@ -13,7 +13,7 @@ This checklist is for **verification** after the script runs, and for manual rec
 ## Pre-release
 
 - [ ] All changes merged to `main`
-- [ ] `swift test --package-path native/MuesliNative` — all tests pass
+- [ ] `swift test --package-path native/MeetsNative` — all tests pass
 - [ ] Version bumped in `scripts/build_native_app.sh` (CFBundleVersion + CFBundleShortVersionString)
 - [ ] No uncommitted changes (`git status` clean)
 - [ ] Homebrew installed and updated enough to run post-release `brew livecheck --cask muesli`
@@ -156,7 +156,7 @@ If launch fails with `No matching profile found`, the embedded profile, bundle I
 - [ ] **Generate the new release item without replacing appcast history:**
   ```bash
   generated_appcast="$(mktemp)"
-  native/MuesliNative/.build/artifacts/sparkle/Sparkle/bin/generate_appcast \
+  native/MeetsNative/.build/artifacts/sparkle/Sparkle/bin/generate_appcast \
     dist-release/ -o "$generated_appcast"
   python3 scripts/update_appcast_release_notes.py \
     "$generated_appcast" \

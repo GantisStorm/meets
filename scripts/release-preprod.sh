@@ -23,10 +23,10 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
-source "$ROOT/scripts/muesli_spm_cache.sh"
+source "$ROOT/scripts/meets_spm_cache.sh"
 source "$ROOT/scripts/muesli_telemetry_channels.sh"
 
-PACKAGE_DIR="$ROOT/native/MuesliNative"
+PACKAGE_DIR="$ROOT/native/MeetsNative"
 SWIFTPM_SCRATCH_PATH=""
 SWIFT_TEST_ARGS=(--package-path "$PACKAGE_DIR")
 BUILD_ENV=()
@@ -41,7 +41,7 @@ BUILD_ENV+=(MUESLI_USE_XCODE_BUILD=1)
 # script concurrently from multiple worktrees unless you set an isolated
 # MUESLI_SWIFTPM_SCRATCH_PATH or MUESLI_SWIFTPM_SCRATCH_CHANNEL.
 if ! muesli_spm_scratch_disabled; then
-  SWIFTPM_SCRATCH_PATH="$(muesli_resolve_spm_scratch_path preprod)"
+  SWIFTPM_SCRATCH_PATH="$(meets_resolve_spm_scratch_path preprod)"
   SWIFT_TEST_ARGS+=(--scratch-path "$SWIFTPM_SCRATCH_PATH")
   BUILD_ENV+=(MUESLI_SWIFTPM_SCRATCH_PATH="$SWIFTPM_SCRATCH_PATH")
   # Keep the xcodebuild cache under the same scratch root so an isolated

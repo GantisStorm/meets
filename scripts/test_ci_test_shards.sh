@@ -2,7 +2,7 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
-test_root="$repo_root/native/MuesliNative/Tests/MuesliTests"
+test_root="$repo_root/native/MeetsNative/Tests/MeetsTests"
 baseline="$repo_root/scripts/ci_unsharded_test_suites.txt"
 runner="$repo_root/scripts/run_ci_test_shard.sh"
 tmp_dir="$(mktemp -d)"

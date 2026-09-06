@@ -35,7 +35,7 @@ while IFS= read -r file; do
       docs_only=false
       ;;
 
-    scripts/build_native_app.sh|scripts/release*.sh|scripts/notarize_app.sh|scripts/test_packaged_cli.sh|scripts/verify_update_flow.sh|scripts/run_ci_test_shard.sh|scripts/muesli_spm_cache.sh)
+    scripts/build_native_app.sh|scripts/release*.sh|scripts/notarize_app.sh|scripts/test_packaged_cli.sh|scripts/verify_update_flow.sh|scripts/run_ci_test_shard.sh|scripts/meets_spm_cache.sh)
       release_surface=true
       docs_only=false
       ;;

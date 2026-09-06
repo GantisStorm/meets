@@ -157,7 +157,7 @@ use_local_only_entitlements() {
   RESOLVED_SIGN_IDENTITY=""
   RESOLVED_CODESIGN_TIMESTAMP=""
   BUILD_ENV+=(
-    MUESLI_ENTITLEMENTS="$ROOT/scripts/MuesliLocalOnly.entitlements"
+    MUESLI_ENTITLEMENTS="$ROOT/scripts/MeetsLocalOnly.entitlements"
     MUESLI_PROVISIONING_PROFILE=""
     MUESLI_APS_ENVIRONMENT=""
   )

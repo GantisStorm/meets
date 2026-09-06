@@ -2,20 +2,20 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-source "$ROOT/scripts/muesli_spm_cache.sh"
+source "$ROOT/scripts/meets_spm_cache.sh"
 source "$ROOT/scripts/localvqe_runtime.sh"
-PACKAGE_DIR="$ROOT/native/MuesliNative"
+PACKAGE_DIR="$ROOT/native/MeetsNative"
 DIST_DIR="$ROOT/dist-native"
 INSTALL_DIR="${MUESLI_INSTALL_DIR:-/Applications}"
 BUILD_CONFIG="${1:-release}"
-APP_BINARY="MuesliNativeApp"
+APP_BINARY="MeetsApp"
 CLI_BINARY="meets-cli"
 APP_NAME="${MUESLI_APP_NAME:-Meets}"
 APP_DISPLAY_NAME="${MUESLI_DISPLAY_NAME:-$APP_NAME}"
 APP_BUNDLE_NAME="${MUESLI_APP_BUNDLE_NAME:-Meets.app}"
-APP_EXECUTABLE_NAME="${MUESLI_EXECUTABLE_NAME:-Muesli}"
+APP_EXECUTABLE_NAME="${MUESLI_EXECUTABLE_NAME:-Meets}"
 APP_SUPPORT_DIR_NAME="${MUESLI_SUPPORT_DIR_NAME:-$APP_DISPLAY_NAME}"
-BUNDLE_ID="${MUESLI_BUNDLE_ID:-com.muesli.app}"
+BUNDLE_ID="${MUESLI_BUNDLE_ID:-com.meets.app}"
 TELEMETRYDECK_APP_ID="${MUESLI_TELEMETRYDECK_APP_ID:-}"
 TELEMETRY_CHANNEL="${MUESLI_TELEMETRY_CHANNEL:-unconfigured}"
 DEFAULT_APP_VERSION="0.8.4"
@@ -90,9 +90,9 @@ SWIFT_BUILD_ARGS=(--package-path "$PACKAGE_DIR" -c "$BUILD_CONFIG")
 if ! muesli_spm_scratch_disabled; then
   DEFAULT_SCRATCH_CHANNEL="release"
   if [[ "$BUILD_CONFIG" == "debug" ]]; then
-    DEFAULT_SCRATCH_CHANNEL="$(muesli_worktree_spm_scratch_channel dev "$ROOT")"
+    DEFAULT_SCRATCH_CHANNEL="$(meets_worktree_spm_scratch_channel dev "$ROOT")"
   fi
-  SWIFTPM_SCRATCH_PATH="$(muesli_resolve_spm_scratch_path "$DEFAULT_SCRATCH_CHANNEL")"
+  SWIFTPM_SCRATCH_PATH="$(meets_resolve_spm_scratch_path "$DEFAULT_SCRATCH_CHANNEL")"
   mkdir -p "$SWIFTPM_SCRATCH_PATH"
   SWIFT_BUILD_ARGS+=(--scratch-path "$SWIFTPM_SCRATCH_PATH")
   echo "Using SwiftPM scratch path: $SWIFTPM_SCRATCH_PATH"
@@ -116,9 +116,9 @@ if [[ "$USE_XCODE_BUILD" == "1" ]]; then
   if [[ "$BUILD_CONFIG" == "release" ]]; then
     XCODE_SCRATCH_CHANNEL="release"
   else
-    XCODE_SCRATCH_CHANNEL="$(muesli_worktree_spm_scratch_channel dev "$ROOT")"
+    XCODE_SCRATCH_CHANNEL="$(meets_worktree_spm_scratch_channel dev "$ROOT")"
   fi
-  XCODE_DERIVED_DATA="${MUESLI_XCODEBUILD_DERIVED_DATA:-$(muesli_default_spm_cache_root)/$XCODE_SCRATCH_CHANNEL/xcodebuild/$APP_NAME-$BUILD_CONFIG}"
+  XCODE_DERIVED_DATA="${MUESLI_XCODEBUILD_DERIVED_DATA:-$(meets_default_spm_cache_root)/$XCODE_SCRATCH_CHANNEL/xcodebuild/$APP_NAME-$BUILD_CONFIG}"
   mkdir -p "$XCODE_DERIVED_DATA"
 
   echo "Generating Xcode project (xcodegen)..."
@@ -243,7 +243,7 @@ fi
 # Bundle LocalVQE runtime (default meeting AEC). The .gguf model is committed;
 # the shared libraries under LocalVQE/lib/ are gitignored and produced by
 # scripts/build_localvqe.sh. Without them the app silently falls back to DTLN.
-LOCALVQE_LIB_DIR="${MUESLI_LOCALVQE_LIB_DIR:-$ROOT/native/MuesliNative/LocalVQE/lib}"
+LOCALVQE_LIB_DIR="${MUESLI_LOCALVQE_LIB_DIR:-$ROOT/native/MeetsNative/LocalVQE/lib}"
 ALLOW_MISSING_LOCALVQE="${MUESLI_ALLOW_MISSING_LOCALVQE:-0}"
 REQUIRE_LOCALVQE="${MUESLI_REQUIRE_LOCALVQE:-0}"
 BUILD_LOCALVQE="${MUESLI_BUILD_LOCALVQE:-0}"
@@ -254,7 +254,7 @@ BUILD_LOCALVQE="${MUESLI_BUILD_LOCALVQE:-0}"
 refresh_localvqe_runtime_files() {
   local collected=""
   LOCALVQE_RUNTIME_FILES=()
-  if ! collected="$(muesli_collect_localvqe_runtime "$LOCALVQE_LIB_DIR")"; then
+  if ! collected="$(meets_collect_localvqe_runtime "$LOCALVQE_LIB_DIR")"; then
     echo "Unable to inspect LocalVQE runtime in $LOCALVQE_LIB_DIR" >&2
     return 1
   fi
@@ -263,7 +263,7 @@ refresh_localvqe_runtime_files() {
     LOCALVQE_RUNTIME_FILES+=("$dylib")
   done <<< "$collected"
 
-  if [[ ${#LOCALVQE_RUNTIME_FILES[@]} -gt 0 ]] && ! muesli_localvqe_runtime_is_complete "$LOCALVQE_LIB_DIR"; then
+  if [[ ${#LOCALVQE_RUNTIME_FILES[@]} -gt 0 ]] && ! meets_localvqe_runtime_is_complete "$LOCALVQE_LIB_DIR"; then
     echo "Ignoring incomplete LocalVQE runtime in $LOCALVQE_LIB_DIR" >&2
     LOCALVQE_RUNTIME_FILES=()
   fi
@@ -312,14 +312,14 @@ else
   done
   echo "Bundled LocalVQE runtime (${#LOCALVQE_RUNTIME_FILES[@]} files) from $LOCALVQE_LIB_DIR"
 fi
-LOCALVQE_MODEL_PATH="${MUESLI_LOCALVQE_MODEL_PATH:-$ROOT/native/MuesliNative/LocalVQE/models/localvqe-v1.2-1.3M-f32.gguf}"
+LOCALVQE_MODEL_PATH="${MUESLI_LOCALVQE_MODEL_PATH:-$ROOT/native/MeetsNative/LocalVQE/models/localvqe-v1.2-1.3M-f32.gguf}"
 if [[ -f "$LOCALVQE_MODEL_PATH" ]]; then
   mkdir -p "$STAGED_APP_DIR/Contents/Resources/Models/localvqe"
   cp "$LOCALVQE_MODEL_PATH" "$STAGED_APP_DIR/Contents/Resources/Models/localvqe/localvqe-v1.2-1.3M-f32.gguf"
 fi
 
 # Bundle assets
-cp "$ROOT/assets/muesli.icns" "$STAGED_APP_DIR/Contents/Resources/muesli.icns"
+cp "$ROOT/assets/meets.icns" "$STAGED_APP_DIR/Contents/Resources/muesli.icns"
 cp "$ROOT/assets/zoom-app.png" "$STAGED_APP_DIR/Contents/Resources/zoom-app.png"
 cp "$ROOT/assets/Microsoft_Office_Teams_(2025–present).svg.png" "$STAGED_APP_DIR/Contents/Resources/teams.png"
 cp "$ROOT/assets/Slack_icon_2019.svg.png" "$STAGED_APP_DIR/Contents/Resources/slack.png"
@@ -336,7 +336,7 @@ cp "$ROOT/assets/superwhisper-logo.png" "$STAGED_APP_DIR/Contents/Resources/supe
 cp "$ROOT/assets/AI4Bharat_logo.png" "$STAGED_APP_DIR/Contents/Resources/ai4bharat-logo.png"
 cp "$ROOT/assets/google-logo.svg" "$STAGED_APP_DIR/Contents/Resources/google-logo.svg"
 cp "$ROOT/assets/insights-share-background.png" "$STAGED_APP_DIR/Contents/Resources/insights-share-background.png"
-cp "$ROOT/assets/muesli_app_icon.png" "$STAGED_APP_DIR/Contents/Resources/muesli_app_icon.png"
+cp "$ROOT/assets/meets_app_icon.png" "$STAGED_APP_DIR/Contents/Resources/meets_app_icon.png"
 if [[ -d "$ROOT/assets/fonts" ]]; then
   ditto "$ROOT/assets/fonts" "$STAGED_APP_DIR/Contents/Resources/fonts"
 fi
@@ -364,12 +364,12 @@ cat > "$STAGED_APP_DIR/Contents/Info.plist" <<PLIST
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleIconFile</key>
-  <string>muesli.icns</string>
-  <key>MuesliSupportDirectoryName</key>
+  <string>meets.icns</string>
+  <key>MeetsSupportDirectoryName</key>
   <string>$APP_SUPPORT_DIR_NAME</string>
-  <key>MuesliTelemetryDeckAppID</key>
+  <key>MeetsTelemetryDeckAppID</key>
   <string>$TELEMETRYDECK_APP_ID</string>
-  <key>MuesliTelemetryChannel</key>
+  <key>MeetsTelemetryChannel</key>
   <string>$TELEMETRY_CHANNEL</string>
   <key>LSUIElement</key>
   <true/>
@@ -464,7 +464,7 @@ if [[ "$SKIP_SIGN" != "1" ]]; then
     "$APP_DIR/Contents/MacOS/meets-cli"
 
   # Sign the app bundle with hardened runtime, secure timestamp, and entitlements
-  ENTITLEMENTS="${MUESLI_ENTITLEMENTS:-$ROOT/scripts/Muesli.entitlements}"
+  ENTITLEMENTS="${MUESLI_ENTITLEMENTS:-$ROOT/scripts/Meets.entitlements}"
   CODESIGN_ENTITLEMENTS="$ENTITLEMENTS"
   TEMP_ENTITLEMENTS=""
   APS_ENVIRONMENT="${MUESLI_APS_ENVIRONMENT:-}"
@@ -621,7 +621,7 @@ else
   else
     echo "Ad-hoc signing for local dev (MUESLI_SKIP_SIGN=1; no Developer ID)..."
   fi
-  ENTITLEMENTS="${MUESLI_ENTITLEMENTS:-$ROOT/scripts/Muesli.entitlements}"
+  ENTITLEMENTS="${MUESLI_ENTITLEMENTS:-$ROOT/scripts/Meets.entitlements}"
 
   find "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Frameworks" -maxdepth 1 -name "*.framework" -type d | while read -r framework; do
     # Sign every nested standalone Mach-O (e.g. Sparkle's Versions/B/Autoupdate),

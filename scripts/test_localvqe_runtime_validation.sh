@@ -53,7 +53,7 @@ touch \
 
 expect_complete() {
   local name="$1"
-  if ! muesli_localvqe_runtime_is_complete "$RUNTIME_DIR"; then
+  if ! meets_localvqe_runtime_is_complete "$RUNTIME_DIR"; then
     echo "FAIL: $name should accept the runtime" >&2
     exit 1
   fi
@@ -61,7 +61,7 @@ expect_complete() {
 
 expect_incomplete() {
   local name="$1"
-  if muesli_localvqe_runtime_is_complete "$RUNTIME_DIR" >/dev/null 2>&1; then
+  if meets_localvqe_runtime_is_complete "$RUNTIME_DIR" >/dev/null 2>&1; then
     echo "FAIL: $name should reject the runtime" >&2
     exit 1
   fi

@@ -141,7 +141,7 @@ jobs:
         run: |
           swift test \
             --package-path native/MuesliNative \
-            --scratch-path "${RUNNER_TEMP}/muesli-apple-speech-macos26" \
+            --scratch-path "${RUNNER_TEMP}/meets-apple-speech-macos26" \
             --filter AppleSpeechAnalyzerBackendTests
 
   # Packaged CLI smoke test — verify the app bundle contains muesli-cli

@@ -64,9 +64,9 @@ __pycache__/
 
 # Build artifacts
 dist-native/
-native/MuesliNative/.build/
-native/MuesliNative/.build-direct/
-native/MuesliNative/.xcodebuild/
+native/MeetsNative/.build/
+native/MeetsNative/.build-direct/
+native/MeetsNative/.xcodebuild/
 native/MuesliNative/LocalVQE/lib/
 
 # Generated Xcode project (regenerate with `xcodegen generate` from project.yml)

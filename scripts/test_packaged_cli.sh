@@ -17,8 +17,8 @@ cleanup() {
 }
 trap cleanup EXIT
 
-LOCALVQE_LIB_DIR="${MUESLI_LOCALVQE_LIB_DIR:-$ROOT/native/MuesliNative/LocalVQE/lib}"
-if ! muesli_localvqe_runtime_is_complete "$LOCALVQE_LIB_DIR"; then
+LOCALVQE_LIB_DIR="${MUESLI_LOCALVQE_LIB_DIR:-$ROOT/native/MeetsNative/LocalVQE/lib}"
+if ! meets_localvqe_runtime_is_complete "$LOCALVQE_LIB_DIR"; then
   echo "Building LocalVQE runtime for packaging smoke test..."
   "$ROOT/scripts/build_localvqe.sh"
 fi
@@ -46,7 +46,7 @@ if [[ ! -x "$CLI_BIN" ]]; then
 fi
 
 MACOS_DIR="$APP_PATH/Contents/MacOS"
-if ! muesli_localvqe_runtime_is_complete "$MACOS_DIR"; then
+if ! meets_localvqe_runtime_is_complete "$MACOS_DIR"; then
   echo "Packaged app is missing a complete LocalVQE runtime under Contents/MacOS." >&2
   echo "Expected liblocalvqe*.dylib and libggml-base*.dylib." >&2
   ls -la "$MACOS_DIR" >&2 || true

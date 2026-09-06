@@ -72,7 +72,7 @@ run_case docs_report_only \
   "native_or_packaging=false"
 
 run_case native_source \
-  "native/MuesliNative/Sources/App.swift" \
+  "native/MeetsNative/Sources/App.swift" \
   "docs_only=false" \
   "app_source=true" \
   "release_surface=false" \
@@ -248,7 +248,7 @@ run_case repo_policy \
   "native_or_packaging=false"
 
 run_case mixed_docs_and_source \
-  $'README.md\nnative/MuesliNative/Sources/App.swift' \
+  $'README.md\nnative/MeetsNative/Sources/App.swift' \
   "docs_only=false" \
   "app_source=true" \
   "release_surface=false" \

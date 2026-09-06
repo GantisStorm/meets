@@ -1,0 +1,167 @@
+import AppKit
+import SwiftUI
+import MeetsCore
+
+enum OnboardingSystemSettingsYieldBehavior: Equatable {
+    case orderedBehind
+    case guideControlled
+}
+
+enum OnboardingSystemSettingsYieldPolicy {
+    static func behavior(
+        for guidePermission: PermissionDragGuidePermission?
+    ) -> OnboardingSystemSettingsYieldBehavior {
+        switch guidePermission {
+        case .some:
+            return .guideControlled
+        case nil:
+            return .orderedBehind
+        }
+    }
+}
+
+@MainActor
+final class OnboardingWindowController: NSObject, NSWindowDelegate {
+    private let controller: MeetsController
+    private let resumeProgress: OnboardingProgress?
+    private var window: NSWindow?
+
+    init(controller: MeetsController, resumeProgress: OnboardingProgress? = nil) {
+        self.controller = controller
+        self.resumeProgress = resumeProgress
+        super.init()
+    }
+
+    func show() {
+        if window == nil { buildWindow() }
+        window?.center()
+        bringToFront()
+    }
+
+    func bringToFront() {
+        window?.alphaValue = 1
+        window?.ignoresMouseEvents = false
+        window?.level = .floating
+        window?.makeKeyAndOrderFront(nil)
+        window?.orderFrontRegardless()
+        NSApplication.shared.activate(ignoringOtherApps: true)
+    }
+
+    func yieldFocusToSystemSettings(using behavior: OnboardingSystemSettingsYieldBehavior) {
+        guard let window else { return }
+        switch behavior {
+        case .orderedBehind:
+            // Preserve the original onboarding behavior for permissions without
+            // a floating guide, such as Microphone. The user can return to the
+            // still-visible, interactive onboarding window without first
+            // granting the permission.
+            window.alphaValue = 1
+            window.ignoresMouseEvents = false
+            window.level = .normal
+            window.orderBack(nil)
+        case .guideControlled:
+            // Keep onboarding mounted and recoverable behind System Settings
+            // while the guide validates the target window. The guide controller
+            // only suppresses it after usable overlay frames are available.
+            window.level = .normal
+            window.alphaValue = 1
+            window.ignoresMouseEvents = false
+            window.orderBack(nil)
+        }
+    }
+
+    func applySystemSettingsGuidePresentation(
+        _ presentation: AccessibilityPermissionGuideOnboardingPresentation
+    ) {
+        guard let window else { return }
+        switch presentation {
+        case .suppressed:
+            // Keep the SwiftUI hierarchy mounted while the guide is attached to
+            // System Settings. Ordering the window out fires OnboardingView's
+            // onDisappear, which intentionally dismisses the permission guide.
+            window.level = .normal
+            window.alphaValue = 0
+            window.ignoresMouseEvents = true
+        case .restoredWithoutActivation:
+            // Leaving System Settings must make onboarding recoverable without
+            // activating Muesli over the application the user chose.
+            window.level = .normal
+            window.alphaValue = 1
+            window.ignoresMouseEvents = false
+            window.orderFrontRegardless()
+        case .restoredAndActive:
+            bringToFront()
+        }
+    }
+
+    func prepareForNativePermissionPrompt() {
+        guard let window else { return }
+        window.alphaValue = 1
+        window.ignoresMouseEvents = false
+        window.level = .normal
+        window.makeKeyAndOrderFront(nil)
+        NSApplication.shared.activate(ignoringOtherApps: true)
+    }
+
+    func close() {
+        window?.close()
+        window = nil
+    }
+
+    private func buildWindow() {
+        // Same footprint as the main app window.
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 1120, height: 762),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        window.center()
+        window.title = "Welcome to Meets"
+        window.isReleasedWhenClosed = false
+        window.delegate = self
+        window.titlebarAppearsTransparent = true
+        window.titleVisibility = .hidden
+        window.level = .floating
+        window.collectionBehavior = [.moveToActiveSpace]
+        window.backgroundColor = NSColor(red: 0.067, green: 0.071, blue: 0.078, alpha: 1)
+        // OnboardingView forces .preferredColorScheme(.dark), so pin the window to the dark
+        // appearance rather than inheriting it. Without this the window follows whatever
+        // NSApp.appearance happens to be, and AppKit chrome the SwiftUI color scheme cannot
+        // reach (focus rings, panels, menus) renders light around permanently dark content.
+        window.appearance = NSAppearance(named: .darkAqua)
+
+        let rootView: OnboardingView
+        if let progress = resumeProgress {
+            let backend = BackendOption.all.first(where: {
+                $0.backend == progress.selectedBackendKey && $0.model == progress.selectedModelKey
+            }) ?? BackendOption.onboardingDefault
+            let cohereLanguage = CohereTranscribeLanguage.resolved(progress.selectedCohereLanguageCode)
+            let hotkey = HotkeyConfig(keyCode: progress.hotkeyKeyCode, label: progress.hotkeyLabel)
+            rootView = OnboardingView(
+                controller: controller,
+                appState: controller.appState,
+                initialStep: progress.currentStep,
+                initialUserName: progress.userName,
+                initialBackend: backend,
+                initialCohereLanguage: cohereLanguage,
+                initialHotkey: hotkey,
+                initialSystemAudioRequested: progress.systemAudioRequested,
+                initialUseCase: OnboardingUseCase.resolved(progress.onboardingUseCaseRawValue),
+                initialSummaryBackend: .chatGPT,
+                initialModelDownloadProgress: progress.modelDownloadProgress,
+                initialModelDownloadStatus: progress.modelDownloadStatus
+            )
+        } else {
+            rootView = OnboardingView(
+                controller: controller,
+                appState: controller.appState,
+                initialCohereLanguage: controller.config.resolvedCohereLanguage,
+                initialUseCase: controller.config.resolvedOnboardingUseCase,
+                initialSummaryBackend: .chatGPT
+            )
+        }
+        window.contentView = NSHostingView(rootView: rootView)
+        self.window = window
+    }
+}

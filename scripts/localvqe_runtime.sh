@@ -6,7 +6,7 @@
 [[ -n "${_MUESLI_LOCALVQE_RUNTIME_LOADED:-}" ]] && return 0
 _MUESLI_LOCALVQE_RUNTIME_LOADED=1
 
-muesli_collect_localvqe_runtime() {
+meets_collect_localvqe_runtime() {
   local dir="$1"
   local listing=""
   local -a found=()
@@ -23,7 +23,7 @@ muesli_collect_localvqe_runtime() {
   printf '%s\n' "${found[@]+"${found[@]}"}" | sort
 }
 
-muesli_localvqe_runtime_is_complete() {
+meets_localvqe_runtime_is_complete() {
   local dir="$1"
   local ggml_umbrella=""
   local primary=""
@@ -31,7 +31,7 @@ muesli_localvqe_runtime_is_complete() {
   local runtime_listing=""
   local -a runtime_files=()
 
-  if ! runtime_listing="$(muesli_collect_localvqe_runtime "$dir")"; then
+  if ! runtime_listing="$(meets_collect_localvqe_runtime "$dir")"; then
     return 1
   fi
   while IFS= read -r library; do
