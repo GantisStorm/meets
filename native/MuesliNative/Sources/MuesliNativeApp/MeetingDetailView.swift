@@ -1784,9 +1784,6 @@ struct MeetingDetailView: View {
     private func eventPopoverContent(for meeting: MeetingRecord) -> some View {
         let linkedIDs = linkedEventIDs(for: meeting)
         let linkedKeys = controller.eventLinkIdentityKeys(toMeeting: meeting)
-        // Unlinking the last remaining attachment would strand the meeting
-        // with zero events, so the sole linked row is locked (disabled).
-        let totalAttachments = linkedKeys.isEmpty ? linkedIDs.count : linkedKeys.count
         let upcoming = eventPickerUpcomingEvents
         let past = eventPickerPastEvents
         VStack(alignment: .leading, spacing: 0) {
@@ -1841,24 +1838,20 @@ struct MeetingDetailView: View {
                         if !upcoming.isEmpty {
                             eventPopoverSectionHeader("Upcoming")
                             ForEach(upcoming, id: \.pickerRowID) { event in
-                                let linked = isEventLinked(event, linkedIDs: linkedIDs, linkedKeys: linkedKeys)
                                 eventPopoverLinkRow(
                                     event: event,
                                     meeting: meeting,
-                                    isLinked: linked,
-                                    canUnlink: !linked || totalAttachments > 1
+                                    isLinked: isEventLinked(event, linkedIDs: linkedIDs, linkedKeys: linkedKeys)
                                 )
                             }
                         }
                         if !past.isEmpty {
                             eventPopoverSectionHeader("Past")
                             ForEach(past, id: \.pickerRowID) { event in
-                                let linked = isEventLinked(event, linkedIDs: linkedIDs, linkedKeys: linkedKeys)
                                 eventPopoverLinkRow(
                                     event: event,
                                     meeting: meeting,
-                                    isLinked: linked,
-                                    canUnlink: !linked || totalAttachments > 1
+                                    isLinked: isEventLinked(event, linkedIDs: linkedIDs, linkedKeys: linkedKeys)
                                 )
                             }
                         }
@@ -1883,15 +1876,9 @@ struct MeetingDetailView: View {
     private func eventPopoverLinkRow(
         event: UnifiedCalendarEvent,
         meeting: MeetingRecord,
-        isLinked: Bool,
-        canUnlink: Bool = true
+        isLinked: Bool
     ) -> some View {
-        eventPopoverRow(
-            event: event,
-            isLinked: isLinked,
-            disabled: isLinked && !canUnlink,
-            disabledHelp: "A meeting needs at least one linked event"
-        ) {
+        eventPopoverRow(event: event, isLinked: isLinked) {
             let meetingID = meeting.id
             Task {
                 if isLinked {
@@ -1914,8 +1901,6 @@ struct MeetingDetailView: View {
     private func eventPopoverRow(
         event: UnifiedCalendarEvent,
         isLinked: Bool,
-        disabled: Bool = false,
-        disabledHelp: String? = nil,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
@@ -1945,8 +1930,7 @@ struct MeetingDetailView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .disabled(disabled)
-        .help(disabled ? (disabledHelp ?? "Not available") : (isLinked ? "Remove this meeting from \(event.title)" : "Add this meeting to \(event.title)"))
+        .help(isLinked ? "Remove this meeting from \(event.title)" : "Add this meeting to \(event.title)")
     }
 
     private var transcriptCTA: some View {
