@@ -1929,13 +1929,18 @@ public final class MuesliController: NSObject {
     }
 
     /// Re-reads EventKit authorization and the calendar/account list into
-    /// appState, requesting full access on first launch (macOS prompts the
-    /// user). Call from UI entry points and after the user changes calendar
-    /// permission in System Settings.
-    func refreshCalendarAccess() async {
+    /// appState. Prompts for full access ONLY when requestIfUndetermined is
+    /// set (explicit Grant buttons); every passive call (startup, polling,
+    /// sheet refreshes) syncs silently so the system dialog never ambushes
+    /// the user outside the permissions step.
+    func refreshCalendarAccess(requestIfUndetermined: Bool = false) async {
         let manager = calendarEventKitManager
         switch manager.authorizationState {
         case .unknown:
+            guard requestIfUndetermined else {
+                appState.calendarAuthorization = .unknown
+                return
+            }
             let granted = await manager.requestFullAccessToEvents()
             appState.calendarAuthorization = granted ? .fullAccess : .denied
             if granted {

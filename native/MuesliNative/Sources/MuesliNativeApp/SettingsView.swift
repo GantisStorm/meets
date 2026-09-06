@@ -2381,7 +2381,7 @@ struct SettingsView: View {
                     isCheckingCalendarPermission = true
                     Task { @MainActor in
                         defer { isCheckingCalendarPermission = false }
-                        await controller.refreshCalendarAccess()
+                        await controller.refreshCalendarAccess(requestIfUndetermined: true)
                         calendarGranted = appState.calendarAuthorization == .fullAccess
                     }
                 },

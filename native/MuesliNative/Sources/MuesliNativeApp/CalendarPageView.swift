@@ -93,7 +93,7 @@ struct CalendarPageView: View {
                     HStack(spacing: MuesliTheme.spacing12) {
                         Button {
                             Task {
-                                await controller.refreshCalendarAccess()
+                                await controller.refreshCalendarAccess(requestIfUndetermined: true)
                                 if appState.calendarAuthorization == .fullAccess {
                                     await controller.refreshCalendarEvents()
                                 }

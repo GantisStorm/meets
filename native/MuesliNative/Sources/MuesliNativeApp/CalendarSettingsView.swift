@@ -595,7 +595,7 @@ struct CalendarSettingsView: View {
         guard !isRequestingAccess else { return }
         isRequestingAccess = true
         Task {
-            await controller.refreshCalendarAccess()
+            await controller.refreshCalendarAccess(requestIfUndetermined: true)
             isRequestingAccess = false
             if appState.calendarAuthorization == .fullAccess {
                 await controller.refreshEventKitCalendars()

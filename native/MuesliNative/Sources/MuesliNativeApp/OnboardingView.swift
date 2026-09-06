@@ -632,7 +632,7 @@ struct OnboardingView: View {
         guard !calendarGranted, grantingPermissionName == nil else { return }
         grantingPermissionName = "Calendar"
         Task { @MainActor in
-            await controller.refreshCalendarAccess()
+            await controller.refreshCalendarAccess(requestIfUndetermined: true)
             grantingPermissionName = nil
             calendarGranted = appState.calendarAuthorization == .fullAccess
             if calendarGranted {
