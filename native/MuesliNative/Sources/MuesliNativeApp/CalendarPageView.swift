@@ -1120,8 +1120,11 @@ struct CalendarPageView: View {
     /// list's section builder also skips cancelled below, but the shared
     /// filter keeps month chips and day rows consistent).
     private var visibleCalendarEvents: [UnifiedCalendarEvent] {
-        guard appState.config.calendarHideCancelled else { return appState.calendarEvents.filter { !$0.isAllDay } }
-        return appState.calendarEvents.filter { !$0.isAllDay && !($0.isCancelled || $0.isDeclined) }
+        // Same visibility rules as the Add-to-Event picker: everything except
+        // cancelled/declined when the hide toggle is on. All-day events show
+        // in both (they are attachable, linkable calendar items).
+        guard appState.config.calendarHideCancelled else { return appState.calendarEvents }
+        return appState.calendarEvents.filter { !($0.isCancelled || $0.isDeclined) }
     }
 
     /// Calendar-event → recorded meeting. Events link to meetings by the
@@ -1394,6 +1397,14 @@ private enum CalendarPageLogic {
     enum rangeFormatter {
         static func timeRange(for event: UnifiedCalendarEvent) -> String {
             let calendar = Calendar.current
+            if event.isAllDay {
+                let startDay = CalendarPageLogic.shortDateFormatter.string(from: event.startDate)
+                let endDay = CalendarPageLogic.shortDateFormatter.string(from: event.endDate)
+                if calendar.isDate(event.startDate, inSameDayAs: event.endDate) {
+                    return "All day"
+                }
+                return "\(startDay) – \(endDay)"
+            }
             let startTime = CalendarPageLogic.startTimeFormatter.string(from: event.startDate)
             let endTime = CalendarPageLogic.startTimeFormatter.string(from: event.endDate)
             if calendar.isDate(event.startDate, inSameDayAs: event.endDate) {

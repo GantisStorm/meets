@@ -1679,8 +1679,13 @@ struct MeetingDetailView: View {
     /// search query when one is typed.
     private var eventPickerEligibleEvents: [UnifiedCalendarEvent] {
         let query = eventSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Same visibility rules as the Calendar page: cancelled/declined hide
+        // only while the hide toggle is on. All-day events always show.
+        let hideCancelled = appState.config.calendarHideCancelled
         return appState.calendarEvents.filter { event in
-            guard !event.isCancelled, !event.isDeclined else { return false }
+            if hideCancelled {
+                guard !event.isCancelled, !event.isDeclined else { return false }
+            }
             if query.isEmpty { return true }
             return event.title.localizedCaseInsensitiveContains(query)
         }
