@@ -684,7 +684,7 @@ struct MeetingsView: View {
                         .font(.system(size: 12, weight: .semibold))
                         .lineLimit(1)
                 }
-                .foregroundStyle(MuesliTheme.backgroundBase)
+                .foregroundStyle(appState.isMeetingRecording || appState.isMeetingStarting ? MuesliTheme.textPrimary : MuesliTheme.accentContent)
                 .padding(.horizontal, MuesliTheme.spacing12)
                 .padding(.vertical, 8)
                 .background(appState.isMeetingRecording || appState.isMeetingStarting ? MuesliTheme.surfacePrimary : MuesliTheme.accent)
@@ -722,29 +722,6 @@ struct MeetingsView: View {
 
             sortButton
             dateFilterButton
-
-            Button {
-                controller.showMeetingTemplatesManager()
-            } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: "square.and.pencil")
-                        .font(.system(size: 11, weight: .medium))
-                    Text("Manage Templates")
-                        .font(.system(size: 12, weight: .semibold))
-                        .lineLimit(1)
-                }
-                .foregroundStyle(MuesliTheme.textPrimary)
-                .padding(.horizontal, MuesliTheme.spacing12)
-                .padding(.vertical, 8)
-                .background(MuesliTheme.surfacePrimary)
-                .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
-                .overlay(
-                    RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall)
-                        .strokeBorder(MuesliTheme.surfaceBorder, lineWidth: 1)
-                )
-            }
-            .buttonStyle(.plain)
-            .fixedSize()
         }
         .fixedSize(horizontal: true, vertical: false)
     }

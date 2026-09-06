@@ -3477,7 +3477,11 @@ public final class MuesliController: NSObject {
     /// - Returns: True when the recording started, false otherwise (already
     ///   recording, no calendar access, model missing, ...).
     @discardableResult
-    func recordCalendarEvent(_ event: UnifiedCalendarEvent) async -> Bool {
+    /// Starts a recording for a calendar event. Completed events normally
+    /// refuse (single-pick `canRecord` gate); `allowAdditionalRecording`
+    /// bypasses that gate so an event can hold multiple recordings — the
+    /// placeholder check below still prevents duplicating an empty entry.
+    func recordCalendarEvent(_ event: UnifiedCalendarEvent, allowAdditionalRecording: Bool = false) async -> Bool {
         guard calendarEventKitManager.canReadEvents else {
             fputs("[calendar-linkage] recordCalendarEvent declined: no calendar read access\n", stderr)
             return false
@@ -3488,7 +3492,7 @@ public final class MuesliController: NSObject {
             now: Date(),
             isCurrentlyRecording: isMeetingRecording() || isStartingMeetingRecording
         )
-        guard linkage.canRecord else {
+        guard linkage.canRecord || allowAdditionalRecording else {
             fputs("[calendar-linkage] recordCalendarEvent declined: event not recordable (state=\(linkage.state.tintName))\n", stderr)
             return false
         }

@@ -279,6 +279,73 @@ enum MeetingCalendarLinkage {
         }
     }
 
+    /// Every recorded meeting for a calendar event: explicit attachments
+    /// first (newest first), then the remaining matches
+    /// in precedence order (occurrence identity, bare event id with the same
+    /// series-instance rule as `linkedMeeting`, title+window fallback),
+    /// newest first within each group, deduplicated by meeting id.
+    /// `linkedMeeting` is always `.first` of this list: the single-pick
+    /// behavior is unchanged, and views that can show several recordings
+    /// (event modal) use the whole list. Folder assignment is untouched —
+    /// each meeting keeps its own `folderID`.
+    static func linkedMeetings(
+        event: UnifiedCalendarEvent,
+        meetings: [MeetingRecord],
+        now: Date = Date(),
+        additionalLinkedMeetingIDs: Set<Int64> = []
+    ) -> [MeetingRecord] {
+        var out: [MeetingRecord] = []
+        var seen = Set<Int64>()
+        func append(_ meeting: MeetingRecord) {
+            if seen.insert(meeting.id).inserted { out.append(meeting) }
+        }
+        if let first = linkedMeeting(
+            event: event, meetings: meetings, now: now,
+            additionalLinkedMeetingIDs: additionalLinkedMeetingIDs
+        ) {
+            append(first)
+        }
+        let occurrence = event.resolvedCalendarOccurrence
+        let byIDDesc: (MeetingRecord, MeetingRecord) -> Bool = { $0.id > $1.id }
+        for meeting in additionalLinkedMeetingIDs
+            .compactMap({ id in meetings.first { $0.id == id } })
+            .sorted(by: byIDDesc) {
+            append(meeting)
+        }
+        for meeting in meetings
+            .filter({ $0.calendarOccurrence?.identityKey == occurrence.identityKey })
+            .sorted(by: byIDDesc) {
+            append(meeting)
+        }
+        let idMatches = meetings.filter { lookupKeys(for: $0).contains(event.id) }
+        if occurrence.seriesID != nil {
+            for meeting in idMatches.filter({ meeting in
+                guard let recordedStart = meeting.calendarOccurrence?.originalStartTime else {
+                    return false
+                }
+                return abs(recordedStart.timeIntervalSince(event.startDate)) < 60
+            }).sorted(by: byIDDesc) {
+                append(meeting)
+            }
+        } else {
+            for meeting in idMatches.sorted(by: byIDDesc) { append(meeting) }
+        }
+        let start = event.startDate.addingTimeInterval(-5 * 60)
+        let end = event.endDate.addingTimeInterval(5 * 60)
+        for meeting in meetings.filter({ meeting in
+            guard meeting.calendarEventID == nil,
+                  meeting.calendarOccurrence == nil,
+                  titlesMatch(meeting.title, event.title),
+                  let meetingStart = meetingStartDate(meeting) else {
+                return false
+            }
+            return meetingStart >= start && meetingStart <= end
+        }).sorted(by: byIDDesc) {
+            append(meeting)
+        }
+        return out
+    }
+
     /// Whether a meeting's stored title should follow a calendar event's
     /// title. Auto-sync only ever overwrites a *calendar copy* of the title —
     /// never a user-authored one. Two admissible signals, deterministic:

@@ -603,29 +603,6 @@ public final class DictationStore {
         return rows
     }
 
-    public func meetingByCalendarEventID(_ calendarEventID: String) throws -> MeetingRecord? {
-        let db = try openDatabase()
-        defer { sqlite3_close(db) }
-
-        let sql = """
-        SELECT \(Self.meetingColumns)
-        FROM meetings
-        WHERE calendar_event_id = ?
-        LIMIT 1
-        """
-        var statement: OpaquePointer?
-        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
-            throw lastError(db)
-        }
-        defer { sqlite3_finalize(statement) }
-        sqlite3_bind_text(statement, 1, (calendarEventID as NSString).utf8String, -1, nil)
-
-        guard sqlite3_step(statement) == SQLITE_ROW else {
-            return nil
-        }
-        return makeMeetingRecord(statement)
-    }
-
     public func meetingByCalendarOccurrence(_ occurrence: CalendarOccurrenceReference) throws -> MeetingRecord? {
         let db = try openDatabase()
         defer { sqlite3_close(db) }

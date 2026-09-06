@@ -55,6 +55,25 @@ struct CalendarEventDetailView: View {
         linkage.linkedMeeting
     }
 
+    /// Every recording attached to this event (explicit links, occurrence
+    /// and event-id matches, title fallback), explicit first. Each keeps its
+    /// own folder assignment; the modal lists and opens each one.
+    private var linkedMeetings: [MeetingRecord] {
+        MeetingCalendarLinkage.linkedMeetings(
+            event: event,
+            meetings: appState.meetingRows,
+            additionalLinkedMeetingIDs: controller.meetingIDsLinked(toEvent: event)
+        )
+    }
+
+    private func recordingRowLabel(_ meeting: MeetingRecord) -> String {
+        if let date = MeetingCalendarLinkage.meetingStartDate(meeting) {
+            return date.formatted(.dateTime.month(.abbreviated).day().hour().minute())
+                + " · " + meeting.title
+        }
+        return meeting.title
+    }
+
     private var busy: Bool {
         appState.isMeetingRecording || appState.isMeetingStarting
     }
@@ -347,6 +366,29 @@ struct CalendarEventDetailView: View {
                 processingZone
             case .completed:
                 recordedZone()
+                if !busy {
+                    Button {
+                        Task { await controller.recordCalendarEvent(event, allowAdditionalRecording: true) }
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "record.circle")
+                                .font(.system(size: 11, weight: .semibold))
+                            Text("Record again")
+                                .font(.system(size: 12, weight: .semibold))
+                        }
+                        .foregroundStyle(MuesliTheme.textPrimary)
+                        .padding(.horizontal, MuesliTheme.spacing12)
+                        .padding(.vertical, 7)
+                        .background(MuesliTheme.surfacePrimary)
+                        .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall)
+                                .strokeBorder(MuesliTheme.surfaceBorder, lineWidth: 1)
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .help("Start another recording for this event")
+                }
             case .missed:
                 missedZone
             case .cancelledEvent:
@@ -581,6 +623,10 @@ struct CalendarEventDetailView: View {
     /// actions. Also used for cancelled-but-recorded events.
     @ViewBuilder
     private func recordedZone(openMeeting: MeetingRecord? = nil) -> some View {
+        let additionalMeetings: [MeetingRecord] = {
+            guard openMeeting == nil else { return [] }
+            return linkedMeetings.filter { $0.id != linkedMeeting?.id }
+        }()
         if let meeting = openMeeting ?? linkedMeeting {
             VStack(alignment: .leading, spacing: MuesliTheme.spacing12) {
                 HStack(spacing: 6) {
@@ -602,6 +648,17 @@ struct CalendarEventDetailView: View {
                         if hasTranscript(meeting) {
                             cleanupButton
                         }
+                    }
+                }
+                if !additionalMeetings.isEmpty {
+                    Text(additionalMeetings.count == 1
+                        ? "1 more recording for this event"
+                        : "\(additionalMeetings.count) more recordings for this event")
+                        .font(MuesliTheme.caption())
+                        .foregroundStyle(MuesliTheme.textTertiary)
+                        .padding(.top, MuesliTheme.spacing4)
+                    ForEach(additionalMeetings) { extra in
+                        openMeetingButton(extra, label: recordingRowLabel(extra), prominent: false)
                     }
                 }
             }
