@@ -3076,6 +3076,37 @@ public final class DictationStore {
     /// Event": writing the same calendar columns a recording would have
     /// written keeps every linkage consumer (calendar rows, occurrence
     /// matching, title sync) working for the attached meeting.
+    /// Clears a meeting's inline primary calendar identity (all six
+    /// calendar columns to NULL), detaching it from the event it was
+    /// recorded from or first attached to. Explicit link rows are untouched
+    /// (remove those separately); callers clear only when no attachment of
+    /// any kind should remain.
+    public func clearMeetingCalendarLink(id: Int64) throws {
+        let db = try openDatabase()
+        defer { sqlite3_close(db) }
+        let sql = """
+        UPDATE meetings
+        SET calendar_event_id = NULL,
+            calendar_occurrence_key = NULL,
+            calendar_source = NULL,
+            calendar_id = NULL,
+            calendar_series_id = NULL,
+            calendar_occurrence_start = NULL,
+            updated_at = ?
+        WHERE id = ?
+        """
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
+            throw lastError(db)
+        }
+        defer { sqlite3_finalize(statement) }
+        sqlite3_bind_double(statement, 1, Date().timeIntervalSince1970)
+        sqlite3_bind_int64(statement, 2, id)
+        guard sqlite3_step(statement) == SQLITE_DONE else {
+            throw lastError(db)
+        }
+    }
+
     public func updateMeetingCalendarLink(
         id: Int64,
         eventID: String,

@@ -3766,6 +3766,11 @@ public final class MuesliController: NSObject {
         return keys
     }
 
+    /// Detaches one event instance. When this removes the meeting's last
+    /// attachment of any kind *and* the inline primary points at the same
+    /// instance, the primary is cleared too so the meeting is genuinely
+    /// eventless (recorded provenance otherwise keeps it checked forever).
+    /// A nil occurrenceKey keeps the legacy rows-only behavior.
     func unlinkMeetingFromEvent(meetingID: Int64, eventID: String, occurrenceKey: String? = nil) async {
         do {
             try dictationStore.removeMeetingEventLink(
@@ -3773,6 +3778,14 @@ public final class MuesliController: NSObject {
                 eventID: eventID,
                 occurrenceKey: occurrenceKey
             )
+            if let occurrenceKey,
+               let meeting = meeting(id: meetingID),
+               (try? dictationStore.meetingEventLinks(meetingID: meetingID))?.isEmpty ?? false,
+               meeting.calendarEventID == eventID,
+               meeting.calendarOccurrence?.identityKey ?? occurrenceKey == occurrenceKey {
+                try dictationStore.clearMeetingCalendarLink(id: meetingID)
+                fputs("[muesli-native] cleared primary calendar link for meeting \(meetingID) (last attachment removed)\n", stderr)
+            }
             syncAppState()
             fputs("[muesli-native] unlinked meeting \(meetingID) from calendar event \(eventID)\n", stderr)
         } catch {
