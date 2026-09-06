@@ -1453,7 +1453,9 @@ struct AppConfig: Codable {
     var customLLMAPIKey: String = ""
     var customLLMModel: String = ""
     var customLLMFormat: String = CustomLLMFormat.openAI.rawValue
-    var acpAgentCommand: String = "omp acp"
+    /// Empty by default: the user picks their installed agent from the
+    /// Command dropdown first; model/reasoning options then load for it.
+    var acpAgentCommand: String = ""
     /// Last-known ACP config options per agent command (stale-while-
     /// revalidate cache so model menus populate instantly; refreshed
     /// quietly whenever an ACP branch opens). Bounded to a few entries.

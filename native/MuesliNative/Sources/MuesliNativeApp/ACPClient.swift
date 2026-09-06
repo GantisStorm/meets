@@ -3,7 +3,8 @@ import os
 
 // ACP (Agent Client Protocol) v1 client over a stdio subprocess.
 //
-// Spawns the configured agent command (default "omp acp") and drives a
+// Spawns the configured agent command (empty until the user picks an
+// installed agent from the Command dropdown) and drives a
 // minimal JSON-RPC session: initialize -> session/new -> (optional
 // session/set_config_option for model/reasoning overrides) -> session/prompt.
 // Agent output arrives as id-less "session/update" notifications whose
