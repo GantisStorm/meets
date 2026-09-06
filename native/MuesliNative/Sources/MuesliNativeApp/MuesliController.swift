@@ -3699,10 +3699,20 @@ public final class MuesliController: NSObject {
     func linkMeetingToEvent(meetingID: Int64, event: UnifiedCalendarEvent) async {
         guard let meeting = meeting(id: meetingID) else { return }
         let occurrence = event.resolvedCalendarOccurrence
-        let alreadyPrimary = meeting.calendarEventID == event.id
-            || meeting.calendarOccurrence?.eventID == event.id
+        // Primary matches only for the same instance: a meeting recorded
+        // from Thursday must still be attachable to Tuesday (same bare
+        // series id, different occurrence). Meetings without any recorded
+        // occurrence keep the legacy bare-id match.
+        let alreadyPrimary: Bool = {
+            guard meeting.calendarEventID == event.id
+                || meeting.calendarOccurrence?.eventID == event.id else { return false }
+            guard let recordedOccurrence = meeting.calendarOccurrence else { return true }
+            return recordedOccurrence.identityKey == occurrence.identityKey
+        }()
         let alreadyLinked = appState.meetingEventLinks.contains {
-            $0.meetingID == meetingID && $0.eventID == event.id
+            $0.meetingID == meetingID
+                && $0.eventID == event.id
+                && $0.occurrenceKey == occurrence.identityKey
         }
         guard !alreadyPrimary, !alreadyLinked else { return }
 
@@ -3742,11 +3752,26 @@ public final class MuesliController: NSObject {
     /// Detaches a meeting from an event attached via "Add to Event". The
     /// meeting's primary calendar identity (recorded from an event) is never
     /// removed through this path; only explicit link rows are deleted.
-    func unlinkMeetingFromEvent(meetingID: Int64, eventID: String) async {
+    /// Occurrence-scoped link identities for one meeting: the inline recorded
+    /// occurrence key plus every explicit row's occurrence key. The picker
+    /// matches rows against these so checking one recurring instance does not
+    /// check its whole series. (Rows predating occurrence keys match through
+    /// the legacy bare-id fallback in the view, single events only.)
+    func eventLinkIdentityKeys(toMeeting meeting: MeetingRecord) -> Set<String> {
+        var keys = Set<String>()
+        if let key = meeting.calendarOccurrence?.identityKey { keys.insert(key) }
+        for link in meetingEventLinks(meetingID: meeting.id) {
+            if let key = link.occurrenceKey { keys.insert(key) }
+        }
+        return keys
+    }
+
+    func unlinkMeetingFromEvent(meetingID: Int64, eventID: String, occurrenceKey: String? = nil) async {
         do {
             try dictationStore.removeMeetingEventLink(
                 meetingID: meetingID,
-                eventID: eventID
+                eventID: eventID,
+                occurrenceKey: occurrenceKey
             )
             syncAppState()
             fputs("[muesli-native] unlinked meeting \(meetingID) from calendar event \(eventID)\n", stderr)
@@ -3779,9 +3804,10 @@ public final class MuesliController: NSObject {
     /// `MeetingCalendarLinkage.linkedMeeting` receives these as
     /// `additionalLinkedMeetingIDs`.
     func meetingIDsLinked(toEvent event: UnifiedCalendarEvent) -> Set<Int64> {
+        let key = event.resolvedCalendarOccurrence.identityKey
         let linkIDs = appState.meetingEventLinks
             .filter { link in
-                link.eventID == event.id
+                link.occurrenceKey.map({ $0 == key }) ?? (link.eventID == event.id)
                     || appState.meetingRows.contains {
                         $0.id == link.meetingID
                             && link.occurrenceKey != nil

@@ -308,7 +308,7 @@ public struct MeetingEventLink: Identifiable, Equatable, Sendable {
     public let addedAt: Date
 
     public var id: String {
-        "\(meetingID):\(eventID)"
+        "\(meetingID):\(eventID):\(occurrenceKey ?? "")"
     }
 
     public init(

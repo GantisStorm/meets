@@ -112,13 +112,16 @@ public final class DictationStore {
         -- Explicit "Add to Event" attachments: a meeting can be tied to one
         -- or more calendar events, in addition to its primary
         -- calendar_event_id column. Cascade-deleted with the meeting.
+        -- The primary key includes occurrence_key so one meeting can attach
+        -- to several instances of a recurring series (each instance is a
+        -- separate schedulable item with its own occurrence identity).
         CREATE TABLE IF NOT EXISTS meeting_event_links (
             meeting_id INTEGER NOT NULL REFERENCES meetings(id) ON DELETE CASCADE,
             event_id TEXT NOT NULL,
             calendar_id TEXT,
             occurrence_key TEXT,
             added_at REAL NOT NULL DEFAULT 0,
-            PRIMARY KEY (meeting_id, event_id)
+            PRIMARY KEY (meeting_id, event_id, occurrence_key)
         );
         CREATE INDEX IF NOT EXISTS idx_meeting_event_links_event
             ON meeting_event_links(event_id);
@@ -212,6 +215,45 @@ public final class DictationStore {
         // databases lacked the insights tables and the Insights page failed
         // with "no such table: insights_cache_meta".
         try migrateInsightsCache(db: db)
+        try migrateMeetingEventLinks(db: db)
+    }
+
+    /// Widens meeting_event_links to PRIMARY KEY (meeting_id, event_id,
+    /// occurrence_key). Pre-existing rows keep working: they copy over
+    /// unchanged (legacy rows simply carry a NULL occurrence key).
+    private func migrateMeetingEventLinks(db: OpaquePointer?) throws {
+        var needsMigration = false
+        do {
+            let sql = "SELECT sql FROM sqlite_master WHERE name = 'meeting_event_links'"
+            var statement: OpaquePointer?
+            guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else { return }
+            defer { sqlite3_finalize(statement) }
+            if sqlite3_step(statement) == SQLITE_ROW,
+               let text = sqlite3_column_text(statement, 0) {
+                let ddl = String(cString: text)
+                needsMigration = !ddl.contains("PRIMARY KEY (meeting_id, event_id, occurrence_key)")
+            }
+        }
+        guard needsMigration else { return }
+        try exec("""
+        ALTER TABLE meeting_event_links RENAME TO meeting_event_links_legacy;
+        CREATE TABLE meeting_event_links (
+            meeting_id INTEGER NOT NULL REFERENCES meetings(id) ON DELETE CASCADE,
+            event_id TEXT NOT NULL,
+            calendar_id TEXT,
+            occurrence_key TEXT,
+            added_at REAL NOT NULL DEFAULT 0,
+            PRIMARY KEY (meeting_id, event_id, occurrence_key)
+        );
+        INSERT INTO meeting_event_links
+            (meeting_id, event_id, calendar_id, occurrence_key, added_at)
+            SELECT meeting_id, event_id, calendar_id, occurrence_key, added_at
+            FROM meeting_event_links_legacy
+            GROUP BY meeting_id, event_id, occurrence_key;
+        DROP TABLE meeting_event_links_legacy;
+        CREATE INDEX IF NOT EXISTS idx_meeting_event_links_event
+            ON meeting_event_links(event_id);
+        """, db: db)
     }
 
     private func migrateInsightsCache(db: OpaquePointer?) throws {
@@ -1114,17 +1156,28 @@ public final class DictationStore {
     }
 
     /// Removes an explicit "Add to Event" attachment. Safe to call when no
-    /// such link exists.
+    /// such link exists. Pass the occurrence key to remove exactly one
+    /// recurring instance; nil removes every row for the meeting+event pair
+    /// (legacy behavior, kept for callers without occurrence context).
     public func removeMeetingEventLink(
         meetingID: Int64,
-        eventID: String
+        eventID: String,
+        occurrenceKey: String? = nil
     ) throws {
         let db = try openDatabase()
         defer { sqlite3_close(db) }
-        let sql = """
-        DELETE FROM meeting_event_links
-        WHERE meeting_id = ? AND event_id = ?
-        """
+        let sql: String
+        if occurrenceKey != nil {
+            sql = """
+            DELETE FROM meeting_event_links
+            WHERE meeting_id = ? AND event_id = ? AND occurrence_key = ?
+            """
+        } else {
+            sql = """
+            DELETE FROM meeting_event_links
+            WHERE meeting_id = ? AND event_id = ?
+            """
+        }
         var statement: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
             throw lastError(db)
@@ -1132,6 +1185,9 @@ public final class DictationStore {
         defer { sqlite3_finalize(statement) }
         sqlite3_bind_int64(statement, 1, meetingID)
         sqlite3_bind_text(statement, 2, (eventID as NSString).utf8String, -1, nil)
+        if let occurrenceKey {
+            bindOptionalText(occurrenceKey, at: 3, statement: statement)
+        }
         guard sqlite3_step(statement) == SQLITE_DONE else {
             throw lastError(db)
         }

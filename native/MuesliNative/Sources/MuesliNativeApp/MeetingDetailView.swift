@@ -1765,9 +1765,28 @@ struct MeetingDetailView: View {
         }
     }
 
+    /// Whether a picker row shows checked. Occurrence identity decides for
+    /// recurring series (one checked instance must not check the series);
+    /// the bare event id only counts for single events and legacy links.
+    private func isEventLinked(
+        _ event: UnifiedCalendarEvent,
+        linkedIDs: Set<String>,
+        linkedKeys: Set<String>
+    ) -> Bool {
+        if linkedKeys.contains(event.resolvedCalendarOccurrence.identityKey) {
+            return true
+        }
+        return event.resolvedCalendarOccurrence.seriesID == nil
+            && linkedIDs.contains(event.id)
+    }
+
     @ViewBuilder
     private func eventPopoverContent(for meeting: MeetingRecord) -> some View {
         let linkedIDs = linkedEventIDs(for: meeting)
+        let linkedKeys = controller.eventLinkIdentityKeys(toMeeting: meeting)
+        // Unlinking the last remaining attachment would strand the meeting
+        // with zero events, so the sole linked row is locked (disabled).
+        let totalAttachments = linkedKeys.isEmpty ? linkedIDs.count : linkedKeys.count
         let upcoming = eventPickerUpcomingEvents
         let past = eventPickerPastEvents
         VStack(alignment: .leading, spacing: 0) {
@@ -1822,20 +1841,24 @@ struct MeetingDetailView: View {
                         if !upcoming.isEmpty {
                             eventPopoverSectionHeader("Upcoming")
                             ForEach(upcoming, id: \.pickerRowID) { event in
+                                let linked = isEventLinked(event, linkedIDs: linkedIDs, linkedKeys: linkedKeys)
                                 eventPopoverLinkRow(
                                     event: event,
                                     meeting: meeting,
-                                    isLinked: linkedIDs.contains(event.id)
+                                    isLinked: linked,
+                                    canUnlink: !linked || totalAttachments > 1
                                 )
                             }
                         }
                         if !past.isEmpty {
                             eventPopoverSectionHeader("Past")
                             ForEach(past, id: \.pickerRowID) { event in
+                                let linked = isEventLinked(event, linkedIDs: linkedIDs, linkedKeys: linkedKeys)
                                 eventPopoverLinkRow(
                                     event: event,
                                     meeting: meeting,
-                                    isLinked: linkedIDs.contains(event.id)
+                                    isLinked: linked,
+                                    canUnlink: !linked || totalAttachments > 1
                                 )
                             }
                         }
@@ -1860,16 +1883,22 @@ struct MeetingDetailView: View {
     private func eventPopoverLinkRow(
         event: UnifiedCalendarEvent,
         meeting: MeetingRecord,
-        isLinked: Bool
+        isLinked: Bool,
+        canUnlink: Bool = true
     ) -> some View {
-        eventPopoverRow(event: event, isLinked: isLinked) {
+        eventPopoverRow(
+            event: event,
+            isLinked: isLinked,
+            disabled: isLinked && !canUnlink,
+            disabledHelp: "A meeting needs at least one linked event"
+        ) {
             let meetingID = meeting.id
-            let eventID = event.id
             Task {
                 if isLinked {
                     await controller.unlinkMeetingFromEvent(
                         meetingID: meetingID,
-                        eventID: eventID
+                        eventID: event.id,
+                        occurrenceKey: event.resolvedCalendarOccurrence.identityKey
                     )
                 } else {
                     await controller.linkMeetingToEvent(
@@ -1885,6 +1914,8 @@ struct MeetingDetailView: View {
     private func eventPopoverRow(
         event: UnifiedCalendarEvent,
         isLinked: Bool,
+        disabled: Bool = false,
+        disabledHelp: String? = nil,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
@@ -1914,7 +1945,8 @@ struct MeetingDetailView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help(isLinked ? "Remove this meeting from \(event.title)" : "Add this meeting to \(event.title)")
+        .disabled(disabled)
+        .help(disabled ? (disabledHelp ?? "Not available") : (isLinked ? "Remove this meeting from \(event.title)" : "Add this meeting to \(event.title)"))
     }
 
     private var transcriptCTA: some View {
