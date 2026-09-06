@@ -650,6 +650,7 @@ struct SettingsView: View {
                 Text("Permanently delete all saved meetings, notes, transcripts, and audio.")
                     .font(MuesliTheme.caption())
                     .foregroundStyle(MuesliTheme.textTertiary)
+                    .padding(.top, MuesliTheme.spacing8)
             }
         }
     }
