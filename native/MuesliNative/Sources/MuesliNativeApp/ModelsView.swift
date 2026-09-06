@@ -55,11 +55,10 @@ struct ModelsView: View {
         let active = appState.selectedBackend
         _selectedParakeetModel = State(initialValue: BackendOption.parakeetFamily.contains(active) ? active.model : BackendOption.parakeetUnified.model)
         _selectedWhisperModel = State(initialValue: BackendOption.whisperFamily.contains(active) ? active.model : BackendOption.whisperSmall.model)
-        _showExperimental = State(initialValue: appState.activeFeatureTourTarget == .experimentalModels)
+        _showExperimental = State(initialValue: false)
     }
 
     var body: some View {
-        ScrollViewReader { proxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: MuesliTheme.spacing24) {
                     Text("Models")
@@ -77,8 +76,6 @@ struct ModelsView: View {
                     }
                     .pickerStyle(.segmented)
                     .frame(maxWidth: 520)
-                    .id(FeatureTourTarget.modelLibrary.rawValue)
-                    .featureTourTarget(.modelLibrary)
 
                     selectedCategoryContent
                 }
@@ -87,17 +84,6 @@ struct ModelsView: View {
             .padding(.bottom, MuesliTheme.spacing32)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .onAppear {
-                revealFeatureTourTargetIfNeeded(using: proxy)
-            }
-            .onChange(of: activeFeatureTourTarget) { _, target in
-                guard target == .modelLibrary
-                        || target == .appleSpeechCard
-                        || target == .streamingModels
-                        || target == .experimentalModels else { return }
-                revealFeatureTourTargetIfNeeded(using: proxy)
-            }
-        }
         .background(MuesliTheme.backgroundBase)
         .onAppear {
             checkDownloadedModels()
@@ -152,16 +138,12 @@ struct ModelsView: View {
         switch appState.selectedModelsCategory {
         case .transcription:
             ForEach(BackendOption.systemManaged, id: \.model) { option in
-                let featureTourTarget: FeatureTourTarget? = option.backend == BackendOption.appleSpeechAnalyzer.backend
-                    ? .appleSpeechCard
-                    : nil
                 modelCard(
                     option: option,
                     logo: logoForBackend(option),
                     downloadedLabel: "Available"
                 )
-                .id(featureTourTarget?.rawValue ?? option.model)
-                .featureTourTarget(featureTourTarget)
+                .id(option.model)
             }
 
             familyCard(
@@ -172,8 +154,7 @@ struct ModelsView: View {
                 selection: $selectedParakeetModel,
                 options: BackendOption.parakeetFamily
             )
-            .id(FeatureTourTarget.parakeetFamilyCard.rawValue)
-            .featureTourTarget(.parakeetFamilyCard)
+
 
             familyCard(
                 title: "Whisper",
@@ -212,38 +193,6 @@ struct ModelsView: View {
         }
     }
 
-    private var activeFeatureTourTarget: FeatureTourTarget? {
-        appState.activeFeatureTourTarget
-    }
-
-    private func revealFeatureTourTargetIfNeeded(using proxy: ScrollViewProxy) {
-        let target: FeatureTourTarget
-        switch activeFeatureTourTarget {
-        case .modelLibrary:
-            target = .modelLibrary
-            appState.selectedModelsCategory = .transcription
-        case .appleSpeechCard:
-            target = .appleSpeechCard
-            appState.selectedModelsCategory = .transcription
-        case .parakeetFamilyCard:
-            target = .parakeetFamilyCard
-            appState.selectedModelsCategory = .transcription
-        case .streamingModels:
-            target = .streamingModels
-            appState.selectedModelsCategory = .streaming
-        case .experimentalModels:
-            target = .experimentalModels
-            appState.selectedModelsCategory = .transcription
-            showExperimental = true
-        default:
-            return
-        }
-        Task { @MainActor in
-            await Task.yield()
-            proxy.scrollTo(target.rawValue, anchor: .center)
-        }
-    }
-
     private var streamingSection: some View {
         VStack(alignment: .leading, spacing: MuesliTheme.spacing12) {
             VStack(alignment: .leading, spacing: MuesliTheme.spacing4) {
@@ -257,8 +206,7 @@ struct ModelsView: View {
             }
             .padding(.leading, 2)
             .padding(.top, MuesliTheme.spacing8)
-            .id(FeatureTourTarget.streamingModels.rawValue)
-            .featureTourTarget(.streamingModels)
+
 
             ForEach(BackendOption.streaming, id: \.model) { option in
                 if let liveCaptionBackend = MeetingLiveCaptionBackend(rawValue: option.backend) {
@@ -511,7 +459,6 @@ struct ModelsView: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .featureTourTarget(.experimentalModels)
 
             if showExperimental {
                 VStack(spacing: MuesliTheme.spacing12) {
@@ -528,7 +475,6 @@ struct ModelsView: View {
             RoundedRectangle(cornerRadius: MuesliTheme.cornerMedium)
                 .strokeBorder(MuesliTheme.surfaceBorder, lineWidth: 1)
         )
-        .id(FeatureTourTarget.experimentalModels.rawValue)
     }
 
     private var cohereLanguageSelection: Binding<CohereTranscribeLanguage> {

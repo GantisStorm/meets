@@ -160,8 +160,7 @@ struct OnboardingProgressTests {
             requestedStep: 4,
             permissions: permissions,
             useCase: .dictation,
-            permissionsStep: 3,
-            dictationTestStep: 4
+            permissionsStep: 3
         )
 
         #expect(OnboardingPermissionGate.hasRequiredDictationPermissions(permissions))
@@ -182,8 +181,7 @@ struct OnboardingProgressTests {
             requestedStep: 4,
             permissions: permissions,
             useCase: .dictation,
-            permissionsStep: 3,
-            dictationTestStep: 4
+            permissionsStep: 3
         )
 
         #expect(!OnboardingPermissionGate.hasRequiredDictationPermissions(permissions))
@@ -204,8 +202,7 @@ struct OnboardingProgressTests {
             requestedStep: 5,
             permissions: permissions,
             useCase: .meetings,
-            permissionsStep: 3,
-            dictationTestStep: 4
+            permissionsStep: 3
         )
 
         #expect(!OnboardingPermissionGate.hasRequiredPermissions(permissions, for: .meetings))
@@ -226,8 +223,7 @@ struct OnboardingProgressTests {
             requestedStep: 5,
             permissions: permissions,
             useCase: .meetings,
-            permissionsStep: 3,
-            dictationTestStep: 4
+            permissionsStep: 3
         )
 
         #expect(OnboardingPermissionGate.hasRequiredPermissions(permissions, for: .meetings))
@@ -248,8 +244,7 @@ struct OnboardingProgressTests {
             requestedStep: 5,
             permissions: permissions,
             useCase: .voiceNotes,
-            permissionsStep: 3,
-            dictationTestStep: 4
+            permissionsStep: 3
         )
 
         #expect(OnboardingPermissionGate.hasRequiredVoiceNotesPermissions(permissions))
@@ -271,8 +266,7 @@ struct OnboardingProgressTests {
             requestedStep: 4,
             permissions: permissions,
             useCase: .voiceNotes,
-            permissionsStep: 3,
-            dictationTestStep: 4
+            permissionsStep: 3
         )
 
         #expect(!OnboardingPermissionGate.hasRequiredVoiceNotesPermissions(permissions))

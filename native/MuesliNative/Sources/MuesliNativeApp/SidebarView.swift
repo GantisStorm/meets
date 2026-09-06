@@ -188,9 +188,6 @@ struct SidebarView: View {
         .buttonStyle(.plain)
         .help(label)
         .accessibilityLabel(label)
-        // Match the expanded rows so a tour targeting the sidebar keeps its
-        // spotlight when the rail is collapsed mid-tour.
-        .featureTourTarget(tab == .meetings ? .meetingsSidebar : nil)
     }
 
     private var expandedSidebar: some View {
@@ -369,7 +366,6 @@ struct SidebarView: View {
             )
             .contentShape(Rectangle())
             .padding(.horizontal, sidebarRowOuterPadding)
-            .featureTourTarget(.meetingsSidebar)
 
             if meetingsExpanded {
                 let folderTree = folderTreePresentation

@@ -1876,31 +1876,6 @@ struct AppConfigTests {
         #expect(!OnboardingUseCase.voiceNotes.includesMeetings)
     }
 
-    @Test("voice notes escape hatch is available for every dictation selection")
-    func voiceNotesEscapeHatchPreservesOtherCapabilities() {
-        #expect(OnboardingUseCase.dictation.canSwitchToVoiceNotesOnly)
-        #expect(OnboardingUseCase.dictationAndMeetings.canSwitchToVoiceNotesOnly)
-        #expect(!OnboardingUseCase.meetings.canSwitchToVoiceNotesOnly)
-        #expect(!OnboardingUseCase.voiceNotes.canSwitchToVoiceNotesOnly)
-        #expect(OnboardingUseCase.dictationAndMeetings.replacingDictationWithVoiceNotes == .voiceNotesAndMeetings)
-    }
-
-    @Test("onboarding use cases preserve the union of selected capabilities")
-    func onboardingUseCaseCapabilityUnion() {
-        let voiceAndMeetings = OnboardingUseCase.voiceNotes.toggling(.meetings)
-        #expect(voiceAndMeetings == .voiceNotesAndMeetings)
-        #expect(voiceAndMeetings.includesVoiceNotes)
-        #expect(!voiceAndMeetings.includesDictation)
-        #expect(voiceAndMeetings.includesMeetings)
-
-        let everything = voiceAndMeetings.toggling(.dictation)
-        #expect(everything == .everything)
-        #expect(everything.capabilities == OnboardingUseCase.allCapabilities)
-
-        #expect(everything.toggling(.voiceNotes) == .dictationAndMeetings)
-        #expect(OnboardingUseCase.dictation.toggling(.dictation) == .dictation)
-    }
-
     @Test("scheduled meeting notifications inherit legacy detection opt-out")
     func scheduledMeetingNotificationsInheritLegacyDetectionOptOut() throws {
         let json = """
@@ -2538,41 +2513,6 @@ struct HotkeyMonitorTests {
 
         #expect(consumed)
         #expect(cancelCount == 1)
-    }
-
-    @Test("Muesli synthetic copy does not cancel an active Fn hold")
-    @MainActor
-    func syntheticCopyDoesNotCancelFnHold() {
-        let scheduler = ManualHotkeyScheduler()
-        let monitor = scheduler.makeMonitor(prepareDelay: 0.02, startDelay: 0.05)
-        monitor.configure(keyCode: 63)
-        monitor.doubleTapEnabled = false
-        var events: [String] = []
-        monitor.onPrepare = { events.append("prepare") }
-        monitor.onStart = { events.append("start") }
-        monitor.onStop = { events.append("stop") }
-        monitor.onCancel = { events.append("cancel") }
-
-        monitor.handleFlagsChanged(keyCode: 63, flags: .function)
-        scheduler.advance(by: 0.03)
-
-        guard let source = CGEventSource(stateID: .combinedSessionState),
-              let copyKeyDown = CGEvent(
-                keyboardEventSource: source,
-                virtualKey: 8,
-                keyDown: true
-              ),
-              let copyEvent = NSEvent(cgEvent: copyKeyDown) else {
-            // Headless CI sessions may not be able to construct synthetic events.
-            return
-        }
-        MuesliSyntheticKeyboardEvent.mark(copyKeyDown)
-        monitor.handleEventForTests(copyEvent)
-
-        scheduler.advance(by: 0.03)
-        monitor.handleFlagsChanged(keyCode: 63, flags: [])
-
-        #expect(events == ["prepare", "start", "stop"])
     }
 }
 

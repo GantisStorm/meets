@@ -159,9 +159,6 @@ final class AppState {
     var insightsInitialSection: InsightsSection = .meetings
     var selectedSettingsPane: SettingsPane = .general
     var selectedModelsCategory: ModelsCategory = .transcription
-    var pendingFeatureTourInvitation: FeatureTour?
-    var activeFeatureTour: FeatureTour?
-    var featureTourStepIndex: Int = 0
 
     // Computed
     var selectedMeeting: MeetingRecord? {

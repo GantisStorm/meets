@@ -34,10 +34,9 @@ enum OnboardingPermissionGate {
         requestedStep: Int,
         permissions: OnboardingPermissionSnapshot,
         useCase: OnboardingUseCase,
-        permissionsStep: Int,
-        dictationTestStep: Int
+        permissionsStep: Int
     ) -> Int {
-        let gatedStep = useCase.includesPushToTalk ? dictationTestStep : permissionsStep + 1
+        let gatedStep = permissionsStep + 1
         if requestedStep >= gatedStep && !hasRequiredPermissions(permissions, for: useCase) {
             return permissionsStep
         }

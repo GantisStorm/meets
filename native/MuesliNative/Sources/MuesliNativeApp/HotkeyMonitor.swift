@@ -4,20 +4,6 @@ import Carbon.HIToolbox
 import Foundation
 import MuesliCore
 
-enum MuesliSyntheticKeyboardEvent {
-    // "MUESLI" encoded as a small Int64. CGEvent preserves eventSourceUserData
-    // when an injected event is surfaced through NSEvent monitors.
-    static let userDataMarker: Int64 = 0x4D_55_45_53_4C_49
-
-    static func mark(_ event: CGEvent) {
-        event.setIntegerValueField(.eventSourceUserData, value: userDataMarker)
-    }
-
-    static func isMarked(_ event: NSEvent) -> Bool {
-        event.cgEvent?.getIntegerValueField(.eventSourceUserData) == userDataMarker
-    }
-}
-
 enum HotkeyTriggerTiming {
     static let defaultThresholdMilliseconds = 250
     static let defaultMeetingThresholdMilliseconds = 600
@@ -291,10 +277,6 @@ final class HotkeyMonitor {
 
     @discardableResult
     private func handle(_ event: NSEvent) -> Bool {
-        // Clipboard copy/paste and direct typing generate their own keyboard
-        // events. They must not look like a second physical key and cancel an
-        // Fn/hold hotkey that is currently preparing or recording.
-        guard !MuesliSyntheticKeyboardEvent.isMarked(event) else { return false }
         if isCombinationMode {
             return handleCombination(event)
         }
@@ -480,7 +462,7 @@ final class HotkeyMonitor {
     }
 
     /// Carbon owns the registered combination, but it does not deliver Escape.
-    /// Keep narrow monitors so an active global Quill session remains cancellable.
+    /// Keep narrow monitors so an active global hotkey session remains cancellable.
     private func startRegisteredCombinationEscapeMonitors() {
         globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard event.keyCode == 53 else { return }

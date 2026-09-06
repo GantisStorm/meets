@@ -17,8 +17,6 @@ struct MuesliCLITests {
         #expect(names.contains("meetings list"))
         #expect(names.contains("meetings get"))
         #expect(names.contains("meetings update-notes"))
-        #expect(names.contains("dictations list"))
-        #expect(names.contains("dictations get"))
 
         let transcribeSpec = payload.commands.first { $0.name == "transcribe" }
         #expect(transcribeSpec?.usage.contains("nemotron35") == true)
@@ -204,31 +202,6 @@ struct MuesliCLITests {
         #expect(listRow.selectedTemplateName == "Weekly Team Meeting")
         #expect(listRow.selectedTemplateKind == "builtin")
         #expect(detailPayload.selectedTemplatePrompt == "## Weekly Overview")
-    }
-
-    @Test("dictation CLI payloads do not expose local target app metadata")
-    func dictationPayloadExcludesTargetAppMetadata() throws {
-        let record = DictationRecord(
-            id: 7,
-            timestamp: "2026-08-16T10:00:00Z",
-            durationSeconds: 2,
-            rawText: "Hello Notes",
-            appContext: "cleanup context",
-            wordCount: 2,
-            targetAppName: "Notes",
-            targetAppBundleID: "com.apple.Notes"
-        )
-
-        for payload in [
-            try JSONEncoder().encode(DictationListRow(record)),
-            try JSONEncoder().encode(DictationDetailPayload(record)),
-        ] {
-            let object = try #require(JSONSerialization.jsonObject(with: payload) as? [String: Any])
-            #expect(object["targetAppName"] == nil)
-            #expect(object["targetAppBundleID"] == nil)
-            #expect(object["target_app_name"] == nil)
-            #expect(object["target_app_bundle_id"] == nil)
-        }
     }
 
     @Test("transcribe validation rejects unsupported file extensions")

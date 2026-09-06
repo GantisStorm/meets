@@ -93,21 +93,6 @@ public struct MuesliQwen3RoPE: Sendable {
         }
     }
 
-    /// Compute cos and sin embeddings for a given position.
-    ///
-    /// Returns (cos, sin) each of shape [headDim], suitable for creating
-    /// CoreML input tensors of shape [1, 1, headDim].
-    public func compute(position: Int) -> (cos: [Float], sin: [Float]) {
-        guard position < maxPosition else {
-            return computeDynamic(position: position)
-        }
-        let offset = position * headDim
-        return (
-            cos: Array(cosTable[offset..<(offset + headDim)]),
-            sin: Array(sinTable[offset..<(offset + headDim)])
-        )
-    }
-
     /// Compute cos and sin embeddings for a contiguous range of positions.
     ///
     /// Returns flat arrays of length `count * headDim`, laid out as

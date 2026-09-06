@@ -144,17 +144,6 @@ struct MeetingSummaryClientTests {
         #expect(body["reasoning"] == nil)
     }
 
-    @Test("ChatGPT Codex requests forward explicit output budgets")
-    func chatGPTCodexRequestForwardsOutputBudget() {
-        let body = ChatGPTResponsesClient.requestBody(
-            systemPrompt: "System",
-            userPrompt: "User",
-            model: "gpt-5.6-terra",
-            maxOutputTokens: QuilModelPolicy.remoteMaximumOutputTokens
-        )
-
-        #expect(body["max_output_tokens"] as? Int == QuilModelPolicy.remoteMaximumOutputTokens)
-    }
 
     @Test("ChatGPT Codex parser reads top-level output text")
     func chatGPTCodexParserReadsTopLevelOutputText() {

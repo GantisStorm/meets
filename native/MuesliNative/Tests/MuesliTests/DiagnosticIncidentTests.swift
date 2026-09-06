@@ -13,96 +13,9 @@ struct DiagnosticIncidentTests {
         architecture: "arm64"
     )
 
-    @Test("schema v2 omits arbitrary error details and correlates by incident ID")
-    func unknownErrorIsStrictlyRedacted() {
-        let incidentID = UUID(uuidString: "00000000-0000-0000-0000-000000000001")!
-        let error = NSError(
-            domain: "PrivateDomain./Users/alice@example.com",
-            code: 42,
-            userInfo: [
-                NSLocalizedDescriptionKey: "Secret transcript at /Users/alice/private.wav?token=abc123"
-            ]
-        )
-        let incident = DiagnosticIncident(
-            id: incidentID,
-            kind: .dictationTranscriptionFailed,
-            stage: .standardDictationTranscribe,
-            backendOption: .parakeetMultilingual,
-            error: error,
-            metadata: metadata
-        )
-
-        let params = incident.telemetryParameters
-        #expect(incident.telemetryErrorID == "Muesli.Diagnostic.dictation_transcription_failed.unclassified")
-        #expect(incident.telemetryCategory == .thrownException)
-        #expect(incident.userImpact == .operationBlocked)
-        #expect(params["diagnostic.schema_version"] == "2")
-        #expect(params["diagnostic.incident_id"] == incidentID.uuidString)
-        #expect(params["diagnostic.stage"] == "standard_dictation_transcribe")
-        #expect(params["diagnostic.backend"] == "fluidaudio")
-        #expect(params["diagnostic.model"] == "FluidInference/parakeet-tdt-0.6b-v3-coreml")
-        #expect(params["diagnostic.error_known"] == "false")
-        #expect(params["diagnostic.error_signature"] == "unclassified")
-        #expect(params["diagnostic.error_area"] == "unknown")
-        #expect(params["diagnostic.error_domain"] == nil)
-        #expect(params["diagnostic.error_code"] == nil)
-        #expect(params["diagnostic.error_summary"] == nil)
-        #expect(params["diagnostic.app_version"] == nil)
-        #expect(params["diagnostic.build_number"] == nil)
-        #expect(params.keys.allSatisfy { !$0.hasPrefix("TelemetryDeck.") })
-
-        let allOutput = params.values.joined(separator: " ") + incident.issueBody
-        for forbidden in ["PrivateDomain", "/Users/", "alice", "private.wav", "token=", "Secret transcript"] {
-            #expect(!allOutput.contains(forbidden))
-        }
-        #expect(incident.issueBody.contains("Incident ID: \(incidentID.uuidString)"))
-        #expect(incident.issueBody.contains("Error domain: unclassified"))
-        #expect(incident.issueBody.contains("private error details were omitted"))
-        #expect(incident.errorDisplayIdentifier == "unclassified")
-    }
-
-    @Test("known internal error codes emit stable allowlisted fingerprints")
-    func knownInternalErrorCodesIncludeMeaning() {
-        let incident = DiagnosticIncident(
-            kind: .dictationAudioFailed,
-            stage: .dictationAudioSession,
-            backendOption: nil,
-            error: NSError(domain: "MicrophoneRecorder", code: 3),
-            metadata: metadata
-        )
-
-        #expect(incident.telemetryErrorID == "Muesli.Diagnostic.dictation_audio_failed.microphonerecorder.3")
-        #expect(incident.errorMeaning?.summary == "Preferred microphone input could not be selected")
-        #expect(incident.errorMeaning?.area == "audio_route_selection")
-        #expect(incident.telemetryParameters["diagnostic.error_known"] == "true")
-        #expect(incident.telemetryParameters["diagnostic.error_signature"] == "microphonerecorder.3")
-        #expect(incident.telemetryParameters["diagnostic.error_area"] == "audio_route_selection")
-        #expect(incident.telemetryParameters["diagnostic.error_domain"] == "MicrophoneRecorder")
-        #expect(incident.telemetryParameters["diagnostic.error_code"] == "3")
-        #expect(incident.telemetryParameters["diagnostic.error_summary"] == nil)
-        #expect(incident.issueBody.contains("Error meaning: Preferred microphone input could not be selected"))
-        #expect(incident.errorDisplayIdentifier == "MicrophoneRecorder 3")
-    }
-
     @Test("signature tokens collapse adjacent separators deterministically")
     func signatureTokensCollapseAdjacentSeparators() {
         #expect(DiagnosticErrorCatalog.signatureToken("Foo...Bar///Baz") == "foo_bar_baz")
-    }
-
-    @Test("observed FluidAudio not-loaded error has a specific fingerprint")
-    func fluidAudioNotLoadedFingerprint() {
-        let incident = DiagnosticIncident(
-            kind: .dictationTranscriptionFailed,
-            stage: .standardDictationTranscribe,
-            backendOption: .parakeetMultilingual,
-            error: NSError(domain: "MuesliNativeApp.FluidAudioTranscriber.TranscriberError", code: 0),
-            metadata: metadata
-        )
-
-        #expect(incident.errorFingerprint.signature == "fluid_audio_models_not_loaded")
-        #expect(incident.errorFingerprint.area == "transcription_model_state")
-        #expect(incident.errorDomain == "FluidAudioTranscriber.TranscriberError")
-        #expect(incident.errorCode == "0")
     }
 
     @Test("nil underlying errors use app-state category and allowlisted signature")
@@ -253,8 +166,8 @@ struct DiagnosticIncidentReporterTests {
         )
 
         let first = reporter.record(
-            kind: .dictationAudioFailed,
-            stage: .dictationAudioSession,
+            kind: .meetingMicrophoneCaptureFailed,
+            stage: .meetingMicrophoneCapture,
             backend: nil,
             error: NSError(domain: "MicrophoneRecorder", code: 1)
         )
@@ -264,8 +177,8 @@ struct DiagnosticIncidentReporterTests {
 
         appState.pendingDiagnosticIncident = nil
         let second = reporter.record(
-            kind: .dictationAudioFailed,
-            stage: .dictationAudioSession,
+            kind: .meetingMicrophoneCaptureFailed,
+            stage: .meetingMicrophoneCapture,
             backend: nil,
             error: NSError(domain: "MicrophoneRecorder", code: 2)
         )
@@ -282,8 +195,8 @@ struct DiagnosticIncidentReporterTests {
             onPrompt: { restartedPrompted.append($0) }
         )
         let third = restartedReporter.record(
-            kind: .dictationAudioFailed,
-            stage: .dictationAudioSession,
+            kind: .meetingMicrophoneCaptureFailed,
+            stage: .meetingMicrophoneCapture,
             backend: nil,
             error: NSError(domain: "MicrophoneRecorder", code: 3)
         )
@@ -304,8 +217,8 @@ struct DiagnosticIncidentReporterTests {
         )
 
         let incident = reporter.record(
-            kind: .dictationTranscriptionFailed,
-            stage: .standardDictationTranscribe
+            kind: .meetingProcessingFailed,
+            stage: .meetingStopProcessing
         )
 
         #expect(sent.map(\.id) == [incident.id])

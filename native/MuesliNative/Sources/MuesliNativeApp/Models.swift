@@ -1100,8 +1100,6 @@ enum OnboardingUseCase: String, Codable, CaseIterable {
     case dictationAndMeetings = "dictation_and_meetings"
     case everything = "everything"
 
-    static let allCapabilities = Set(OnboardingCapability.allCases)
-
     var capabilities: Set<OnboardingCapability> {
         switch self {
         case .voiceNotes:
@@ -1117,7 +1115,7 @@ enum OnboardingUseCase: String, Codable, CaseIterable {
         case .dictationAndMeetings:
             [.dictation, .meetings]
         case .everything:
-            Self.allCapabilities
+            [.voiceNotes, .dictation, .meetings]
         }
     }
 
@@ -1137,38 +1135,6 @@ enum OnboardingUseCase: String, Codable, CaseIterable {
         capabilities.contains(.meetings)
     }
 
-    var canSwitchToVoiceNotesOnly: Bool {
-        includesDictation && !includesVoiceNotes
-    }
-
-    func toggling(_ capability: OnboardingCapability) -> OnboardingUseCase {
-        var updated = capabilities
-        if updated.contains(capability) {
-            guard updated.count > 1 else { return self }
-            updated.remove(capability)
-        } else {
-            updated.insert(capability)
-        }
-        return Self.from(capabilities: updated)
-    }
-
-    var replacingDictationWithVoiceNotes: OnboardingUseCase {
-        var updated = capabilities
-        updated.remove(.dictation)
-        updated.insert(.voiceNotes)
-        return Self.from(capabilities: updated)
-    }
-
-    static func from(capabilities: Set<OnboardingCapability>) -> OnboardingUseCase {
-        let normalized = capabilities.isEmpty ? Set([OnboardingCapability.dictation]) : capabilities
-        if normalized == [.voiceNotes] { return .voiceNotes }
-        if normalized == [.dictation] { return .dictation }
-        if normalized == [.meetings] { return .meetings }
-        if normalized == [.voiceNotes, .dictation] { return .voiceNotesAndDictation }
-        if normalized == [.voiceNotes, .meetings] { return .voiceNotesAndMeetings }
-        if normalized == [.dictation, .meetings] { return .dictationAndMeetings }
-        return .everything
-    }
 
     static func resolved(_ rawValue: String?) -> OnboardingUseCase {
         guard let rawValue, let useCase = OnboardingUseCase(rawValue: rawValue) else {
@@ -1464,7 +1430,6 @@ struct AppConfig: Codable {
     var acpAgentModel: String = ""
     /// ACP agent "thinking" config option value; empty means the agent default.
     var acpAgentThinking: String = ""
-    var summaryModel: String = ""
     var meetingSummaryModel: String = ""
     var includeNotesInSummary: Bool = false
     var hasCompletedOnboarding: Bool = false
@@ -1521,8 +1486,6 @@ struct AppConfig: Codable {
     var cloudSyncEnabled: Bool = false
     var cloudSyncFolderPath: String = ""
     var cloudSyncIncludesAudio: Bool = true
-    var iCloudSyncEnabled: Bool = false
-    var showIOSCompanionPrompt: Bool = true
     var contributionPromptNextMeetingCount: Int?
     var contributionGitHubStarClicked: Bool = false
     var contributionBuyMeCoffeeClicked: Bool = false
@@ -1583,7 +1546,6 @@ struct AppConfig: Codable {
         case acpCachedOptionsByCommand = "acp_cached_options_by_command"
         case acpAgentModel = "acp_agent_model"
         case acpAgentThinking = "acp_agent_thinking"
-        case summaryModel = "summary_model"
         case meetingSummaryModel = "meeting_summary_model"
         case includeNotesInSummary = "include_notes_in_summary"
         case hasCompletedOnboarding = "has_completed_onboarding"
@@ -1633,8 +1595,6 @@ struct AppConfig: Codable {
         case cloudSyncEnabled = "cloud_sync_enabled"
         case cloudSyncFolderPath = "cloud_sync_folder_path"
         case cloudSyncIncludesAudio = "cloud_sync_include_audio"
-        case iCloudSyncEnabled = "icloud_sync_enabled"
-        case showIOSCompanionPrompt = "show_ios_companion_prompt"
         case contributionPromptNextMeetingCount = "contribution_prompt_next_meeting_count"
         case contributionGitHubStarClicked = "contribution_github_star_clicked"
         case contributionBuyMeCoffeeClicked = "contribution_buy_me_coffee_clicked"
@@ -1692,8 +1652,6 @@ struct AppConfig: Codable {
             (try? c.decode(Bool.self, forKey: .waveformCacheOrphanCleanupMigrationApplied))
             ?? defaults.waveformCacheOrphanCleanupMigrationApplied
         darkMode = (try? c.decode(Bool.self, forKey: .darkMode)) ?? defaults.darkMode
-        iCloudSyncEnabled = (try? c.decode(Bool.self, forKey: .iCloudSyncEnabled)) ?? defaults.iCloudSyncEnabled
-        showIOSCompanionPrompt = (try? c.decode(Bool.self, forKey: .showIOSCompanionPrompt)) ?? defaults.showIOSCompanionPrompt
         meetingRecordingHotkeyTriggerThresholdMS = HotkeyTriggerTiming.clampedMilliseconds(
             (try? c.decode(Int.self, forKey: .meetingRecordingHotkeyTriggerThresholdMS))
                 ?? defaults.meetingRecordingHotkeyTriggerThresholdMS
@@ -1738,14 +1696,12 @@ struct AppConfig: Codable {
         acpCachedOptionsByCommand = (try? c.decode([String: [ACPConfigOption]].self, forKey: .acpCachedOptionsByCommand)) ?? defaults.acpCachedOptionsByCommand
         acpAgentModel = (try? c.decode(String.self, forKey: .acpAgentModel)) ?? defaults.acpAgentModel
         acpAgentThinking = (try? c.decode(String.self, forKey: .acpAgentThinking)) ?? defaults.acpAgentThinking
-        summaryModel = (try? c.decode(String.self, forKey: .summaryModel)) ?? defaults.summaryModel
         meetingSummaryModel = (try? c.decode(String.self, forKey: .meetingSummaryModel)) ?? defaults.meetingSummaryModel
         includeNotesInSummary = (try? c.decode(Bool.self, forKey: .includeNotesInSummary)) ?? defaults.includeNotesInSummary
         hasCompletedOnboarding = (try? c.decode(Bool.self, forKey: .hasCompletedOnboarding)) ?? defaults.hasCompletedOnboarding
         let decodedOnboardingUseCase = try? c.decode(String.self, forKey: .onboardingUseCase)
-        if let decodedOnboardingUseCase,
-           OnboardingUseCase(rawValue: decodedOnboardingUseCase) != nil {
-            onboardingUseCase = decodedOnboardingUseCase
+        if decodedOnboardingUseCase == OnboardingUseCase.meetings.rawValue {
+            onboardingUseCase = decodedOnboardingUseCase!
         } else if hasCompletedOnboarding {
             onboardingUseCase = OnboardingUseCase.meetings.rawValue
         } else {

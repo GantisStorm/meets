@@ -365,55 +365,6 @@ struct IndicatorFrameSizeTests {
         #expect(size.width <= 148)
         #expect(size.height == 32)
     }
-
-    @Test("CUA transcript pill wraps and grows vertically instead of truncating")
-    @MainActor
-    func computerUseTranscriptPillWrapsAndExpands() {
-        let short = FloatingIndicatorController.computerUseTranscriptPillSizeForTesting(
-            transcript: "Open Twitter",
-            screenWidth: 1200
-        )
-        let long = FloatingIndicatorController.computerUseTranscriptPillSizeForTesting(
-            transcript: "Open Twitter in Google Chrome and write a tweet saying this was written using Muesli CUA without posting it",
-            screenWidth: 420
-        )
-
-        #expect(short.width >= 280)
-        #expect(short.height >= 44)
-        #expect(long.width <= 372)
-        #expect(long.height > short.height)
-    }
-
-    @Test("Quill instruction pill reserves room for its progress spinner")
-    @MainActor
-    func quillInstructionPillIncludesProgressChrome() {
-        let transcript = "Rewrite this as a concise professional email"
-        let computerUseSize = FloatingIndicatorController.computerUseTranscriptPillSizeForTesting(
-            transcript: transcript,
-            screenWidth: 1200
-        )
-        let quillSize = FloatingIndicatorController.quillInstructionPillSizeForTesting(
-            transcript: transcript,
-            screenWidth: 1200
-        )
-
-        #expect(quillSize.width > computerUseSize.width)
-        #expect(quillSize.height == computerUseSize.height)
-    }
-
-    @Test("Quill instruction pill keeps its final wrapped words visible")
-    @MainActor
-    func quillInstructionPillFitsRenderedTextField() {
-        // This ends at an AppKit word-wrap boundary where NSString boundingRect
-        // reports seven lines but NSTextField renders eight.
-        let transcript = "Rewrite this as a concise professional email while preserving every detail and ensuring the final words remain visible in the floating pill please make the tone warm but direct and retain all"
-        let heights = FloatingIndicatorController.quillInstructionTextHeightsForTesting(
-            transcript: transcript,
-            screenWidth: 300
-        )
-
-        #expect(heights.allocated >= heights.required)
-    }
 }
 
 @Suite("Floating meeting transcript")

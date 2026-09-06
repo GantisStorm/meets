@@ -212,12 +212,7 @@ struct SettingsView: View {
         return options
     }
 
-    private var activeFeatureTourTarget: FeatureTourTarget? {
-        appState.activeFeatureTourTarget
-    }
-
     var body: some View {
-        ScrollViewReader { scrollProxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: MuesliTheme.spacing24) {
                     Text("Settings")
@@ -242,7 +237,6 @@ struct SettingsView: View {
                 if selectedPane == .meetings {
                     loadACPConfigOptionsIfNeeded()
                 }
-                scrollToFeatureTourTarget(activeFeatureTourTarget, using: scrollProxy)
             }
             .onDisappear {
                 SoundController.stopMaraudersMapClip()
@@ -269,10 +263,6 @@ struct SettingsView: View {
                     loadCachedAudioInputDevices()
                     loadACPConfigOptionsIfNeeded()
                 }
-                scrollToFeatureTourTarget(activeFeatureTourTarget, using: scrollProxy)
-            }
-            .onChange(of: activeFeatureTourTarget) { _, target in
-                scrollToFeatureTourTarget(target, using: scrollProxy)
             }
             .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
                 guard appState.selectedTab == .settings else { return }
@@ -343,16 +333,6 @@ struct SettingsView: View {
                 )
                 .frame(minWidth: 560, minHeight: 520)
             }
-        }
-    }
-
-    private func scrollToFeatureTourTarget(_ target: FeatureTourTarget?, using proxy: ScrollViewProxy) {
-        guard let target, target == .liveCaptionsSetting else { return }
-        DispatchQueue.main.async {
-            withAnimation(.easeInOut(duration: 0.2)) {
-                proxy.scrollTo(target.rawValue, anchor: .center)
-            }
-        }
     }
 
     private func refreshDownloadedModelOptions() {
@@ -762,8 +742,7 @@ struct SettingsView: View {
                         .frame(width: meetingControlWidth, alignment: .trailing)
                 }
             }
-            .id(FeatureTourTarget.liveCaptionsSetting.rawValue)
-            .featureTourTarget(.liveCaptionsSetting)
+
             Divider().background(MuesliTheme.surfaceBorder)
             settingsRow(
                 "Final transcript",

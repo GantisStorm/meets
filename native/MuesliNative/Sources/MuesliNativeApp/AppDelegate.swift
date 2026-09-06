@@ -87,10 +87,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         controller?.focusSearchField()
     }
 
-    @objc func showWhatsNew(_ sender: Any?) {
-        controller?.showWhatsNew()
-    }
-
     @objc func showMeetings(_ sender: Any?) {
         controller?.openHistoryWindow(tab: .meetings)
     }
@@ -113,13 +109,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         settingsItem.target = self
         appMenu.addItem(settingsItem)
-        let whatsNewItem = NSMenuItem(
-            title: "What's New in Meets",
-            action: #selector(AppDelegate.showWhatsNew(_:)),
-            keyEquivalent: ""
-        )
-        whatsNewItem.target = self
-        appMenu.addItem(whatsNewItem)
         appMenu.addItem(.separator())
         appMenu.addItem(
             withTitle: "Hide \(AppIdentity.displayName)",

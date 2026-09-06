@@ -42,7 +42,6 @@ struct MeetingParticipantsView: View {
 
     var body: some View {
         participantControl
-        .featureTourTarget(.meetingPeople)
         .popover(isPresented: $isPeoplePopoverPresented, arrowEdge: .bottom) {
             peoplePopover
         }

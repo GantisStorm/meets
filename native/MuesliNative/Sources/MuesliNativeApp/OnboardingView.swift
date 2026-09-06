@@ -127,8 +127,7 @@ struct OnboardingView: View {
             requestedStep: initialStep,
             permissions: initialPermissions,
             useCase: resolvedUseCase,
-            permissionsStep: Self.permissionsStep,
-            dictationTestStep: OnboardingFlow.dictationTestStep
+            permissionsStep: Self.permissionsStep
         )
         let effectiveInitialStep = OnboardingFlow.normalizedStep(permissionGatedInitialStep, for: resolvedUseCase)
 

@@ -55,7 +55,6 @@ struct DashboardContentLayout<SidebarContent: View, DetailContent: View>: View {
 struct DashboardRootView: View {
     let appState: AppState
     let controller: MuesliController
-    @State private var featureTourTargetFrames: [FeatureTourTarget: CGRect] = [:]
     @State private var sidebarPresentation: DashboardSidebarPresentation
 
     init(
@@ -104,50 +103,6 @@ struct DashboardRootView: View {
             minHeight: DashboardWindowLayout.minimumContentHeight
         )
         .preferredColorScheme(appState.config.darkMode ? .dark : .light)
-        .onPreferenceChange(FeatureTourTargetPreferenceKey.self) { frames in
-            guard FeatureTourFrameTracking.hasMeaningfulChange(
-                from: featureTourTargetFrames,
-                to: frames
-            ) else { return }
-            featureTourTargetFrames = frames
-        }
-        .overlay {
-            GeometryReader { proxy in
-                if let invitation = appState.pendingFeatureTourInvitation {
-                    FeatureTourInvitationView(
-                        tour: invitation,
-                        onAccept: { controller.acceptFeatureTourInvitation() },
-                        onSkip: { controller.skipFeatureTourInvitation() }
-                    )
-                    .frame(width: proxy.size.width, height: proxy.size.height)
-                    .zIndex(101)
-                } else if let tour = appState.activeFeatureTour,
-                          tour.steps.indices.contains(appState.featureTourStepIndex) {
-                    let step = tour.steps[appState.featureTourStepIndex]
-                    let globalRootFrame = proxy.frame(in: .global)
-                    let targetFrame = step.target
-                        .flatMap { featureTourTargetFrames[$0] }
-                        .map {
-                            $0.offsetBy(
-                                dx: -globalRootFrame.minX,
-                                dy: -globalRootFrame.minY
-                            )
-                        }
-                    if step.target == nil || targetFrame != nil {
-                        FeatureTourOverlay(
-                            tour: tour,
-                            stepIndex: appState.featureTourStepIndex,
-                            spotlightRect: targetFrame,
-                            containerSize: proxy.size,
-                            onBack: { controller.showPreviousFeatureTourStep() },
-                            onNext: { controller.showNextFeatureTourStep() },
-                            onDismiss: { controller.dismissFeatureTour() }
-                        )
-                        .zIndex(100)
-                    }
-                }
-            }
-        }
         .alert(
             appState.contributionMilestonePrompt?.title ?? "Meets milestone",
             isPresented: Binding(

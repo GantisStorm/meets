@@ -63,24 +63,6 @@ enum MeetingCompletionNotificationPolicy {
     }
 }
 
-enum MuesliBridgeDeviceRefreshPolicy {
-    static func shouldForceRefresh(
-        userInitiated: Bool,
-        bridgeActivationPending: Bool,
-        bridgeDiscoveryTriggered: Bool,
-        hasKnownCompanionDevice: Bool
-    ) -> Bool {
-        userInitiated
-            || bridgeActivationPending
-            || (bridgeDiscoveryTriggered && !hasKnownCompanionDevice)
-    }
-}
-
-enum MuesliBridgeCompanionDiscoveryPolicy {
-    static let retryInterval: Duration = .seconds(5)
-    static let timeout: Duration = .seconds(120)
-}
-
 struct PendingMeetingCompletionNotification {
     let meetingID: Int64?
     let title: String
@@ -164,56 +146,6 @@ struct PreparedMeetingRecordingSave {
     static let none = PreparedMeetingRecordingSave(path: nil, error: nil)
 }
 
-private final class DictationLatencyLogWriter: @unchecked Sendable {
-    private let queue = DispatchQueue(label: "com.muesli.dictation-latency-log")
-    private let url: URL
-    private var hasCreatedDirectory = false
-
-    init(url: URL) {
-        self.url = url
-    }
-
-    func append(_ line: String) {
-        queue.async { [self] in
-            do {
-                if !hasCreatedDirectory {
-                    try FileManager.default.createDirectory(
-                        at: url.deletingLastPathComponent(),
-                        withIntermediateDirectories: true
-                    )
-                    hasCreatedDirectory = true
-                }
-                try Self.trimIfNeeded(at: url)
-                let data = Data((line + "\n").utf8)
-                do {
-                    let handle = try FileHandle(forWritingTo: url)
-                    defer { try? handle.close() }
-                    try handle.seekToEnd()
-                    try handle.write(contentsOf: data)
-                } catch {
-                    try data.write(to: url, options: .atomic)
-                }
-            } catch {
-                fputs("[dictation-latency] failed to append log: \(error)\n", stderr)
-            }
-        }
-    }
-
-    private static func trimIfNeeded(at url: URL) throws {
-        let maxBytes: UInt64 = 2 * 1024 * 1024
-        let attributes = try? FileManager.default.attributesOfItem(atPath: url.path)
-        guard let fileSize = attributes?[.size] as? UInt64,
-              fileSize > maxBytes else { return }
-
-        let data = try Data(contentsOf: url)
-        let keepCount = min(data.count, Int(maxBytes / 2))
-        let tail = data.suffix(keepCount)
-        let newlineIndex = tail.firstIndex(of: UInt8(ascii: "\n"))
-        let trimmed = newlineIndex.map { tail[tail.index(after: $0)...] } ?? tail[...]
-        try Data(trimmed).write(to: url, options: .atomic)
-    }
-}
-
 @MainActor
 public final class MuesliController: NSObject {
     /// Weak backreference to the running controller for AppIntents, which are
@@ -289,8 +221,6 @@ public final class MuesliController: NSObject {
         }
         return guide
     }()
-    private let featureTourStore = FeatureTourStore()
-    private var isFeatureTourPresentationQueued = false
     var updaterController: SPUStandardUpdaterController?
     private var busyStatusGeneration = 0
 
@@ -503,13 +433,6 @@ public final class MuesliController: NSObject {
         statusBarController = StatusBarController(controller: self, runtime: runtime)
         preferencesWindowController = PreferencesWindowController(controller: self)
         historyWindowController = RecentHistoryWindowController(controller: self)
-        let latestFeatureTour = latestFeatureTour()
-        let automaticFeatureTour = featureTourStore.automaticTour(
-            currentVersion: AppIdentity.marketingVersion,
-            hasCompletedOnboarding: config.hasCompletedOnboarding,
-            canPresent: canRunMainApp,
-            tour: latestFeatureTour
-        )
         refreshUI()
 
         meetingMonitor.calendarEventProvider = { [weak self] in
@@ -609,13 +532,6 @@ public final class MuesliController: NSObject {
 
         if canRunMainApp {
             PostInstallChecker.check()
-            if let automaticFeatureTour {
-                DispatchQueue.main.async { [weak self] in
-                    guard let self,
-                          self.offerFeatureTour(automaticFeatureTour) else { return }
-                    self.featureTourStore.markOffered(automaticFeatureTour)
-                }
-            }
         }
     }
 
@@ -663,10 +579,6 @@ public final class MuesliController: NSObject {
     }
 
 
-    func recentMeetings() -> [MeetingRecord] {
-        (try? dictationStore.recentMeetings(limit: 10)) ?? []
-    }
-
     func meeting(id: Int64) -> MeetingRecord? {
         if let row = appState.meetingRows.first(where: { $0.id == id }) {
             return row
@@ -702,160 +614,6 @@ public final class MuesliController: NSObject {
         }
         appState.selectedModelsCategory = category
         appState.selectedTab = .models
-    }
-
-    @objc func showWhatsNew() {
-        let tour = latestFeatureTour()
-        guard beginFeatureTour(tour, source: "manual") else { return }
-        featureTourStore.markOffered(tour)
-    }
-
-    private func latestFeatureTour() -> FeatureTour {
-        FeatureTourCatalog.latest
-    }
-
-    @discardableResult
-    private func offerFeatureTour(_ tour: FeatureTour) -> Bool {
-        guard !tour.steps.isEmpty,
-              !isFeatureTourPresentationQueued,
-              appState.pendingFeatureTourInvitation == nil,
-              appState.activeFeatureTour == nil,
-              ensureStartupPermissionsBeforeDashboard() else { return false }
-
-        isFeatureTourPresentationQueued = true
-        presentHistoryWindow(whenReady: { [weak self] in
-            guard let self else { return }
-            self.isFeatureTourPresentationQueued = false
-            guard self.appState.pendingFeatureTourInvitation == nil,
-                  self.appState.activeFeatureTour == nil else { return }
-
-            self.appState.pendingFeatureTourInvitation = tour
-            TelemetryDeck.signal("feature_walkthrough.invitation_shown", parameters: [
-                "version": tour.version,
-                "step_count": "\(tour.steps.count)",
-            ])
-        })
-        // The normal startup preload task continues while this invitation and
-        // the walkthrough are on screen, so no second backend load is started.
-        return true
-    }
-
-    func acceptFeatureTourInvitation() {
-        guard let tour = appState.pendingFeatureTourInvitation else { return }
-        appState.pendingFeatureTourInvitation = nil
-        TelemetryDeck.signal("feature_walkthrough.decision", parameters: [
-            "version": tour.version,
-            "decision": "accepted",
-            "step_count": "\(tour.steps.count)",
-        ])
-        beginFeatureTour(tour, source: "automatic")
-    }
-
-    func skipFeatureTourInvitation() {
-        guard let tour = appState.pendingFeatureTourInvitation else { return }
-        appState.pendingFeatureTourInvitation = nil
-        TelemetryDeck.signal("feature_walkthrough.decision", parameters: [
-            "version": tour.version,
-            "decision": "skipped",
-            "step_count": "\(tour.steps.count)",
-        ])
-    }
-
-    @discardableResult
-    private func beginFeatureTour(_ tour: FeatureTour, source: String) -> Bool {
-        guard !tour.steps.isEmpty,
-              !isFeatureTourPresentationQueued,
-              ensureStartupPermissionsBeforeDashboard() else { return false }
-
-        appState.pendingFeatureTourInvitation = nil
-        isFeatureTourPresentationQueued = true
-        presentHistoryWindow(whenReady: { [weak self] in
-            guard let self else { return }
-            self.isFeatureTourPresentationQueued = false
-            self.appState.activeFeatureTour = tour
-            self.appState.featureTourStepIndex = 0
-            self.navigateToFeatureTourStep(tour.steps[0])
-            TelemetryDeck.signal("feature_walkthrough.started", parameters: [
-                "version": tour.version,
-                "source": source,
-                "step_count": "\(tour.steps.count)",
-            ])
-        })
-        return true
-    }
-
-    func showPreviousFeatureTourStep() {
-        guard let tour = appState.activeFeatureTour else { return }
-        let index = max(0, appState.featureTourStepIndex - 1)
-        showFeatureTourStep(index, in: tour)
-    }
-
-    func showNextFeatureTourStep() {
-        guard let tour = appState.activeFeatureTour else { return }
-        let nextIndex = appState.featureTourStepIndex + 1
-        guard tour.steps.indices.contains(nextIndex) else {
-            completeFeatureTour()
-            return
-        }
-        showFeatureTourStep(nextIndex, in: tour)
-    }
-
-    func dismissFeatureTour() {
-        if let tour = appState.activeFeatureTour,
-           tour.steps.indices.contains(appState.featureTourStepIndex) {
-            TelemetryDeck.signal("feature_walkthrough.dismissed", parameters: [
-                "version": tour.version,
-                "step": tour.steps[appState.featureTourStepIndex].id,
-                "step_index": "\(appState.featureTourStepIndex + 1)",
-            ])
-        }
-        appState.activeFeatureTour = nil
-        appState.featureTourStepIndex = 0
-    }
-
-    private func completeFeatureTour() {
-        if let tour = appState.activeFeatureTour {
-            TelemetryDeck.signal("feature_walkthrough.completed", parameters: [
-                "version": tour.version,
-                "step_count": "\(tour.steps.count)",
-            ])
-        }
-        appState.activeFeatureTour = nil
-        appState.featureTourStepIndex = 0
-        appState.selectedTab = .meetings
-    }
-
-    private func showFeatureTourStep(_ index: Int, in tour: FeatureTour) {
-        guard tour.steps.indices.contains(index) else { return }
-        appState.featureTourStepIndex = index
-        navigateToFeatureTourStep(tour.steps[index])
-    }
-
-    private func navigateToFeatureTourStep(_ step: FeatureTourStep) {
-        if appState.isSearchActive {
-            clearSearch()
-        }
-        guard let target = step.target else { return }
-        switch target.navigationRoute {
-        case let .settings(pane):
-            appState.selectedSettingsPane = pane
-            appState.selectedTab = .settings
-        case let .tab(tab):
-            appState.selectedTab = tab
-        case let .models(category):
-            showModels(category: category)
-        case .meetingsBrowser:
-            appState.selectedTab = .meetings
-            appState.meetingsNavigationState = .browser
-            appState.selectedMeetingID = nil
-            appState.selectedMeetingRecord = nil
-        case .meetingPeople:
-            guard let meetingID = (try? dictationStore.recentMeetings(limit: 1))?.first?.id else {
-                completeFeatureTour()
-                return
-            }
-            showMeetingDocument(id: meetingID)
-        }
     }
 
     func closeInsights() {
@@ -922,12 +680,6 @@ public final class MuesliController: NSObject {
             return try DictationStore(databaseURL: databaseURL).insightsSnapshot(range: range)
         }.value
         return snapshot.replacing(calendarStats: calendarStats)
-    }
-
-    func truncate(_ text: String, limit: Int) -> String {
-        let compact = text.split(whereSeparator: \.isWhitespace).joined(separator: " ")
-        guard compact.count > limit else { return compact }
-        return String(compact.prefix(limit - 3)).trimmingCharacters(in: .whitespacesAndNewlines) + "..."
     }
 
     func refreshIndicatorVisibility() {
@@ -2869,7 +2621,6 @@ public final class MuesliController: NSObject {
     }
 
     @objc func openHistoryWindow() {
-        guard ensureStartupPermissionsBeforeDashboard() else { return }
         showActiveMeetingDocumentIfNeeded()
         presentHistoryWindow()
     }
@@ -2881,7 +2632,6 @@ public final class MuesliController: NSObject {
     }
 
     func openHistoryWindow(tab: DashboardTab) {
-        guard ensureStartupPermissionsBeforeDashboard() else { return }
         presentHistoryWindow(tab: tab)
     }
 
@@ -2907,15 +2657,6 @@ public final class MuesliController: NSObject {
             ),
             for: useCase
         )
-    }
-
-    /// Formerly bounced completed users back into onboarding when startup
-    /// permissions were missing, which made Skip/Finish loop forever. Now a
-    /// pass-through: onboarding already completed, so missing permissions are
-    /// handled in context (Settings > General > Permissions) while feature
-    /// monitors stay off until their own checks pass.
-    private func ensureStartupPermissionsBeforeDashboard() -> Bool {
-        true
     }
 
     func showMeetingsHome(folderID: Int64? = nil) {
@@ -2972,7 +2713,6 @@ public final class MuesliController: NSObject {
     }
 
     @objc func focusSearchField() {
-        guard ensureStartupPermissionsBeforeDashboard() else { return }
         presentHistoryWindow()
         DispatchQueue.main.async { [weak self] in
             self?.appState.focusSearchField = true
@@ -4514,7 +4254,6 @@ public final class MuesliController: NSObject {
         startOrigin: MeetingRecordingStartOrigin = .manual,
         dashboardWindowPresentation: DashboardWindowPresentation = .restored
     ) -> Bool {
-        guard ensureStartupPermissionsBeforeDashboard() else { return false }
         if isMeetingRecording() {
             if presentation.presentsHistoryWindow {
                 presentHistoryWindow(

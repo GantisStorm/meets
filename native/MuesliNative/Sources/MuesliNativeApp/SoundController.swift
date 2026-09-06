@@ -107,26 +107,6 @@ enum SoundController {
         return nil
     }
 
-    static func bundledLifecycleSoundURL(named name: String) -> URL? {
-        for ext in ["wav", "aiff", "mp3"] {
-            if let url = Bundle.main.url(forResource: name, withExtension: ext, subdirectory: "audio") {
-                return url
-            }
-        }
-
-        // Source-tree fallback keeps focused SwiftPM tests independent of app staging.
-        var directory = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
-        for _ in 0..<8 {
-            for ext in ["wav", "aiff", "mp3"] {
-                let candidate = directory.appendingPathComponent("assets/audio/\(name).\(ext)")
-                if FileManager.default.fileExists(atPath: candidate.path) {
-                    return candidate
-                }
-            }
-            directory.deleteLastPathComponent()
-        }
-        return nil
-    }
 }
 
 private enum SystemSoundPlayer {
@@ -143,27 +123,10 @@ private enum SystemSoundPlayer {
         }
     }
 
-    static func prewarmBundled(_ sounds: [(name: String, url: URL)]) {
-        queue.async {
-            registerCleanupIfNeeded()
-            for sound in sounds {
-                _ = loadSoundID(at: sound.url, cacheKey: "bundled:\(sound.name)")
-            }
-        }
-    }
-
     static func play(named name: String) {
         queue.async {
             registerCleanupIfNeeded()
             guard let soundID = loadSystemSoundID(named: name) else { return }
-            AudioServicesPlaySystemSound(soundID)
-        }
-    }
-
-    static func playBundled(named name: String, url: URL) {
-        queue.async {
-            registerCleanupIfNeeded()
-            guard let soundID = loadSoundID(at: url, cacheKey: "bundled:\(name)") else { return }
             AudioServicesPlaySystemSound(soundID)
         }
     }

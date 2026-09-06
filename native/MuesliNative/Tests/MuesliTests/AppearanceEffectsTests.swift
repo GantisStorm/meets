@@ -2,53 +2,6 @@ import Testing
 import AppKit
 @testable import MuesliNativeApp
 
-@Suite("SoundController")
-@MainActor
-struct SoundControllerTests {
-
-    @Test("playDictationStart with enabled=false does not throw")
-    func playStartDisabled() {
-        // NSSound.play() is a no-op in the test runner (no audio device required)
-        SoundController.playDictationStart(enabled: false)
-    }
-
-    @Test("playDictationInsert with enabled=false does not throw")
-    func playInsertDisabled() {
-        SoundController.playDictationInsert(enabled: false)
-    }
-
-    @Test("playDictationStart with enabled=true does not throw")
-    func playStartEnabled() {
-        SoundController.playDictationStart(enabled: true)
-    }
-
-    @Test("playDictationInsert with enabled=true does not throw")
-    func playInsertEnabled() {
-        SoundController.playDictationInsert(enabled: true)
-    }
-
-    @Test("Quill lifecycle sounds are distinct bundled assets")
-    func quillLifecycleAssets() throws {
-        let activationURL = try #require(
-            SoundController.bundledLifecycleSoundURL(named: "quill-activate")
-        )
-        let releaseURL = try #require(
-            SoundController.bundledLifecycleSoundURL(named: "quill-release")
-        )
-        let activationData = try Data(contentsOf: activationURL)
-        let releaseData = try Data(contentsOf: releaseURL)
-
-        #expect(!activationData.isEmpty)
-        #expect(!releaseData.isEmpty)
-        #expect(activationData != releaseData)
-    }
-
-    @Test("disabled Quill lifecycle sounds do not play")
-    func quillLifecycleDisabled() {
-        SoundController.playQuillStart(enabled: false)
-        SoundController.playQuillRelease(enabled: false)
-    }
-}
 
 @Suite("MenuBarIconRenderer")
 struct MenuBarIconRendererTests {
