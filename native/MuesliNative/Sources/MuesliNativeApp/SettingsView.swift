@@ -2711,6 +2711,7 @@ struct SettingsView: View {
                 }
             }
         }
+        .padding(.top, MuesliTheme.spacing8)
     }
 
     /// Renders the app's bundled brand icon when available (colored PNG), else
