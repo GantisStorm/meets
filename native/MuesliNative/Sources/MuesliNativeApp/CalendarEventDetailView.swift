@@ -494,7 +494,7 @@ struct CalendarEventDetailView: View {
                 Text(appState.isMeetingRecordingPaused ? "Resume" : "Pause")
                     .font(.system(size: 12, weight: .semibold))
             }
-            .foregroundStyle(appState.isMeetingRecordingPaused ? Color.white : MuesliTheme.textPrimary)
+            .foregroundStyle(appState.isMeetingRecordingPaused ? MuesliTheme.accentContent : MuesliTheme.textPrimary)
             .padding(.horizontal, MuesliTheme.spacing12)
             .padding(.vertical, 7)
             .background(appState.isMeetingRecordingPaused ? MuesliTheme.accent : MuesliTheme.surfacePrimary)

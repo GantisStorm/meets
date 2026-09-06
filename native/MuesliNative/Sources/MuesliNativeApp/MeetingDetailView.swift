@@ -119,6 +119,22 @@ struct MeetingDetailView: View {
     @State private var newFolderName = ""
     @State private var showEventPopover = false
     @State private var eventSearchQuery = ""
+    @State private var eventPickerRange: EventPickerRange = .days30
+
+    /// Upcoming-events window for the "Add to event" picker.
+    private enum EventPickerRange: Int, CaseIterable {
+        case days7 = 7
+        case days30 = 30
+        case days90 = 90
+
+        var label: String {
+            switch self {
+            case .days7: return "7 days"
+            case .days30: return "30 days"
+            case .days90: return "90 days"
+            }
+        }
+    }
     @State private var threadContext: MeetingThreadContext?
 
     init(
@@ -1405,7 +1421,7 @@ struct MeetingDetailView: View {
                 Text(isPaused ? "Resume" : "Pause")
                     .font(.system(size: 12, weight: .semibold))
             }
-            .foregroundStyle(isPaused ? Color.white : MuesliTheme.textPrimary)
+            .foregroundStyle(isPaused ? MuesliTheme.accentContent : MuesliTheme.textPrimary)
             .padding(.horizontal, MuesliTheme.spacing12)
             .padding(.vertical, 7)
             .background(isPaused ? MuesliTheme.accent : MuesliTheme.surfacePrimary)
@@ -1660,27 +1676,33 @@ struct MeetingDetailView: View {
 
     /// Popover-eligible events for the "Add to event" picker: all non-cancelled
     /// calendar events currently loaded (±1 year window) that also pass the
-    /// search query when one is typed. Recent + upcoming first, then older
-    /// events, so the likely targets are near the top of the list.
-    private var eventPickerEvents: [UnifiedCalendarEvent] {
+    /// search query when one is typed.
+    private var eventPickerEligibleEvents: [UnifiedCalendarEvent] {
         let query = eventSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
-        let visible = appState.calendarEvents.filter { event in
+        return appState.calendarEvents.filter { event in
             guard !event.isCancelled, !event.isDeclined else { return false }
             if query.isEmpty { return true }
             return event.title.localizedCaseInsensitiveContains(query)
         }
+    }
+
+    /// Eligible events starting within the selected upcoming window
+    /// (plus currently-running ones), nearest first.
+    private var eventPickerUpcomingEvents: [UnifiedCalendarEvent] {
         let now = Date()
-        return visible.sorted { a, b in
-            let aActive = a.endDate >= now
-            let bActive = b.endDate >= now
-            if aActive != bActive { return aActive }
-            if a.endDate >= now && b.endDate >= now {
-                // Upcoming: nearest first.
-                return a.startDate < b.startDate
-            }
-            // Past: most recent first.
-            return a.startDate > b.startDate
-        }
+        let horizon = now.addingTimeInterval(TimeInterval(eventPickerRange.rawValue) * 86_400)
+        return eventPickerEligibleEvents
+            .filter { $0.endDate >= now && $0.startDate <= horizon }
+            .sorted { $0.startDate < $1.startDate }
+    }
+
+    /// Everything else, most recent first.
+    private var eventPickerPastEvents: [UnifiedCalendarEvent] {
+        let now = Date()
+        let horizon = now.addingTimeInterval(TimeInterval(eventPickerRange.rawValue) * 86_400)
+        return eventPickerEligibleEvents
+            .filter { !($0.endDate >= now && $0.startDate <= horizon) }
+            .sorted { $0.startDate > $1.startDate }
     }
 
     /// Event ids this meeting is attached to through any channel — primary
@@ -1740,8 +1762,9 @@ struct MeetingDetailView: View {
 
     @ViewBuilder
     private func eventPopoverContent(for meeting: MeetingRecord) -> some View {
-        let events = eventPickerEvents
         let linkedIDs = linkedEventIDs(for: meeting)
+        let upcoming = eventPickerUpcomingEvents
+        let past = eventPickerPastEvents
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 6) {
                 Image(systemName: "magnifyingglass")
@@ -1759,11 +1782,28 @@ struct MeetingDetailView: View {
                 RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall)
                     .strokeBorder(MuesliTheme.surfaceBorder, lineWidth: 1)
             )
-            .padding(8)
+            .padding([.horizontal, .top], 8)
+
+            HStack(spacing: 8) {
+                Text("Show upcoming:")
+                    .font(MuesliTheme.caption())
+                    .foregroundStyle(MuesliTheme.textTertiary)
+                Picker("", selection: $eventPickerRange) {
+                    ForEach(EventPickerRange.allCases, id: \.self) { range in
+                        Text(range.label).tag(range)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .frame(width: 200)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 8)
 
             Divider()
 
-            if events.isEmpty {
+            if upcoming.isEmpty && past.isEmpty {
                 Text(eventSearchQuery.isEmpty
                     ? "No calendar events available"
                     : "No matching events")
@@ -1774,23 +1814,24 @@ struct MeetingDetailView: View {
             } else {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 0) {
-                        ForEach(events) { event in
-                            let isLinked = linkedIDs.contains(event.id)
-                            eventPopoverRow(event: event, isLinked: isLinked) {
-                                let meetingID = meeting.id
-                                Task {
-                                    if isLinked {
-                                        await controller.unlinkMeetingFromEvent(
-                                            meetingID: meetingID,
-                                            eventID: event.id
-                                        )
-                                    } else {
-                                        await controller.linkMeetingToEvent(
-                                            meetingID: meetingID,
-                                            event: event
-                                        )
-                                    }
-                                }
+                        if !upcoming.isEmpty {
+                            eventPopoverSectionHeader("Upcoming")
+                            ForEach(upcoming) { event in
+                                eventPopoverLinkRow(
+                                    event: event,
+                                    meeting: meeting,
+                                    isLinked: linkedIDs.contains(event.id)
+                                )
+                            }
+                        }
+                        if !past.isEmpty {
+                            eventPopoverSectionHeader("Past")
+                            ForEach(past) { event in
+                                eventPopoverLinkRow(
+                                    event: event,
+                                    meeting: meeting,
+                                    isLinked: linkedIDs.contains(event.id)
+                                )
                             }
                         }
                     }
@@ -1799,6 +1840,40 @@ struct MeetingDetailView: View {
             }
         }
         .frame(minWidth: 260)
+    }
+
+    private func eventPopoverSectionHeader(_ title: String) -> some View {
+        Text(title)
+            .font(.system(size: 10, weight: .semibold))
+            .foregroundStyle(MuesliTheme.textTertiary)
+            .textCase(.uppercase)
+            .padding(.horizontal, 10)
+            .padding(.top, 8)
+            .padding(.bottom, 2)
+    }
+
+    private func eventPopoverLinkRow(
+        event: UnifiedCalendarEvent,
+        meeting: MeetingRecord,
+        isLinked: Bool
+    ) -> some View {
+        eventPopoverRow(event: event, isLinked: isLinked) {
+            let meetingID = meeting.id
+            let eventID = event.id
+            Task {
+                if isLinked {
+                    await controller.unlinkMeetingFromEvent(
+                        meetingID: meetingID,
+                        eventID: eventID
+                    )
+                } else {
+                    await controller.linkMeetingToEvent(
+                        meetingID: meetingID,
+                        event: event
+                    )
+                }
+            }
+        }
     }
 
     @ViewBuilder

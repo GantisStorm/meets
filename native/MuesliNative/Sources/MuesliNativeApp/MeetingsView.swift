@@ -796,7 +796,7 @@ struct MeetingsView: View {
                         Text(appState.isMeetingRecordingPaused ? "Resume" : "Pause")
                             .font(.system(size: 12, weight: .semibold))
                     }
-                    .foregroundStyle(appState.isMeetingRecordingPaused ? MuesliTheme.backgroundBase : MuesliTheme.textPrimary)
+                    .foregroundStyle(appState.isMeetingRecordingPaused ? MuesliTheme.accentContent : MuesliTheme.textPrimary)
                     .padding(.horizontal, MuesliTheme.spacing12)
                     .padding(.vertical, 8)
                     .background(appState.isMeetingRecordingPaused ? MuesliTheme.accent : MuesliTheme.surfacePrimary)
