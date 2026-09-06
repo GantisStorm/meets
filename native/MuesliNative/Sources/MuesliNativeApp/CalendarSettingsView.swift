@@ -387,8 +387,11 @@ struct CalendarSettingsView: View {
     @ViewBuilder
     private func calendarRow(_ calendar: EKCalendarModel) -> some View {
         let isEnabled = isCalendarEnabled(calendar)
+        // Subscriptions (e.g. US Holidays) are read-only for edits, but
+        // their events sync fine — only truly immutable calendars lock the
+        // enable toggle. Rename/delete stay gated in overflowMenu.
         let isLocked = !calendar.isBirthdays
-            && (calendar.isSubscription || calendar.isImmutable || !calendar.allowsContentModifications)
+            && (calendar.isImmutable || !calendar.allowsContentModifications)
         HStack(spacing: 10) {
             Circle()
                 .fill(calendarColor(calendar))
