@@ -1311,15 +1311,6 @@ struct SettingsView: View {
 
             settingsSection("Recording") {
                 settingsRow(
-                    "Auto-record calendar meetings",
-                    description: "Start recording automatically when a calendar meeting begins."
-                ) {
-                    settingsSwitch(isOn: appState.config.autoRecordMeetings) { newValue in
-                        controller.updateConfig { $0.autoRecordMeetings = newValue }
-                    }
-                }
-                Divider().background(MuesliTheme.surfaceBorder)
-                settingsRow(
                     "Save meeting recording",
                     description: "Keep the recorded audio after transcription."
                 ) {
@@ -1346,55 +1337,6 @@ struct SettingsView: View {
                 }
             }
 
-            settingsSection("Auto Export") {
-                settingsRow(
-                    "Auto-export meetings",
-                    description: "Save each completed meeting to the chosen folder in the selected format."
-                ) {
-                    settingsSwitch(isOn: appState.config.autoExportMarkdownEnabled) { newValue in
-                        controller.updateConfig { $0.autoExportMarkdownEnabled = newValue }
-                    }
-                }
-                if appState.config.autoExportMarkdownEnabled {
-                    Divider().background(MuesliTheme.surfaceBorder)
-                    settingsRow(
-                        "Destination folder",
-                        description: "Folder where exported meetings are saved."
-                    ) {
-                        autoExportFolderPicker
-                    }
-                    Divider().background(MuesliTheme.surfaceBorder)
-                    settingsRow(
-                        "Content",
-                        description: "What each export contains."
-                    ) {
-                        settingsMenu(
-                            selection: appState.config.resolvedAutoExportMarkdownContent.displayName,
-                            options: MeetingExportContent.allCases.map(\.displayName)
-                        ) { label in
-                            guard let index = MeetingExportContent.allCases.firstIndex(where: { $0.displayName == label }) else { return }
-                            let content = MeetingExportContent.allCases[index]
-                            controller.updateConfig { $0.autoExportMarkdownContent = content.rawValue }
-                        }
-                    }
-                    Divider().background(MuesliTheme.surfaceBorder)
-                    settingsRow(
-                        "File format",
-                        description: "Export file type."
-                    ) {
-                        settingsMenu(
-                            selection: appState.config.resolvedAutoExportFileFormat.displayName,
-                            options: MeetingAutoExportFileFormat.allCases.map(\.displayName)
-                        ) { label in
-                            guard let format = MeetingAutoExportFileFormat.allCases.first(where: { $0.displayName == label }) else { return }
-                            controller.updateConfig { $0.autoExportFileFormat = format.rawValue }
-                        }
-                    }
-                }
-    
-            }
-
-            cloudSyncSettingsSection
 
             settingsSection("Meeting Notifications") {
                 settingsRow("Scheduled meetings") {
@@ -1417,6 +1359,17 @@ struct SettingsView: View {
                         }
                     }
                     settingsDescription("At start time avoids early calendar-only prompts before you join.")
+                }
+
+                Divider().background(MuesliTheme.surfaceBorder)
+
+                settingsRow(
+                    "Auto-record calendar meetings",
+                    description: "Start recording automatically when a calendar meeting begins."
+                ) {
+                    settingsSwitch(isOn: appState.config.autoRecordMeetings) { newValue in
+                        controller.updateConfig { $0.autoRecordMeetings = newValue }
+                    }
                 }
 
                 Divider().background(MuesliTheme.surfaceBorder)
@@ -1465,6 +1418,141 @@ struct SettingsView: View {
 
             calendarManagementSection
 
+            settingsSection("Sync & Export") {
+                settingsRow(
+                    "Auto-export meetings",
+                    description: "Save each completed meeting to the chosen folder in the selected format."
+                ) {
+                    settingsSwitch(isOn: appState.config.autoExportMarkdownEnabled) { newValue in
+                        controller.updateConfig { $0.autoExportMarkdownEnabled = newValue }
+                    }
+                }
+                if appState.config.autoExportMarkdownEnabled {
+                    Divider().background(MuesliTheme.surfaceBorder)
+                    settingsRow(
+                        "Destination folder",
+                        description: "Folder where exported meetings are saved."
+                    ) {
+                        autoExportFolderPicker
+                    }
+                    Divider().background(MuesliTheme.surfaceBorder)
+                    settingsRow(
+                        "Content",
+                        description: "What each export contains."
+                    ) {
+                        settingsMenu(
+                            selection: appState.config.resolvedAutoExportMarkdownContent.displayName,
+                            options: MeetingExportContent.allCases.map(\.displayName)
+                        ) { label in
+                            guard let index = MeetingExportContent.allCases.firstIndex(where: { $0.displayName == label }) else { return }
+                            let content = MeetingExportContent.allCases[index]
+                            controller.updateConfig { $0.autoExportMarkdownContent = content.rawValue }
+                        }
+                    }
+                    Divider().background(MuesliTheme.surfaceBorder)
+                    settingsRow(
+                        "File format",
+                        description: "Export file type."
+                    ) {
+                        settingsMenu(
+                            selection: appState.config.resolvedAutoExportFileFormat.displayName,
+                            options: MeetingAutoExportFileFormat.allCases.map(\.displayName)
+                        ) { label in
+                            guard let format = MeetingAutoExportFileFormat.allCases.first(where: { $0.displayName == label }) else { return }
+                            controller.updateConfig { $0.autoExportFileFormat = format.rawValue }
+                        }
+                    }
+                }
+    
+                Divider().background(MuesliTheme.surfaceBorder)
+                settingsRow(
+                    "Sync library to a cloud folder",
+                    description: "Mirrors your meetings into a folder your cloud app already syncs — no accounts or keys needed. Notes, audio, and an index appear on your other devices automatically."
+                ) {
+                    settingsSwitch(
+                        isOn: appState.config.cloudSyncEnabled,
+                        onChange: { newValue in
+                            if newValue {
+                                cloudSyncEnable()
+                            } else {
+                                controller.setCloudSync(
+                                    enabled: false,
+                                    folderPath: appState.config.cloudSyncFolderPath,
+                                    includesAudio: appState.config.cloudSyncIncludesAudio
+                                )
+                                cloudSyncOutcome = nil
+                                cloudSyncOutcomeIsError = false
+                            }
+                        }
+                    )
+                }
+                if appState.config.cloudSyncEnabled {
+                    Divider().background(MuesliTheme.surfaceBorder)
+                    if !cloudSyncLocations.isEmpty {
+                        settingsRow(
+                            "Cloud folder",
+                            description: "Synced folder that holds your meeting library.",
+                            controlWidth: meetingControlWidth
+                        ) {
+                            settingsMenu(
+                                selection: selectedCloudSyncLocationName,
+                                options: cloudSyncLocations.map(\.name),
+                                onChange: { label in
+                                    guard let location = cloudSyncLocations.first(where: { $0.name == label }) else { return }
+                                    controller.setCloudSync(
+                                        enabled: true,
+                                        folderPath: location.path + "/" + CloudSyncDetector.mirrorFolderName,
+                                        includesAudio: appState.config.cloudSyncIncludesAudio
+                                    )
+                                    cloudSyncOutcome = nil
+                                    cloudSyncOutcomeIsError = false
+                                }
+                            )
+                        }
+                    } else {
+                        settingsRow("Cloud folder") {
+                            Text("No synced folders found — sign in to iCloud Drive, Dropbox, Google Drive, or OneDrive on this Mac.")
+                                .font(.system(size: 12))
+                                .foregroundStyle(MuesliTheme.textTertiary)
+                                .lineLimit(3)
+                                .frame(maxWidth: .infinity, alignment: .trailing)
+                        }
+                    }
+                    Divider().background(MuesliTheme.surfaceBorder)
+                    settingsRow(
+                        "Include audio recordings",
+                        description: "Also copy recording audio into the cloud folder."
+                    ) {
+                        settingsSwitch(
+                            isOn: appState.config.cloudSyncIncludesAudio,
+                            onChange: { newValue in
+                                controller.setCloudSync(
+                                    enabled: true,
+                                    folderPath: appState.config.cloudSyncFolderPath,
+                                    includesAudio: newValue
+                                )
+                            }
+                        )
+                    }
+                    Divider().background(MuesliTheme.surfaceBorder)
+                    settingsRow(
+                        "Sync Now",
+                        description: "Mirror all meetings to the cloud folder now."
+                    ) {
+                        compactActionButton(isSyncingCloud ? "Syncing…" : "Sync Now", systemImage: "arrow.triangle.2.circlepath") {
+                            syncNowToCloud()
+                        }
+                        .disabled(isSyncingCloud)
+                    }
+                    if let cloudSyncOutcome {
+                        settingsOutcome(cloudSyncOutcome, isError: cloudSyncOutcomeIsError)
+                    }
+                }
+                if appState.config.cloudSyncEnabled && !appState.config.cloudSyncFolderPath.isEmpty {
+                    settingsDescription("Meetings are saved to \(cloudSyncFolderName) as Markdown notes (+ audio). Open that folder in iCloud Drive / Dropbox / Drive on your iPhone to read them.")
+                }
+            }
+
             settingsSection("Advanced") {
                 settingsRow(
                     "Enable post-meeting hook",
@@ -1502,96 +1590,7 @@ struct SettingsView: View {
 
     // MARK: - Cloud Sync
 
-    private var cloudSyncSettingsSection: some View {
-        settingsSection("Cloud Sync") {
-            settingsRow(
-                "Sync library to a cloud folder",
-                description: "Mirrors your meetings into a folder your cloud app already syncs — no accounts or keys needed. Notes, audio, and an index appear on your other devices automatically."
-            ) {
-                settingsSwitch(
-                    isOn: appState.config.cloudSyncEnabled,
-                    onChange: { newValue in
-                        if newValue {
-                            cloudSyncEnable()
-                        } else {
-                            controller.setCloudSync(
-                                enabled: false,
-                                folderPath: appState.config.cloudSyncFolderPath,
-                                includesAudio: appState.config.cloudSyncIncludesAudio
-                            )
-                            cloudSyncOutcome = nil
-                            cloudSyncOutcomeIsError = false
-                        }
-                    }
-                )
-            }
-            if appState.config.cloudSyncEnabled {
-                Divider().background(MuesliTheme.surfaceBorder)
-                if !cloudSyncLocations.isEmpty {
-                    settingsRow(
-                        "Cloud folder",
-                        description: "Synced folder that holds your meeting library.",
-                        controlWidth: meetingControlWidth
-                    ) {
-                        settingsMenu(
-                            selection: selectedCloudSyncLocationName,
-                            options: cloudSyncLocations.map(\.name),
-                            onChange: { label in
-                                guard let location = cloudSyncLocations.first(where: { $0.name == label }) else { return }
-                                controller.setCloudSync(
-                                    enabled: true,
-                                    folderPath: location.path + "/" + CloudSyncDetector.mirrorFolderName,
-                                    includesAudio: appState.config.cloudSyncIncludesAudio
-                                )
-                                cloudSyncOutcome = nil
-                                cloudSyncOutcomeIsError = false
-                            }
-                        )
-                    }
-                } else {
-                    settingsRow("Cloud folder") {
-                        Text("No synced folders found — sign in to iCloud Drive, Dropbox, Google Drive, or OneDrive on this Mac.")
-                            .font(.system(size: 12))
-                            .foregroundStyle(MuesliTheme.textTertiary)
-                            .lineLimit(3)
-                            .frame(maxWidth: .infinity, alignment: .trailing)
-                    }
-                }
-                Divider().background(MuesliTheme.surfaceBorder)
-                settingsRow(
-                    "Include audio recordings",
-                    description: "Also copy recording audio into the cloud folder."
-                ) {
-                    settingsSwitch(
-                        isOn: appState.config.cloudSyncIncludesAudio,
-                        onChange: { newValue in
-                            controller.setCloudSync(
-                                enabled: true,
-                                folderPath: appState.config.cloudSyncFolderPath,
-                                includesAudio: newValue
-                            )
-                        }
-                    )
-                }
-                Divider().background(MuesliTheme.surfaceBorder)
-                settingsRow(
-                    "Sync Now",
-                    description: "Mirror all meetings to the cloud folder now."
-                ) {
-                    compactActionButton(isSyncingCloud ? "Syncing…" : "Sync Now", systemImage: "arrow.triangle.2.circlepath") {
-                        syncNowToCloud()
-                    }
-                    .disabled(isSyncingCloud)
-                }
-                if let cloudSyncOutcome {
-                    settingsOutcome(cloudSyncOutcome, isError: cloudSyncOutcomeIsError)
-                }
-            }
-            if appState.config.cloudSyncEnabled && !appState.config.cloudSyncFolderPath.isEmpty {
-                settingsDescription("Meetings are saved to \(cloudSyncFolderName) as Markdown notes (+ audio). Open that folder in iCloud Drive / Dropbox / Drive on your iPhone to read them.")
-            }
-        }
-    }
+
 
     private var cloudSyncLocations: [CloudSyncLocation] {
         controller.cloudSyncLocations().filter(\.isAvailable)
