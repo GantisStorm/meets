@@ -645,7 +645,11 @@ struct SettingsView: View {
                     .disabled(controller.isMeetingRecording())
                     .help("Stop the current meeting recording before clearing meeting history.")
                 }
-                settingsDescription("Permanently delete all saved meetings, notes, transcripts, and audio.")
+                // Plain caption (not settingsDescription): that helper lifts
+                // text up under tall rows, which overlaps a short button row.
+                Text("Permanently delete all saved meetings, notes, transcripts, and audio.")
+                    .font(MuesliTheme.caption())
+                    .foregroundStyle(MuesliTheme.textTertiary)
             }
         }
     }
