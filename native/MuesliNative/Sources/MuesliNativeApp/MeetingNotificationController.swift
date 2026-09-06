@@ -128,6 +128,8 @@ final class MeetingNotificationController: NSObject, UNUserNotificationCenterDel
             }
         }
         addAction(id: "dismiss", title: "Dismiss") { [weak self] in self?.handleDismissAction() }
+        // Only one prompt is ever live (show() closes the previous first),
+        // so the category set is replaced wholesale: no accumulation.
         UNUserNotificationCenter.current().setNotificationCategories([
             UNNotificationCategory(identifier: categoryID, actions: actions, intentIdentifiers: [], options: [])
         ])

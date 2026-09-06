@@ -1,4 +1,5 @@
 import Foundation
+import MuesliCore
 
 struct MeetingCandidate: Equatable {
     enum Platform: String, Equatable {
@@ -249,6 +250,34 @@ enum MeetingURLNormalizer {
 
     private static func compactIdentity(host: String, path: String) -> String {
         path.isEmpty ? host : "\(host)/\(path)"
+    }
+}
+
+// Shared from the retired MeetingDetector: still used by the monitor,
+// resolver, sensor attribution, and controller.
+/// Calendar event that is currently active or started within 15 minutes.
+struct CalendarEventContext {
+    let id: String
+    let title: String
+    var calendarOccurrence: CalendarOccurrenceReference? = nil
+}
+
+/// A running application on the system.
+struct RunningAppInfo {
+    let bundleID: String
+    let isActive: Bool  // frontmost
+}
+
+/// Result when a meeting is detected.
+struct MeetingDetection: Equatable {
+    let appName: String
+    let meetingTitle: String?
+    let sourceID: String?
+
+    init(appName: String, meetingTitle: String?, sourceID: String? = nil) {
+        self.appName = appName
+        self.meetingTitle = meetingTitle
+        self.sourceID = sourceID
     }
 }
 
