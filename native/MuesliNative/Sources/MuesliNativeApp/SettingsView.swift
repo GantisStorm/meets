@@ -397,19 +397,33 @@ struct SettingsView: View {
         }
         guard acpConfigOptionsCommand != command else { return }
         acpConfigOptionsLoadTask?.cancel()
-        acpConfigOptions = nil
+        // Stale-while-revalidate: show the last-known options for this
+        // command instantly (nil on first sight), then refresh quietly.
+        acpConfigOptions = appState.config.acpCachedOptionsByCommand[command]
         acpConfigOptionsCommand = command
         acpOptionsUnavailable = false
         acpConfigOptionsLoadTask = Task { @MainActor in
             do {
+                // Debounce: collapse keystroke/command bursts into one spawn.
+                try await Task.sleep(nanoseconds: 600_000_000)
                 let options = try await ACPClient.availableOptions(command: command, timeout: 20)
                 guard !Task.isCancelled else { return }
                 acpConfigOptions = options
                 acpOptionsUnavailable = options.isEmpty
+                controller.updateConfig {
+                    $0.acpCachedOptionsByCommand[command] = options
+                    while $0.acpCachedOptionsByCommand.count > 8 {
+                        $0.acpCachedOptionsByCommand.removeValue(forKey: $0.acpCachedOptionsByCommand.keys.first!)
+                    }
+                }
             } catch {
                 guard !Task.isCancelled else { return }
-                acpConfigOptions = []
-                acpOptionsUnavailable = true
+                // Keep showing cached options on transient failure; only a
+                // command with nothing cached degrades to agent default.
+                if acpConfigOptions == nil {
+                    acpConfigOptions = []
+                    acpOptionsUnavailable = true
+                }
             }
         }
     }

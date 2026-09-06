@@ -1454,6 +1454,10 @@ struct AppConfig: Codable {
     var customLLMModel: String = ""
     var customLLMFormat: String = CustomLLMFormat.openAI.rawValue
     var acpAgentCommand: String = "omp acp"
+    /// Last-known ACP config options per agent command (stale-while-
+    /// revalidate cache so model menus populate instantly; refreshed
+    /// quietly whenever an ACP branch opens). Bounded to a few entries.
+    var acpCachedOptionsByCommand: [String: [ACPConfigOption]] = [:]
     /// ACP agent "model" config option value; empty means the agent default.
     var acpAgentModel: String = ""
     /// ACP agent "thinking" config option value; empty means the agent default.
@@ -1574,6 +1578,7 @@ struct AppConfig: Codable {
         case customLLMModel = "custom_llm_model"
         case customLLMFormat = "custom_llm_format"
         case acpAgentCommand = "acp_agent_command"
+        case acpCachedOptionsByCommand = "acp_cached_options_by_command"
         case acpAgentModel = "acp_agent_model"
         case acpAgentThinking = "acp_agent_thinking"
         case summaryModel = "summary_model"
@@ -1728,6 +1733,7 @@ struct AppConfig: Codable {
         let decodedCustomLLMFormat = (try? c.decode(String.self, forKey: .customLLMFormat)) ?? defaults.customLLMFormat
         customLLMFormat = CustomLLMFormat(rawValue: decodedCustomLLMFormat)?.rawValue ?? defaults.customLLMFormat
         acpAgentCommand = (try? c.decode(String.self, forKey: .acpAgentCommand)) ?? defaults.acpAgentCommand
+        acpCachedOptionsByCommand = (try? c.decode([String: [ACPConfigOption]].self, forKey: .acpCachedOptionsByCommand)) ?? defaults.acpCachedOptionsByCommand
         acpAgentModel = (try? c.decode(String.self, forKey: .acpAgentModel)) ?? defaults.acpAgentModel
         acpAgentThinking = (try? c.decode(String.self, forKey: .acpAgentThinking)) ?? defaults.acpAgentThinking
         summaryModel = (try? c.decode(String.self, forKey: .summaryModel)) ?? defaults.summaryModel
