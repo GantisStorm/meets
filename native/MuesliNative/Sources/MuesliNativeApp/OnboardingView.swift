@@ -1417,12 +1417,12 @@ struct OnboardingView: View {
                 .foregroundStyle(MuesliTheme.textSecondary)
 
             configFieldRow("Command", controlWidth: 320) {
-                PastableTextField(
-                    text: appState.config.acpAgentCommand,
-                    placeholder: "omp acp",
-                    onChange: { val in controller.updateConfig { $0.acpAgentCommand = val } }
+                ACPCommandPicker(
+                    appState: appState,
+                    controller: controller,
+                    popupHeight: 26,
+                    fieldHeight: 26
                 )
-                .frame(height: 26)
             }
 
             acpWizardMenuRow(

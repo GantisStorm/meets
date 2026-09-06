@@ -978,12 +978,10 @@ struct SettingsView: View {
             } else if appState.selectedMeetingSummaryBackend == .acpAgent {
                 Divider().background(MuesliTheme.surfaceBorder)
                 settingsRow("Command", description: "Runs your installed agent (omp, Claude Code, Codex…) over Agent Client Protocol. No API key needed.", controlWidth: meetingControlWidth) {
-                    PastableTextField(
-                        text: appState.config.acpAgentCommand,
-                        placeholder: "omp acp",
-                        onChange: { val in controller.updateConfig { $0.acpAgentCommand = val } }
+                    ACPCommandPicker(
+                        appState: appState,
+                        controller: controller
                     )
-                    .frame(height: 22)
                 }
                 Divider().background(MuesliTheme.surfaceBorder)
                 acpModelMenuRow
@@ -1181,12 +1179,10 @@ struct SettingsView: View {
                         description: "Agent command run for transcript cleanup.",
                         controlWidth: meetingControlWidth
                     ) {
-                        PastableTextField(
-                            text: appState.config.acpAgentCommand,
-                            placeholder: "omp acp",
-                            onChange: { val in controller.updateConfig { $0.acpAgentCommand = val } }
+                        ACPCommandPicker(
+                            appState: appState,
+                            controller: controller
                         )
-                        .frame(height: 22)
                     }
                     acpModelMenuRow
                     acpThinkingMenuRow
