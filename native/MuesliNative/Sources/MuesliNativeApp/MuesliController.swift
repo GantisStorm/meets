@@ -597,11 +597,9 @@ public final class MuesliController: NSObject {
             }
         }
 
-        if !canRunMainApp {
+        if !canRunMainApp, !config.hasCompletedOnboarding {
             if let progress = OnboardingProgress.load() {
                 showOnboarding(resumeFrom: progress)
-            } else if config.hasCompletedOnboarding {
-                showOnboarding()
             } else {
                 showOnboarding()
             }
@@ -2859,7 +2857,7 @@ public final class MuesliController: NSObject {
             let completionTab = OnboardingFlow.completionTab(for: onboardingUseCase)
             openHistoryWindow(tab: completionTab)
         } else {
-            showOnboarding(resumeFrom: onboardingProgressForPermissionRepair())
+            openHistoryWindow(tab: OnboardingFlow.completionTab(for: onboardingUseCase))
         }
     }
 
@@ -2904,33 +2902,13 @@ public final class MuesliController: NSObject {
         )
     }
 
-    /// Gate dashboard presentation on startup permissions. When they are missing,
-    /// close any open window and route the user back through onboarding.
+    /// Formerly bounced completed users back into onboarding when startup
+    /// permissions were missing, which made Skip/Finish loop forever. Now a
+    /// pass-through: onboarding already completed, so missing permissions are
+    /// handled in context (Settings > General > Permissions) while feature
+    /// monitors stay off until their own checks pass.
     private func ensureStartupPermissionsBeforeDashboard() -> Bool {
-        guard hasRequiredStartupPermissions(for: config.resolvedOnboardingUseCase) else {
-            historyWindowController?.close()
-            if let progress = OnboardingProgress.load() {
-                showOnboarding(resumeFrom: progress)
-            } else {
-                showOnboarding(resumeFrom: onboardingProgressForPermissionRepair())
-            }
-            return false
-        }
-        return true
-    }
-
-    private func onboardingProgressForPermissionRepair() -> OnboardingProgress {
-        OnboardingProgress(
-            currentStep: OnboardingView.permissionsStep,
-            userName: config.userName,
-            selectedBackendKey: config.sttBackend,
-            selectedModelKey: config.sttModel,
-            selectedCohereLanguageCode: config.cohereLanguage,
-            hotkeyKeyCode: config.meetingRecordingHotkey.keyCode,
-            hotkeyLabel: config.meetingRecordingHotkey.label,
-            systemAudioRequested: false,
-            onboardingUseCaseRawValue: config.onboardingUseCase
-        )
+        true
     }
 
     func showMeetingsHome(folderID: Int64? = nil) {

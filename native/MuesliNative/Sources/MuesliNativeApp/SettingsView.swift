@@ -1438,10 +1438,9 @@ struct SettingsView: View {
 
                 if appState.config.showMeetingDetectionNotification {
                     Divider().background(MuesliTheme.surfaceBorder)
-                    mutedMeetingDetectionAppsControl
-                    Divider().background(MuesliTheme.surfaceBorder)
                     customMeetingDetectionAppsControl
-                        .padding(.top, MuesliTheme.spacing8)
+                    Divider().background(MuesliTheme.surfaceBorder)
+                    mutedMeetingDetectionAppsControl
                 }
             }
 
@@ -2690,17 +2689,26 @@ struct SettingsView: View {
 
     private var mutedMeetingDetectionAppsControl: some View {
         let muted = Set(appState.config.mutedMeetingDetectionAppBundleIDs)
-        return VStack(alignment: .leading, spacing: 10) {
-            Text("Don't notify me when a call is detected in these apps:")
-                .font(MuesliTheme.body())
-                .foregroundStyle(MuesliTheme.textPrimary)
-
+        return DisclosureGroup(isExpanded: $showMutedDetectionApps) {
             LazyVGrid(columns: [
                 GridItem(.flexible(), spacing: 8),
                 GridItem(.flexible(), spacing: 8),
             ], alignment: .leading, spacing: 8) {
                 ForEach(meetingDetectionAppOptions) { app in
                     mutedDetectionAppButton(app, isMuted: muted.contains(app.bundleID))
+                }
+            }
+            .padding(.top, 10)
+        } label: {
+            HStack(spacing: 8) {
+                Text("Don't notify me when a call is detected in these apps")
+                    .font(MuesliTheme.body())
+                    .foregroundStyle(MuesliTheme.textPrimary)
+                Spacer(minLength: 8)
+                if !muted.isEmpty {
+                    Text(muted.count == 1 ? "1 muted" : "\(muted.count) muted")
+                        .font(MuesliTheme.caption())
+                        .foregroundStyle(MuesliTheme.textTertiary)
                 }
             }
         }
@@ -2775,6 +2783,7 @@ struct SettingsView: View {
 
     @State private var customAppBundleID = ""
     @State private var customAppName = ""
+    @State private var showMutedDetectionApps = false
 
     /// Editor for user-configured call apps (bundle ID + display name) that
     /// the meeting detector treats like built-in dedicated apps. Lets users
