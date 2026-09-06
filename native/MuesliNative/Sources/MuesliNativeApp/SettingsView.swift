@@ -493,11 +493,12 @@ struct SettingsView: View {
 
     /// Shown under the Model row only while the agent is offline or offers no
     /// options; live menus speak for themselves.
-    private var acpModelCaption: String? {
-        guard !isACPConfigOptionsLoading else { return nil }
+    private var acpModelCaption: String {
+        let base = "Agent model override. Empty means the agent default."
+        guard !isACPConfigOptionsLoading else { return base }
         return acpOptionsUnavailableAfterLoad || acpOptionValues("model").isEmpty
-            ? "Start the agent to see available models."
-            : nil
+            ? base + " Start the agent to see available models."
+            : base
     }
 
     private static let acpThinkingCaption = "Reasoning effort: off / auto / low / medium / high / xhigh / max."
@@ -1397,6 +1398,7 @@ struct SettingsView: View {
                 if appState.config.showMeetingDetectionNotification {
                     Divider().background(MuesliTheme.surfaceBorder)
                     customMeetingDetectionAppsControl
+                        .padding(.top, MuesliTheme.spacing8)
                     mutedMeetingDetectionAppsControl
                 }
             }
@@ -1404,7 +1406,11 @@ struct SettingsView: View {
             settingsSection("Calendars") {
                 calendarSyncRow
                 Divider().background(MuesliTheme.surfaceBorder)
-                settingsRow("Upcoming meetings", controlWidth: meetingControlWidth) {
+                settingsRow(
+                    "Upcoming meetings",
+                    description: "Controls how many calendar days appear in Coming Up, the menu bar, and scheduled meeting checks.",
+                    controlWidth: meetingControlWidth
+                ) {
                     settingsMenu(
                         selection: selectedUpcomingMeetingsWindow.label,
                         options: UpcomingMeetingsWindow.allCases.map(\.label)
@@ -1413,7 +1419,6 @@ struct SettingsView: View {
                         controller.updateUpcomingMeetingsWindow(dayCount: window.dayCount)
                     }
                 }
-                settingsDescription("Controls how many calendar days appear in Coming Up, the menu bar, and scheduled meeting checks.")
             }
 
             calendarManagementSection
@@ -1566,7 +1571,7 @@ struct SettingsView: View {
                 Divider().background(MuesliTheme.surfaceBorder)
                 settingsRow(
                     "Hook script",
-                    description: "Executable run with meeting data on stdin.",
+                    description: "Executable run with meeting data (JSON) on stdin. Must already be runnable on its own.",
                     controlWidth: meetingControlWidth
                 ) {
                     meetingHookPathPicker
@@ -1579,7 +1584,6 @@ struct SettingsView: View {
                 ) {
                     meetingHookTimeoutControl
                 }
-                settingsDescription("Runs a user-supplied executable after each completed meeting. The executable receives JSON on stdin and must already be runnable on its own.")
             }
             .padding(.top, MuesliTheme.spacing8)
         }
@@ -2613,10 +2617,11 @@ struct SettingsView: View {
     }
 
     private func settingsDescription(_ text: String) -> some View {
+        // No horizontal padding: the section card already insets content by
+        // 16pt. (Padding here double-indents captions vs row labels.)
         Text(text)
             .font(MuesliTheme.caption())
             .foregroundStyle(MuesliTheme.textTertiary)
-            .padding(.horizontal, MuesliTheme.spacing16)
             .padding(.top, -4)
             .padding(.bottom, MuesliTheme.spacing8)
     }
@@ -2625,7 +2630,6 @@ struct SettingsView: View {
         Text(text)
             .font(MuesliTheme.caption())
             .foregroundStyle(isError ? MuesliTheme.recording : MuesliTheme.textSecondary)
-            .padding(.horizontal, MuesliTheme.spacing16)
             .padding(.top, -4)
             .padding(.bottom, MuesliTheme.spacing8)
     }
