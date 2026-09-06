@@ -109,12 +109,14 @@ final class OnboardingWindowController: NSObject, NSWindowDelegate {
     }
 
     private func buildWindow() {
+        // Same footprint as the main app window.
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 640, height: 520),
+            contentRect: NSRect(x: 0, y: 0, width: 1120, height: 762),
             styleMask: [.titled],
             backing: .buffered,
             defer: false
         )
+        window.center()
         window.title = "Welcome to Meets"
         window.isReleasedWhenClosed = false
         window.delegate = self
