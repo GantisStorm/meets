@@ -8,7 +8,6 @@ enum DashboardTab: String, CaseIterable {
     case insights
     case dictionary
     case models
-    case shortcuts
     case settings
     case about
 }

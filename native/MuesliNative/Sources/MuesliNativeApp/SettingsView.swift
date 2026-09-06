@@ -1273,6 +1273,14 @@ struct SettingsView: View {
 
     private var meetingsSettingsPane: some View {
         VStack(alignment: .leading, spacing: MuesliTheme.spacing24) {
+            VStack(alignment: .leading, spacing: MuesliTheme.spacing8) {
+                Text("Shortcuts")
+                    .font(.system(size: 11, weight: .semibold))
+                    .textCase(.uppercase)
+                    .foregroundStyle(MuesliTheme.textTertiary)
+                    .padding(.leading, 2)
+                ShortcutsView(appState: appState, controller: controller).meetingRecordingShortcutSection
+            }
             meetingTranscriptionSettingsSection
 
             settingsSection("Meeting Context") {
@@ -1433,9 +1441,23 @@ struct SettingsView: View {
                         controller.updateUpcomingMeetingsWindow(dayCount: window.dayCount)
                     }
                 }
+                Divider().background(MuesliTheme.surfaceBorder)
+                settingsRow("Apple Calendar", description: "See what’s synced: accounts, calendars, per-calendar toggles, rename and delete.") {
+                    Button {
+                        isShowingCalendarSettings = true
+                    } label: {
+                        HStack(spacing: 5) {
+                            Image(systemName: "arrow.right.circle")
+                                .font(.system(size: 12, weight: .semibold))
+                            Text("Manage…")
+                                .font(.system(size: 11, weight: .medium))
+                        }
+                        .foregroundStyle(MuesliTheme.accent)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Manage Apple Calendar accounts and calendars")
+                }
             }
-
-            calendarManagementSection
 
             settingsSection("Sync & Export") {
                 settingsRow(
@@ -1687,26 +1709,6 @@ struct SettingsView: View {
     }
 
     // MARK: - Calendar management
-
-    private var calendarManagementSection: some View {
-        settingsSection("Calendar Management") {
-            settingsRow("Apple Calendar", description: "See what’s synced: accounts, calendars, per-calendar toggles, rename and delete.") {
-                Button {
-                    isShowingCalendarSettings = true
-                } label: {
-                    HStack(spacing: 5) {
-                        Image(systemName: "arrow.right.circle")
-                            .font(.system(size: 12, weight: .semibold))
-                        Text("Manage…")
-                            .font(.system(size: 11, weight: .medium))
-                    }
-                    .foregroundStyle(MuesliTheme.accent)
-                }
-                .buttonStyle(.plain)
-                .help("Manage Apple Calendar accounts and calendars")
-            }
-        }
-    }
 
     private var calendarSyncRow: some View {
         settingsRow("Sync with Apple Calendar", description: calendarSyncDescription) {

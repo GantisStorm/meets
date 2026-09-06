@@ -5,39 +5,24 @@ import MuesliCore
 struct ShortcutsView: View {
     let appState: AppState
     let controller: MuesliController
+
+    /// The standalone page is gone (now a section in Meetings settings);
+    /// body stays only for View conformance.
+    var body: some View {
+        meetingRecordingShortcutSection
+    }
     @State private var recordingTarget: ShortcutTarget?
     @State private var eventMonitor: Any?
     @State private var pendingModifierKeyCode: UInt16?
     @State private var meetingRecordingShortcutMessage: String?
 
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: MuesliTheme.spacing24) {
-                Text("Shortcuts")
-                    .font(MuesliTheme.title1())
-                    .foregroundStyle(MuesliTheme.textPrimary)
-
-                Text("Choose your shortcut for meeting recording.")
-                    .font(MuesliTheme.body())
-                    .foregroundStyle(MuesliTheme.textSecondary)
-
-                meetingRecordingShortcutSection
-            }
-            .padding(.horizontal, MuesliTheme.spacing32)
-            .padding(.top, MuesliTheme.pageTop)
-            .padding(.bottom, MuesliTheme.spacing32)
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .onDisappear {
-            stopRecording()
-        }
-    }
-
     private enum ShortcutTarget {
         case meetingRecording
     }
 
-    private var meetingRecordingShortcutSection: some View {
+    /// Section content embedded at the top of the Meetings settings pane.
+    /// Carries its own card styling; the pane adds the section header.
+    var meetingRecordingShortcutSection: some View {
         VStack(alignment: .leading, spacing: MuesliTheme.spacing16) {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: MuesliTheme.spacing4) {
@@ -78,6 +63,9 @@ struct ShortcutsView: View {
                       let warning = ShortcutHotkeyPolicy.commonGlobalShortcutWarning(for: appState.config.meetingRecordingHotkey) {
                 shortcutMessage(warning)
             }
+        }
+        .onDisappear {
+            stopRecording()
         }
         .padding(MuesliTheme.spacing16)
         .background(MuesliTheme.backgroundRaised)

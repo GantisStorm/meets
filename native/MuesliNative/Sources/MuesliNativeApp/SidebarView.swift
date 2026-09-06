@@ -153,7 +153,6 @@ struct SidebarView: View {
             Spacer()
 
             collapsedItem(tab: .models, icon: "cpu", label: "Models")
-            collapsedItem(tab: .shortcuts, icon: "command", label: "Shortcuts")
             collapsedItem(tab: .settings, icon: "gearshape", label: "Settings")
             collapsedItem(tab: .about, icon: "info.circle", label: "About")
                 .padding(.bottom, MuesliTheme.spacing16)
@@ -208,7 +207,6 @@ struct SidebarView: View {
 
             modelPreparationStatus
             sidebarItem(tab: .models, icon: "cpu", label: "Models")
-            sidebarItem(tab: .shortcuts, icon: "command", label: "Shortcuts")
             sidebarItem(tab: .settings, icon: "gearshape", label: "Settings")
             sidebarItem(tab: .about, icon: "info.circle", label: "About", updateCTA: pendingUpdateCTA)
             darkModeToggle
