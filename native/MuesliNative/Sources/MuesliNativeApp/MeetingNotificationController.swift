@@ -1,62 +1,62 @@
-import AppKit
-import QuartzCore
 import Foundation
 import MuesliCore
 import os
+import UserNotifications
 
+/// Meeting prompts delivered as Apple notifications (Notification Center),
+/// not custom floating panels: they respect Focus modes, persist in the
+/// notification list, and play the standard alert treatment.
+///
+/// Public surface mirrors the old panel controller one-to-one: `show` takes
+/// the same prompt parts and callbacks, `close` tears down, and
+/// `isVisible`/`currentPromptID`/`shownAt` keep their meaning (a delivered,
+/// not-yet-removed notification). Only one prompt is ever live: showing a
+/// new one removes the previous, exactly like the panel did.
 @MainActor
-final class MeetingNotificationController {
+final class MeetingNotificationController: NSObject, UNUserNotificationCenterDelegate {
     private static let logger = Logger(subsystem: "com.muesli.native", category: "MeetingNotification")
 
-    private var panel: NSPanel?
-    private var dismissTimer: Timer?
-    private var progressLayer: CALayer?
-    private var dismissDeadline: Date?
-    private var remainingDismissDuration: TimeInterval = 0
-    private var isDismissPaused = false
+    private var deliveredID: String?
+    private var removalTask: Task<Void, Never>?
     private var onStartRecording: (() -> Void)?
     private var onJoinAndRecord: (() -> Void)?
     private var onJoinOnly: (() -> Void)?
     private var onDismiss: (() -> Void)?
     private var onAutoDismiss: (() -> Void)?
-    private var splitButtonAlternatives: [MeetingJoinDefaultAction] = []
+    private var actionHandlers: [String: () -> Void] = [:]
+    private var primaryActionID: String?
+    private static var didRequestAuthorization = false
     private(set) var isVisible = false
     private(set) var currentPromptID: String?
     private(set) var shownAt: Date?
 
     private static let dismissDuration: TimeInterval = 15
 
-    /// Fixed geometry for the split button, so swapping which action is armed never
-    /// reflows the card. `splitButtonLabelFits` guards the assumption in tests.
-    static let splitButtonWidth: CGFloat = 126
-    static let splitButtonFont = NSFont.systemFont(ofSize: 11, weight: .medium)
-
-    static func splitButtonLabelFits(_ label: String, horizontalPadding: CGFloat = 12) -> Bool {
-        let labelWidth = (label as NSString).size(withAttributes: [.font: splitButtonFont]).width
-        return labelWidth + horizontalPadding <= splitButtonWidth
+    static func suppressesCloseCallbackDuringAutoDismiss(hasAutoDismissHandler: Bool) -> Bool {
+        hasAutoDismissHandler
     }
 
-    static func singleActionTextWidth(
-        cardWidth: CGFloat,
-        textX: CGFloat,
-        buttonWidth: CGFloat = 126,
-        trailingInset: CGFloat = 12,
-        spacing: CGFloat = 8
-    ) -> CGFloat {
-        max(0, cardWidth - trailingInset - buttonWidth - spacing - textX)
+    static func firesAutoDismissCallbackAfterFade(wasDismissPaused: Bool) -> Bool {
+        !wasDismissPaused
     }
 
-    static func singleActionCardWidth(
-        requiredTextWidth: CGFloat,
-        textX: CGFloat,
-        buttonWidth: CGFloat = 126,
-        trailingInset: CGFloat = 12,
-        spacing: CGFloat = 8,
-        minimumWidth: CGFloat = 344,
-        maximumWidth: CGFloat = 420
-    ) -> CGFloat {
-        let requiredWidth = ceil(textX + requiredTextWidth + spacing + buttonWidth + trailingInset)
-        return min(maximumWidth, max(minimumWidth, requiredWidth))
+    override init() {
+        super.init()
+        UNUserNotificationCenter.current().delegate = self
+    }
+
+    /// Requests notification authorization if never asked. Called when the
+    /// user enables either notification toggle and as a backstop on show.
+    func ensureNotificationAuthorization() {
+        guard !Self.didRequestAuthorization else { return }
+        Self.didRequestAuthorization = true
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { granted, error in
+            if let error {
+                Self.logger.error("notification authorization failed: \(error.localizedDescription, privacy: .public)")
+            } else {
+                Self.logger.notice("notification authorization granted=\(granted)")
+            }
+        }
     }
 
     @discardableResult
@@ -66,8 +66,6 @@ final class MeetingNotificationController {
         subtitle: String,
         actionLabel: String = "Start Transcribing",
         meetingURL: URL? = nil,
-        preferredScreen: NSScreen? = nil,
-        platform explicitPlatform: MeetingPlatform? = nil,
         dismissAfter: TimeInterval? = nil,
         defaultAction: MeetingJoinDefaultAction = .fallback,
         onStartRecording: @escaping () -> Void,
@@ -77,7 +75,7 @@ final class MeetingNotificationController {
         onAutoDismiss: (() -> Void)? = nil,
         onClose: (() -> Void)? = nil
     ) -> Bool {
-        // Nil out onClose before close() so the old panel's teardown
+        // Nil out onClose before close() so the old prompt's teardown
         // doesn't fire its callback (e.g. resetting isShowingCalendarNotification).
         self.onClose = nil
         close()
@@ -92,239 +90,96 @@ final class MeetingNotificationController {
         let hasJoinAndRecord = meetingURL != nil && onJoinAndRecord != nil
         let hasJoinOnly = meetingURL != nil && onJoinOnly != nil
         let armedAction = defaultAction.resolved(hasJoinAndRecord: hasJoinAndRecord, hasJoinOnly: hasJoinOnly)
-        splitButtonAlternatives = defaultAction.availableAlternatives(
+        let alternatives = defaultAction.availableAlternatives(
             hasJoinAndRecord: hasJoinAndRecord,
             hasJoinOnly: hasJoinOnly
         )
-        // Nothing to drop down (a prompt with no join link, or "Stop Transcribing")
-        // keeps the plain single-action button.
-        let hasJoinButton = !splitButtonAlternatives.isEmpty
-        let platform = explicitPlatform ?? meetingURL.flatMap { MeetingPlatform.detect(from: $0) }
-        let platformIcon = platform?.loadIcon()
-        let iconSize: CGFloat = 26
-        let textX: CGFloat = platformIcon == nil ? 14 : 14 + iconSize + 9
-        let titleFont = NSFont.systemFont(ofSize: 13, weight: .semibold)
-        let subtitleFont = NSFont.systemFont(ofSize: 11)
 
-        let minimumCardWidth: CGFloat = 344
-        let cardWidth: CGFloat
-        if hasJoinButton {
-            cardWidth = minimumCardWidth
-        } else {
-            let titleWidth = (title as NSString).size(withAttributes: [.font: titleFont]).width
-            let subtitleWidth = (subtitle as NSString).size(withAttributes: [.font: subtitleFont]).width
-            cardWidth = Self.singleActionCardWidth(
-                requiredTextWidth: max(titleWidth, subtitleWidth),
-                textX: textX,
-                minimumWidth: minimumCardWidth
-            )
+        // One category per prompt: action titles differ per prompt
+        // ("Start Transcribing" vs "View Notes"), so static categories can't
+        // cover them. Registration is additive and cheap.
+        let deliveredID = promptID ?? UUID().uuidString
+        let categoryID = "meeting." + deliveredID
+        var handlers: [String: () -> Void] = [:]
+        var actions: [UNNotificationAction] = []
+        func addAction(id: String, title: String, handler: @escaping () -> Void) {
+            handlers[id] = handler
+            actions.append(UNNotificationAction(identifier: id, title: title, options: []))
         }
-        let cardHeight: CGFloat = 60
-        let closeButtonSize: CGFloat = 22
-        let cardX = closeButtonSize / 2 + 1
-        let topGutter: CGFloat = closeButtonSize / 2 + 1
-        let width = cardWidth + cardX
-        let height = cardHeight + topGutter
-        let margin: CGFloat = 16
-        guard let frame = verifiedNotificationFrame(
-            preferredScreen: preferredScreen,
-            width: width,
-            height: height,
-            margin: margin
-        ) else {
-            Self.logger.error("notification_frame_unavailable title=\(title, privacy: .public)")
-            return false
+        // Primary first: body tap invokes it.
+        let primaryID = "primary"
+        primaryActionID = primaryID
+        switch armedAction {
+        case .joinAndRecord:
+            addAction(id: primaryID, title: MeetingJoinDefaultAction.joinAndRecord.buttonLabel) { [weak self] in self?.onJoinAndRecord?() }
+        case .joinOnly:
+            addAction(id: primaryID, title: MeetingJoinDefaultAction.joinOnly.buttonLabel) { [weak self] in self?.onJoinOnly?() }
+        case .recordOnly:
+            addAction(id: primaryID, title: actionLabel) { [weak self] in self?.onStartRecording?() }
         }
-        self.onClose = onClose
+        for alternative in alternatives {
+            switch alternative {
+            case .joinAndRecord:
+                addAction(id: "joinRecord", title: MeetingJoinDefaultAction.joinAndRecord.buttonLabel) { [weak self] in self?.onJoinAndRecord?() }
+            case .joinOnly:
+                addAction(id: "joinOnly", title: MeetingJoinDefaultAction.joinOnly.buttonLabel) { [weak self] in self?.onJoinOnly?() }
+            case .recordOnly:
+                addAction(id: "transcribe", title: actionLabel) { [weak self] in self?.onStartRecording?() }
+            }
+        }
+        addAction(id: "dismiss", title: "Dismiss") { [weak self] in self?.handleDismissAction() }
+        UNUserNotificationCenter.current().setNotificationCategories([
+            UNNotificationCategory(identifier: categoryID, actions: actions, intentIdentifiers: [], options: [])
+        ])
+        self.actionHandlers = handlers
 
-        let panel = NSPanel(
-            contentRect: frame,
-            styleMask: [.borderless, .nonactivatingPanel],
-            backing: .buffered,
-            defer: false
-        )
-        panel.level = .screenSaver
-        panel.isOpaque = false
-        panel.backgroundColor = .clear
-        panel.hasShadow = true
-        panel.hidesOnDeactivate = false
-        panel.ignoresMouseEvents = false
-        panel.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary, .transient, .ignoresCycle]
-        panel.becomesKeyOnlyIfNeeded = true
-
-        let contentView = HoverAwareView(frame: NSRect(origin: .zero, size: NSSize(width: width, height: height)))
-        contentView.onMouseEntered = { [weak self] in self?.pauseDismissCountdown() }
-        contentView.onMouseExited = { [weak self] in self?.resumeDismissCountdown() }
-        contentView.wantsLayer = true
-
-        let cardView = NSView(frame: NSRect(x: cardX, y: 0, width: cardWidth, height: cardHeight))
-        cardView.wantsLayer = true
-        cardView.layer?.cornerRadius = 10
-        cardView.layer?.masksToBounds = true
-        cardView.layer?.backgroundColor = NSColor(red: 0.10, green: 0.10, blue: 0.12, alpha: 0.97).cgColor
-        cardView.layer?.borderWidth = 1
-        cardView.layer?.borderColor = NSColor.white.withAlphaComponent(0.10).cgColor
-        contentView.addSubview(cardView)
-
-        // Countdown progress bar at bottom
-        let progressBar = CALayer()
-        progressBar.frame = CGRect(x: 0, y: 0, width: cardWidth, height: 3)
-        progressBar.backgroundColor = NSColor(red: 0.3, green: 0.6, blue: 1.0, alpha: 0.8).cgColor
-        cardView.layer?.addSublayer(progressBar)
-        self.progressLayer = progressBar
-
-        progressBar.anchorPoint = CGPoint(x: 0, y: 0.5)
-        progressBar.position = CGPoint(x: 0, y: 1.5)
-
-        let dismissButton = NSButton(title: "×", target: self, action: #selector(handleDismiss))
-        dismissButton.font = .systemFont(ofSize: 15, weight: .medium)
-        dismissButton.frame = NSRect(
-            x: cardX - closeButtonSize / 2,
-            y: cardHeight + topGutter - closeButtonSize,
-            width: closeButtonSize,
-            height: closeButtonSize
-        )
-        dismissButton.wantsLayer = true
-        dismissButton.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.70).cgColor
-        dismissButton.layer?.borderWidth = 1
-        dismissButton.layer?.borderColor = NSColor.white.withAlphaComponent(0.55).cgColor
-        dismissButton.layer?.cornerRadius = closeButtonSize / 2
-        dismissButton.alignment = .center
-        dismissButton.focusRingType = .none
-        dismissButton.isBordered = false
-        dismissButton.contentTintColor = NSColor.white.withAlphaComponent(0.86)
-        dismissButton.toolTip = "Dismiss"
-        contentView.addSubview(dismissButton)
-        contentView.hoverFrames = [cardView.frame, dismissButton.frame]
-
-        // Platform icon + text layout
-        if let icon = platformIcon {
-            let iconView = NSImageView(image: icon)
-            iconView.imageScaling = .scaleProportionallyUpOrDown
-            iconView.frame = NSRect(x: 14, y: (cardHeight - iconSize) / 2 + 1, width: iconSize, height: iconSize)
-            cardView.addSubview(iconView)
+        ensureNotificationAuthorization()
+        let content = UNMutableNotificationContent()
+        content.title = title
+        content.body = subtitle
+        content.categoryIdentifier = categoryID
+        content.sound = .default
+        let request = UNNotificationRequest(identifier: deliveredID, content: content, trigger: nil)
+        UNUserNotificationCenter.current().add(request) { [weak self] error in
+            guard let self else { return }
+            if let error {
+                Task { @MainActor [weak self] in
+                    Self.logger.error("notification deliver failed: \(error.localizedDescription, privacy: .public)")
+                    self?.close()
+                }
+            }
         }
 
-        // Title label
-        let titleLabel = NSTextField(labelWithString: title)
-        titleLabel.font = titleFont
-        titleLabel.textColor = .white
-        titleLabel.frame = NSRect(x: textX, y: 32, width: 144, height: 18)
-        cardView.addSubview(titleLabel)
-
-        // Subtitle label
-        let subtitleLabel = NSTextField(labelWithString: subtitle)
-        subtitleLabel.font = subtitleFont
-        subtitleLabel.textColor = NSColor.white.withAlphaComponent(0.55)
-        subtitleLabel.frame = NSRect(x: textX, y: 14, width: 144, height: 16)
-        cardView.addSubview(subtitleLabel)
-
-        if hasJoinButton {
-            // Split button: the armed action (main) + chevron dropdown with the others
-            let buttonWidth = Self.splitButtonWidth
-            let chevronWidth: CGFloat = 24
-            let totalWidth = buttonWidth + chevronWidth
-            let buttonX = cardWidth - totalWidth - 12
-            let textMaxX = buttonX - 8
-            let greenColor = NSColor(red: 0.20, green: 0.72, blue: 0.53, alpha: 1.0)
-            let greenDarker = NSColor(red: 0.15, green: 0.58, blue: 0.42, alpha: 1.0)
-
-            // Clamp text labels so they don't overlap the button
-            titleLabel.frame.size.width = textMaxX - textX
-            subtitleLabel.frame.size.width = textMaxX - textX
-
-            // Main button for the user's default action
-            let joinButton = NSButton(
-                title: armedAction.buttonLabel,
-                target: self,
-                action: Self.selector(for: armedAction)
-            )
-            joinButton.font = Self.splitButtonFont
-            joinButton.frame = NSRect(x: buttonX, y: 15, width: buttonWidth, height: 30)
-            joinButton.wantsLayer = true
-            joinButton.layer?.backgroundColor = greenColor.cgColor
-            joinButton.layer?.cornerRadius = 6
-            joinButton.layer?.maskedCorners = [.layerMinXMinYCorner, .layerMinXMaxYCorner]
-            joinButton.isBordered = false
-            joinButton.contentTintColor = .white
-            cardView.addSubview(joinButton)
-
-            // Chevron dropdown button
-            let chevronButton = NSButton(title: "▾", target: self, action: #selector(handleChevronClick(_:)))
-            chevronButton.font = .systemFont(ofSize: 9, weight: .medium)
-            chevronButton.frame = NSRect(x: buttonX + buttonWidth, y: 15, width: chevronWidth, height: 30)
-            chevronButton.wantsLayer = true
-            chevronButton.layer?.backgroundColor = greenDarker.cgColor
-            chevronButton.layer?.cornerRadius = 6
-            chevronButton.layer?.maskedCorners = [.layerMaxXMinYCorner, .layerMaxXMaxYCorner]
-            chevronButton.isBordered = false
-            chevronButton.contentTintColor = NSColor.white.withAlphaComponent(0.8)
-            chevronButton.toolTip = splitButtonAlternatives.map(\.buttonLabel).joined(separator: " · ")
-            cardView.addSubview(chevronButton)
-        } else {
-            // Single "Start Transcribing" button
-            let buttonWidth: CGFloat = 126
-            let buttonX = cardWidth - buttonWidth - 12
-            let textWidth = Self.singleActionTextWidth(cardWidth: cardWidth, textX: textX, buttonWidth: buttonWidth)
-            titleLabel.frame.size.width = textWidth
-            subtitleLabel.frame.size.width = textWidth
-
-            let startButton = NSButton(title: actionLabel, target: self, action: #selector(handleStartRecording))
-            startButton.font = .systemFont(ofSize: 12, weight: .medium)
-            startButton.frame = NSRect(x: buttonX, y: 15, width: buttonWidth, height: 30)
-            startButton.wantsLayer = true
-            startButton.layer?.backgroundColor = NSColor(red: 0.2, green: 0.5, blue: 1.0, alpha: 1.0).cgColor
-            startButton.layer?.cornerRadius = 6
-            startButton.isBordered = false
-            startButton.contentTintColor = .white
-            cardView.addSubview(startButton)
-        }
-
-        panel.contentView = contentView
-        panel.alphaValue = 1
-        panel.orderFrontRegardless()
-
-        self.panel = panel
+        self.deliveredID = deliveredID
         isVisible = true
         currentPromptID = promptID
         shownAt = Date()
-        Self.logger.notice(
-            "notification_panel_shown promptID=\(promptID ?? "nil", privacy: .public) level=\(panel.level.rawValue) frame=\(NSStringFromRect(frame), privacy: .public)"
-        )
-
-        startDismissCountdown(duration: duration)
+        Self.logger.notice("notification_delivered promptID=\(promptID ?? "nil", privacy: .public) id=\(deliveredID, privacy: .public)")
+        removalTask?.cancel()
+        removalTask = Task { [weak self, duration] in
+            try? await Task.sleep(nanoseconds: UInt64(duration * 1_000_000_000))
+            guard let self, !Task.isCancelled else { return }
+            await MainActor.run { [weak self] in self?.autoRemoveNow() }
+        }
         return true
     }
 
     var onClose: (() -> Void)?
 
-    static func suppressesCloseCallbackDuringAutoDismiss(hasAutoDismissHandler: Bool) -> Bool {
-        hasAutoDismissHandler
-    }
-
-    static func firesAutoDismissCallbackAfterFade(wasDismissPaused: Bool) -> Bool {
-        !wasDismissPaused
-    }
-
     func close() {
-        dismissTimer?.invalidate()
-        dismissTimer = nil
-        dismissDeadline = nil
-        remainingDismissDuration = 0
-        isDismissPaused = false
-        progressLayer?.removeAllAnimations()
-        progressLayer?.speed = 1
-        progressLayer?.timeOffset = 0
-        progressLayer?.beginTime = 0
-        progressLayer = nil
-        panel?.close()
-        panel = nil
+        removalTask?.cancel()
+        removalTask = nil
+        if let deliveredID {
+            UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: [deliveredID])
+        }
+        deliveredID = nil
+        actionHandlers = [:]
+        primaryActionID = nil
         onStartRecording = nil
         onJoinAndRecord = nil
         onJoinOnly = nil
         onDismiss = nil
         onAutoDismiss = nil
-        splitButtonAlternatives = []
         isVisible = false
         currentPromptID = nil
         shownAt = nil
@@ -332,313 +187,59 @@ final class MeetingNotificationController {
         onClose = nil
     }
 
-    private func startDismissCountdown(duration: TimeInterval) {
-        remainingDismissDuration = duration
-        isDismissPaused = false
-        startProgressAnimation(duration: duration)
-        scheduleDismissTimer(after: duration)
-    }
-
-    private func startProgressAnimation(duration: TimeInterval) {
-        guard let progressLayer else { return }
-        let shrink = CABasicAnimation(keyPath: "bounds.size.width")
-        shrink.fromValue = progressLayer.bounds.width
-        shrink.toValue = 0
-        shrink.duration = duration
-        shrink.timingFunction = CAMediaTimingFunction(name: .linear)
-        shrink.fillMode = .forwards
-        shrink.isRemovedOnCompletion = false
-        progressLayer.add(shrink, forKey: "countdown")
-    }
-
-    private func scheduleDismissTimer(after duration: TimeInterval) {
-        dismissTimer?.invalidate()
-        dismissDeadline = Date().addingTimeInterval(duration)
-        dismissTimer = Timer.scheduledTimer(withTimeInterval: duration, repeats: false) { [weak self] _ in
-            DispatchQueue.main.async {
-                self?.autoDismissNow()
-            }
+    /// Removal after the display window: keeps the notification in the
+    /// Center's history cleared and fires the auto-dismiss callback with the
+    /// same suppression rule the panel fade used.
+    private func autoRemoveNow() {
+        let autoDismiss = self.onAutoDismiss
+        if Self.suppressesCloseCallbackDuringAutoDismiss(hasAutoDismissHandler: autoDismiss != nil) {
+            self.onClose = nil
+        }
+        close()
+        if Self.firesAutoDismissCallbackAfterFade(wasDismissPaused: false) {
+            autoDismiss?()
         }
     }
 
-    private func autoDismissNow() {
-        guard !isDismissPaused else { return }
-        animateOut { [weak self] in
-            guard let self else { return }
-            let wasPaused = self.isDismissPaused
-            let autoDismiss = self.onAutoDismiss
-            let shouldFireAutoDismiss = Self.firesAutoDismissCallbackAfterFade(wasDismissPaused: wasPaused)
-            if shouldFireAutoDismiss,
-               Self.suppressesCloseCallbackDuringAutoDismiss(hasAutoDismissHandler: autoDismiss != nil) {
-                self.onClose = nil
-            }
-            self.close()
-            if shouldFireAutoDismiss {
-                autoDismiss?()
-            }
-        }
-    }
-
-    private func pauseDismissCountdown() {
-        guard isVisible, !isDismissPaused else { return }
-        isDismissPaused = true
-        if let dismissDeadline {
-            remainingDismissDuration = max(0.1, dismissDeadline.timeIntervalSinceNow)
-        }
-        dismissTimer?.invalidate()
-        dismissTimer = nil
-        dismissDeadline = nil
-
-        guard let progressLayer else { return }
-        let pausedTime = progressLayer.convertTime(CACurrentMediaTime(), from: nil)
-        progressLayer.speed = 0
-        progressLayer.timeOffset = pausedTime
-    }
-
-    private func resumeDismissCountdown() {
-        guard isVisible, isDismissPaused else { return }
-        isDismissPaused = false
-        scheduleDismissTimer(after: remainingDismissDuration)
-
-        guard let progressLayer else { return }
-        let pausedTime = progressLayer.timeOffset
-        let resumeHostTime = CACurrentMediaTime()
-        progressLayer.speed = 1
-        progressLayer.timeOffset = 0
-        progressLayer.beginTime = resumeHostTime - pausedTime
-    }
-
-    private func animateOut(completion: @escaping () -> Void) {
-        guard let panel else { completion(); return }
-        NSAnimationContext.runAnimationGroup({ ctx in
-            ctx.duration = 0.2
-            panel.animator().alphaValue = 0
-        }, completionHandler: completion)
-    }
-
-    @objc private func handleStartRecording() {
-        let action = onStartRecording
-        animateOut { [weak self] in
-            self?.close()
-            action?()
-        }
-    }
-
-    @objc private func handleJoinAndRecord() {
-        let action = onJoinAndRecord
-        animateOut { [weak self] in
-            self?.close()
-            action?()
-        }
-    }
-
-    @objc private func handleJoinOnly() {
-        let action = onJoinOnly
-        animateOut { [weak self] in
-            self?.close()
-            action?()
-        }
-    }
-
-    /// Maps a join action to the handler that performs it. The transcribe-only handler is
-    /// the same `onStartRecording` used by single-action prompts.
-    private static func selector(for action: MeetingJoinDefaultAction) -> Selector {
-        switch action {
-        case .joinAndRecord:
-            return #selector(handleJoinAndRecord)
-        case .joinOnly:
-            return #selector(handleJoinOnly)
-        case .recordOnly:
-            return #selector(handleStartRecording)
-        }
-    }
-
-    @objc private func handleChevronClick(_ sender: NSButton) {
-        let menu = NSMenu()
-        for action in splitButtonAlternatives {
-            let item = NSMenuItem(title: action.buttonLabel, action: Self.selector(for: action), keyEquivalent: "")
-            item.target = self
-            menu.addItem(item)
-        }
-
-        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: sender.bounds.height + 4), in: sender)
-    }
-
-    @objc private func handleDismiss() {
+    private func handleDismissAction() {
         let action = onDismiss
-        animateOut { [weak self] in
-            self?.close()
-            action?()
+        close()
+        action?()
+    }
+
+    private func handleNotificationResponse(id: String, actionID: String) {
+        guard id == deliveredID else { return }
+        if actionID == UNNotificationDefaultActionIdentifier,
+           let primaryActionID,
+           let handler = actionHandlers[primaryActionID] {
+            close()
+            handler()
+            return
         }
-    }
-
-    private func verifiedNotificationFrame(
-        preferredScreen: NSScreen?,
-        width: CGFloat,
-        height: CGFloat,
-        margin: CGFloat
-    ) -> NSRect? {
-        // Main screen outranks the mouse screen: a cursor parked on a
-        // secondary display sent cards where nobody looks.
-        let orderedScreens = uniqueScreens(
-            [preferredScreen, NSScreen.main].compactMap { $0 } + NSScreen.screens
-        )
-
-        for screen in orderedScreens {
-            let frame = notificationFrame(on: screen, width: width, height: height, margin: margin)
-            if NSScreen.screens.contains(where: { $0.visibleFrame.contains(frame) }) {
-                return frame
-            }
+        guard let handler = actionHandlers[actionID] else {
+            close()
+            return
         }
-        guard let fallbackScreen = NSScreen.main ?? NSScreen.screens.first else { return nil }
-        return notificationFrame(on: fallbackScreen, width: width, height: height, margin: margin)
+        close()
+        handler()
     }
 
-    private func notificationFrame(
-        on screen: NSScreen,
-        width: CGFloat,
-        height: CGFloat,
-        margin: CGFloat
-    ) -> NSRect {
-        let visible = screen.visibleFrame
-        let x = min(
-            max(visible.maxX - width - margin, visible.minX + margin),
-            visible.maxX - width
-        )
-        let y = min(
-            max(visible.maxY - height - margin, visible.minY + margin),
-            visible.maxY - height
-        )
-        return NSRect(x: x, y: y, width: width, height: height)
+    nonisolated func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification,
+        withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+    ) {
+        completionHandler([.banner, .sound, .list])
     }
 
-    private func uniqueScreens(_ screens: [NSScreen]) -> [NSScreen] {
-        var seen = Set<ObjectIdentifier>()
-        return screens.filter { screen in
-            seen.insert(ObjectIdentifier(screen)).inserted
-        }
-    }
-}
-
-private final class HoverAwareView: NSView {
-    var onMouseEntered: (() -> Void)?
-    var onMouseExited: (() -> Void)?
-    var hoverFrames: [NSRect] = []
-    private var isHoveringActiveFrame = false
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        for trackingArea in trackingAreas {
-            removeTrackingArea(trackingArea)
-        }
-        addTrackingArea(
-            NSTrackingArea(
-                rect: bounds,
-                options: [.activeAlways, .mouseEnteredAndExited, .mouseMoved, .inVisibleRect],
-                owner: self,
-                userInfo: nil
-            )
-        )
-    }
-
-    override func mouseEntered(with event: NSEvent) {
-        updateHoverState(with: event)
-    }
-
-    override func mouseMoved(with event: NSEvent) {
-        updateHoverState(with: event)
-    }
-
-    override func mouseExited(with event: NSEvent) {
-        setHoveringActiveFrame(false)
-    }
-
-    private func updateHoverState(with event: NSEvent) {
-        let point = convert(event.locationInWindow, from: nil)
-        setHoveringActiveFrame(hoverFrames.contains { $0.contains(point) })
-    }
-
-    private func setHoveringActiveFrame(_ isHovering: Bool) {
-        guard isHovering != isHoveringActiveFrame else { return }
-        isHoveringActiveFrame = isHovering
-        if isHovering {
-            onMouseEntered?()
-        } else {
-            onMouseExited?()
-        }
-    }
-}
-
-// MARK: - Meeting Platform Detection
-
-enum MeetingPlatform: Equatable {
-    case zoom
-    case googleMeet
-    case teams
-    case slack
-    case webex
-    case facetime
-
-    static func detect(from url: URL) -> MeetingPlatform? {
-        guard let host = url.host?.lowercased() else { return nil }
-        if host.hasSuffix("zoom.us") { return .zoom }
-        if host == "meet.google.com" { return .googleMeet }
-        if host.hasSuffix("teams.microsoft.com") { return .teams }
-        if host.hasSuffix("webex.com") { return .webex }
-        if host == "facetime.apple.com" { return .facetime }
-        if host == "app.slack.com" && url.path.hasPrefix("/huddle/") { return .slack }
-        return nil
-    }
-
-    init?(_ platform: MeetingCandidate.Platform) {
-        switch platform {
-        case .zoom:
-            self = .zoom
-        case .googleMeet:
-            self = .googleMeet
-        case .teams:
-            self = .teams
-        case .slack:
-            self = .slack
-        case .webex:
-            self = .webex
-        case .facetime:
-            self = .facetime
-        case .whatsApp, .discord, .telegram, .signal, .unknown:
-            return nil
-        }
-    }
-
-    func loadIcon() -> NSImage? {
-        switch self {
-        case .zoom:
-            if let url = Bundle.main.url(forResource: "zoom-app", withExtension: "png"),
-               let image = NSImage(contentsOf: url) {
-                return image
-            }
-            return NSImage(systemSymbolName: "video.fill", accessibilityDescription: "Zoom")
-        case .googleMeet:
-            if let url = Bundle.main.url(forResource: "google-meet", withExtension: "png"),
-               let image = NSImage(contentsOf: url) {
-                return image
-            }
-            return NSImage(systemSymbolName: "video.fill", accessibilityDescription: "Google Meet")
-        case .teams:
-            if let url = Bundle.main.url(forResource: "teams", withExtension: "png"),
-               let image = NSImage(contentsOf: url) {
-                return image
-            }
-            return NSImage(systemSymbolName: "person.3.fill", accessibilityDescription: "Teams")
-        case .slack:
-            if let url = Bundle.main.url(forResource: "slack", withExtension: "png"),
-               let image = NSImage(contentsOf: url) {
-                return image
-            }
-            return NSImage(systemSymbolName: "message.fill", accessibilityDescription: "Slack")
-        case .webex:
-            return NSImage(systemSymbolName: "video.fill", accessibilityDescription: "Webex")
-        case .facetime:
-            return NSImage(systemSymbolName: "video.fill", accessibilityDescription: "FaceTime")
-        }
+    nonisolated func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse,
+        withCompletionHandler completionHandler: @escaping () -> Void
+    ) {
+        let id = response.notification.request.identifier
+        let actionID = response.actionIdentifier
+        Task { @MainActor [weak self] in self?.handleNotificationResponse(id: id, actionID: actionID) }
+        completionHandler()
     }
 }

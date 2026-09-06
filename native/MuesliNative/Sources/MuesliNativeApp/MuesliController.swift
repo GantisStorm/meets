@@ -2953,6 +2953,12 @@ public final class MuesliController: NSObject {
     /// Opens the templates manager as a sheet over whatever is showing
     /// (Settings, Meetings, an open meeting). Previously this forced the
     /// Meetings tab first because the sheet was hosted there.
+    /// Requests Apple notification authorization if never asked. Called when
+    /// either notification toggle flips on; show() backstops it anyway.
+    func ensureMeetingNotificationAuth() {
+        meetingNotification.ensureNotificationAuthorization()
+    }
+
     func showMeetingTemplatesManager() {
         appState.isMeetingTemplatesManagerPresented = true
     }
@@ -6751,13 +6757,10 @@ public final class MuesliController: NSObject {
 
         let title = candidate.subtitle
         presentedMeetingCandidate = candidate
-        let preferredScreen = meetingSourceWindowLocator.screen(for: candidate)
         let didShow = meetingNotification.show(
             promptID: candidate.id,
             title: "Meeting detected",
             subtitle: title,
-            preferredScreen: preferredScreen,
-            platform: MeetingPlatform(candidate.platform),
             onStartRecording: { [weak self] in
                 guard let self else { return }
                 let calendarEvent = candidate.evidence.contains(.calendarEvent)

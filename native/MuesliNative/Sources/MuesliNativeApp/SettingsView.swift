@@ -1365,6 +1365,7 @@ struct SettingsView: View {
                 settingsRow("Scheduled meetings") {
                     settingsSwitch(isOn: appState.config.showScheduledMeetingNotifications) { newValue in
                         controller.updateConfig { $0.showScheduledMeetingNotifications = newValue }
+                        if newValue { controller.ensureMeetingNotificationAuth() }
                     }
                 }
                 settingsDescription("Show notifications for calendar meetings with a join link.")
@@ -1413,6 +1414,7 @@ struct SettingsView: View {
                 settingsRow("Auto-detected meetings") {
                     settingsSwitch(isOn: appState.config.showMeetingDetectionNotification) { newValue in
                         controller.updateConfig { $0.showMeetingDetectionNotification = newValue }
+                        if newValue { controller.ensureMeetingNotificationAuth() }
                     }
                 }
                 settingsDescription("Show notifications when a call is detected from browser, camera, microphone, or app audio activity.")

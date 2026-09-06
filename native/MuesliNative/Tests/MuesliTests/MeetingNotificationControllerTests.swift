@@ -35,21 +35,6 @@ struct MeetingNotificationControllerTests {
         #expect(!MeetingNotificationController.firesAutoDismissCallbackAfterFade(wasDismissPaused: true))
     }
 
-    @Test("Single-action prompts use available text width")
-    @MainActor
-    func singleActionPromptsUseAvailableTextWidth() {
-        let subtitle = "Still transcribing. Stop if the meeting ended." as NSString
-        let subtitleWidth = subtitle.size(withAttributes: [.font: NSFont.systemFont(ofSize: 11)]).width
-        let cardWidth = MeetingNotificationController.singleActionCardWidth(
-            requiredTextWidth: subtitleWidth,
-            textX: 14
-        )
-        let textWidth = MeetingNotificationController.singleActionTextWidth(cardWidth: cardWidth, textX: 14)
-
-        #expect(cardWidth > 344)
-        #expect(textWidth >= subtitleWidth)
-    }
-
     @Test("Default join action arms the matching primary button")
     func defaultJoinActionArmsMatchingPrimaryButton() {
         #expect(MeetingJoinDefaultAction.joinAndRecord
@@ -105,17 +90,6 @@ struct MeetingNotificationControllerTests {
         #expect(MeetingJoinDefaultAction.joinAndRecord.buttonLabel == "Join & Transcribe")
         #expect(MeetingJoinDefaultAction.joinOnly.buttonLabel == "Join Only")
         #expect(MeetingJoinDefaultAction.recordOnly.buttonLabel == "Transcribe Only")
-    }
-
-    @Test("Every join action label fits the split button")
-    @MainActor
-    func everyJoinActionLabelFitsSplitButton() {
-        for action in MeetingJoinDefaultAction.allCases {
-            #expect(
-                MeetingNotificationController.splitButtonLabelFits(action.buttonLabel),
-                "\(action.buttonLabel) overflows the \(MeetingNotificationController.splitButtonWidth)pt split button"
-            )
-        }
     }
 
     @Test("Completion notification can show during recording but not over prompts")
