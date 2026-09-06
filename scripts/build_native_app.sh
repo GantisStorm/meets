@@ -319,7 +319,7 @@ if [[ -f "$LOCALVQE_MODEL_PATH" ]]; then
 fi
 
 # Bundle assets
-cp "$ROOT/assets/meets.icns" "$STAGED_APP_DIR/Contents/Resources/muesli.icns"
+cp "$ROOT/assets/meets.icns" "$STAGED_APP_DIR/Contents/Resources/meets.icns"
 cp "$ROOT/assets/zoom-app.png" "$STAGED_APP_DIR/Contents/Resources/zoom-app.png"
 cp "$ROOT/assets/Microsoft_Office_Teams_(2025–present).svg.png" "$STAGED_APP_DIR/Contents/Resources/teams.png"
 cp "$ROOT/assets/Slack_icon_2019.svg.png" "$STAGED_APP_DIR/Contents/Resources/slack.png"
