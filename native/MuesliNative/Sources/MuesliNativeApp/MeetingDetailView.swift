@@ -1734,6 +1734,10 @@ struct MeetingDetailView: View {
         Button {
             eventSearchQuery = ""
             showEventPopover.toggle()
+            // The ±1yr list only refreshes on Calendar-page opens and sync
+            // passes, so it can be stale/empty here. Refresh on every open so
+            // the picker (upcoming ranges especially) is never starved.
+            Task { await controller.fetchCalendarEventsIntoAppState() }
         } label: {
             HStack(spacing: 5) {
                 Image(systemName: hasLinks ? "calendar.badge.checkmark" : "calendar.badge.plus")
