@@ -57,6 +57,9 @@ struct OnboardingProgress: Codable {
     var hotkeyKeyCode: UInt16
     var hotkeyLabel: String
     var systemAudioRequested: Bool = false
+    /// Names of optional permissions the user skipped. Persisted so quitting
+    /// mid-wizard resumes past them instead of re-prompting.
+    var skippedPermissions: Set<String> = []
     var onboardingUseCaseRawValue: String = OnboardingUseCase.dictation.rawValue
     var modelDownloadProgress: Double?
     var modelDownloadStatus: String?
@@ -73,7 +76,8 @@ struct OnboardingProgress: Codable {
         systemAudioRequested: Bool = false,
         onboardingUseCaseRawValue: String = OnboardingUseCase.dictation.rawValue,
         modelDownloadProgress: Double? = nil,
-        modelDownloadStatus: String? = nil
+        modelDownloadStatus: String? = nil,
+        skippedPermissions: Set<String> = []
     ) {
         self.schemaVersion = schemaVersion
         self.currentStep = currentStep
@@ -87,6 +91,7 @@ struct OnboardingProgress: Codable {
         self.onboardingUseCaseRawValue = OnboardingUseCase.resolved(onboardingUseCaseRawValue).rawValue
         self.modelDownloadProgress = modelDownloadProgress
         self.modelDownloadStatus = modelDownloadStatus
+        self.skippedPermissions = skippedPermissions
     }
 
     init(from decoder: Decoder) throws {
@@ -102,6 +107,7 @@ struct OnboardingProgress: Codable {
         hotkeyKeyCode = try c.decode(UInt16.self, forKey: .hotkeyKeyCode)
         hotkeyLabel = try c.decode(String.self, forKey: .hotkeyLabel)
         systemAudioRequested = try c.decodeIfPresent(Bool.self, forKey: .systemAudioRequested) ?? false
+        skippedPermissions = try c.decodeIfPresent(Set<String>.self, forKey: .skippedPermissions) ?? []
         onboardingUseCaseRawValue = OnboardingUseCase.resolved(
             try c.decodeIfPresent(String.self, forKey: .onboardingUseCaseRawValue)
         ).rawValue

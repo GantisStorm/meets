@@ -1,3 +1,4 @@
+import AppKit
 import AVFoundation
 import SwiftUI
 import MuesliCore
@@ -30,8 +31,15 @@ struct OnboardingView: View {
 
     // Permission states — polled from OS every second
     @State private var micGranted = false
+    @State private var accessibilityGranted = false
+    @State private var inputMonitoringGranted = false
+    @State private var screenRecordingGranted = false
     @State private var systemAudioGranted = false
     @State private var calendarGranted = false
+    /// Optional permissions the user skipped (persisted in OnboardingProgress).
+    @State private var skippedPermissions: Set<String> = []
+    /// Permissions with a Grant tap still unverified (TCC often needs a relaunch).
+    @State private var grantAttemptedPermissions: Set<String> = []
     @State private var permissionPollTimer: Timer?
     @State private var grantingPermissionName: String?
 
@@ -139,6 +147,7 @@ struct OnboardingView: View {
         _micGranted = State(initialValue: initialMicGranted)
         _systemAudioGranted = State(initialValue: initialSystemAudioGranted)
         _calendarGranted = State(initialValue: appState.calendarAuthorization == .fullAccess)
+        _skippedPermissions = State(initialValue: OnboardingProgress.load()?.skippedPermissions ?? [])
     }
 
     var body: some View {
@@ -619,17 +628,54 @@ struct OnboardingView: View {
     /// Audio to capture remote participants during a recorded meeting.
     /// Microphone is required to continue; System Audio can also be enabled
     /// later from Settings.
-    private var permissionRows: [(icon: String, name: String, description: String, granted: Bool, action: () -> Void)] {
+    private struct PermissionRow {
+        let icon: String
+        let name: String
+        let description: String
+        let granted: Bool
+        /// Microphone alone blocks Continue; everything else is skippable.
+        let skippable: Bool
+        let action: () -> Void
+    }
+
+    private var permissionRows: [PermissionRow] {
         [
-            ("mic.fill", "Microphone", "Required to record meeting audio", micGranted, {
-                AVCaptureDevice.requestAccess(for: .audio) { _ in }
-            }),
-            ("speaker.wave.2.fill", "System Audio", "Captures remote participants' audio in recorded meetings", systemAudioGranted, {
-                requestSystemAudioPermission()
-            }),
-            ("calendar", "Calendar", "Syncs your meetings with Apple Calendar — Teams, Exchange, iCloud", calendarGranted, {
-                requestCalendarPermission()
-            }),
+            PermissionRow(
+                icon: "mic.fill", name: "Microphone",
+                description: "Required to record meeting audio",
+                granted: micGranted, skippable: false,
+                action: { AVCaptureDevice.requestAccess(for: .audio) { _ in } }
+            ),
+            PermissionRow(
+                icon: "accessibility", name: "Accessibility",
+                description: "Meeting context and detection. Enable in System Settings if needed.",
+                granted: accessibilityGranted, skippable: true,
+                action: { requestAccessibilityPermission() }
+            ),
+            PermissionRow(
+                icon: "keyboard.fill", name: "Input Monitoring",
+                description: "Global hotkey support. Enable in System Settings if needed.",
+                granted: inputMonitoringGranted, skippable: true,
+                action: { requestInputMonitoringPermission() }
+            ),
+            PermissionRow(
+                icon: "record.circle", name: "Screen Recording",
+                description: "System-audio capture fallback. Needs an app relaunch after granting.",
+                granted: screenRecordingGranted, skippable: true,
+                action: { requestScreenRecordingPermission() }
+            ),
+            PermissionRow(
+                icon: "speaker.wave.2.fill", name: "System Audio",
+                description: "Captures remote participants' audio in recorded meetings",
+                granted: systemAudioGranted, skippable: true,
+                action: { requestSystemAudioPermission() }
+            ),
+            PermissionRow(
+                icon: "calendar", name: "Calendar",
+                description: "Syncs your meetings with Apple Calendar — Teams, Exchange, iCloud",
+                granted: calendarGranted, skippable: true,
+                action: { requestCalendarPermission() }
+            ),
         ]
     }
 
@@ -644,6 +690,63 @@ struct OnboardingView: View {
                 saveProgress(atStep: currentStep)
             }
         }
+    }
+
+    private func requestAccessibilityPermission() {
+        guard !accessibilityGranted, grantingPermissionName == nil else { return }
+        grantingPermissionName = "Accessibility"
+        grantAttemptedPermissions.insert("Accessibility")
+        let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary
+        AXIsProcessTrustedWithOptions(options)
+        grantingPermissionName = nil
+    }
+
+    private func requestInputMonitoringPermission() {
+        guard !inputMonitoringGranted, grantingPermissionName == nil else { return }
+        grantingPermissionName = "Input Monitoring"
+        grantAttemptedPermissions.insert("Input Monitoring")
+        if !CGRequestListenEventAccess() {
+            openSystemSettings("Privacy_ListenEvent", yieldBehavior: .orderedBehind)
+        }
+        grantingPermissionName = nil
+    }
+
+    private func requestScreenRecordingPermission() {
+        guard !screenRecordingGranted, grantingPermissionName == nil else { return }
+        grantingPermissionName = "Screen Recording"
+        grantAttemptedPermissions.insert("Screen Recording")
+        CGRequestScreenCaptureAccess()
+        grantingPermissionName = nil
+    }
+
+    private func togglePermissionSkipped(_ name: String) {
+        if skippedPermissions.contains(name) {
+            skippedPermissions.remove(name)
+        } else {
+            skippedPermissions.insert(name)
+        }
+        saveProgress(atStep: currentStep)
+    }
+
+    /// True when a Grant tap hasn't flipped its row (TCC regularly needs a
+    /// relaunch before new grants read back). Surfaces the relaunch row.
+    private var needsRelaunchHint: Bool {
+        let states: [(String, Bool)] = [
+            ("Accessibility", accessibilityGranted),
+            ("Input Monitoring", inputMonitoringGranted),
+            ("Screen Recording", screenRecordingGranted),
+            ("System Audio", systemAudioGranted),
+            ("Calendar", calendarGranted),
+        ]
+        return states.contains { grantAttemptedPermissions.contains($0.0) && !$0.1 }
+    }
+
+    private func relaunchApp() {
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+        task.arguments = [Bundle.main.bundlePath]
+        try? task.run()
+        NSApp.terminate(nil)
     }
 
     private func requestSystemAudioPermission() {
@@ -683,11 +786,30 @@ struct OnboardingView: View {
                         name: row.name,
                         description: row.description,
                         granted: row.granted,
-                        action: row.action
+                        skippable: row.skippable,
+                        skipped: skippedPermissions.contains(row.name),
+                        action: row.action,
+                        onSkip: { togglePermissionSkipped(row.name) }
                     )
                 }
+                if needsRelaunchHint {
+                    HStack(spacing: MuesliTheme.spacing8) {
+                        Image(systemName: "arrow.trianglehead.2.clockwise")
+                            .font(.system(size: 11))
+                            .foregroundStyle(MuesliTheme.textTertiary)
+                        Text("Granted access but still unverified? Relaunch the app to finish.")
+                            .font(MuesliTheme.caption())
+                            .foregroundStyle(MuesliTheme.textSecondary)
+                        Spacer(minLength: 8)
+                        Button("Relaunch") { relaunchApp() }
+                            .buttonStyle(.plain)
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(MuesliTheme.accent)
+                    }
+                    .padding(.horizontal, MuesliTheme.spacing4)
+                }
 
-                Text("Calendar and System Audio are optional and can be enabled later in Settings.")
+                Text("Only Microphone is required. Skipped permissions can be granted later in Settings.")
                     .font(.system(size: 11, weight: .medium, design: .rounded))
                     .foregroundStyle(MuesliTheme.textTertiary)
                     .multilineTextAlignment(.center)
@@ -706,7 +828,16 @@ struct OnboardingView: View {
         }
     }
 
-    private func permissionRow(icon: String, name: String, description: String, granted: Bool, action: @escaping () -> Void) -> some View {
+    private func permissionRow(
+        icon: String,
+        name: String,
+        description: String,
+        granted: Bool,
+        skippable: Bool,
+        skipped: Bool,
+        action: @escaping () -> Void,
+        onSkip: @escaping () -> Void
+    ) -> some View {
         HStack(spacing: MuesliTheme.spacing12) {
             Image(systemName: icon)
                 .font(.system(size: 16, weight: .medium))
@@ -730,16 +861,26 @@ struct OnboardingView: View {
                     .foregroundStyle(MuesliTheme.success)
                     .transition(.scale.combined(with: .opacity))
             } else {
-                Button("Grant") {
-                    action()
+                HStack(spacing: MuesliTheme.spacing8) {
+                    if skippable {
+                        Button(skipped ? "Skipped" : "Skip") {
+                            onSkip()
+                        }
+                        .buttonStyle(.plain)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(skipped ? MuesliTheme.textTertiary : MuesliTheme.textSecondary)
+                    }
+                    Button("Grant") {
+                        action()
+                    }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(MuesliTheme.accent)
+                    .padding(.horizontal, MuesliTheme.spacing12)
+                    .padding(.vertical, 4)
+                    .background(MuesliTheme.accentSubtle)
+                    .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
                 }
-                .buttonStyle(.plain)
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(MuesliTheme.accent)
-                .padding(.horizontal, MuesliTheme.spacing12)
-                .padding(.vertical, 4)
-                .background(MuesliTheme.accentSubtle)
-                .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
             }
         }
         .padding(.horizontal, MuesliTheme.spacing16)
@@ -778,6 +919,9 @@ struct OnboardingView: View {
     /// after an explicit request). Microphone is cheap and polls every second.
     private func refreshPermissions(refreshSystemAudio: Bool) {
         micGranted = AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
+        accessibilityGranted = AXIsProcessTrusted()
+        inputMonitoringGranted = CGPreflightListenEventAccess()
+        screenRecordingGranted = CGPreflightScreenCaptureAccess()
         if appState.calendarAuthorization == .fullAccess {
             calendarGranted = true
         }
@@ -799,7 +943,8 @@ struct OnboardingView: View {
             systemAudioRequested: systemAudioGranted,
             onboardingUseCaseRawValue: selectedUseCase.rawValue,
             modelDownloadProgress: modelDownloadProgress,
-            modelDownloadStatus: modelDownloadStatus
+            modelDownloadStatus: modelDownloadStatus,
+            skippedPermissions: skippedPermissions
         )
         OnboardingProgress.save(progress)
     }
