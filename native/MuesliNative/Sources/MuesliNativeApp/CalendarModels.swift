@@ -158,6 +158,11 @@ extension EKAccountModel {
 /// occurrence references persisted by older builds.
 struct UnifiedCalendarEvent: Identifiable, Equatable {
     let id: String
+    /// Occurrence-unique row identity. EventKit returns one EKEvent per
+    /// recurrence instance sharing a single eventIdentifier, so keying rows
+    /// by bare id collapses a Tue+Thu series into one row. Linkage maps keep
+    /// using the bare eventIdentifier.
+    var pickerRowID: String { "\(id)|\(startDate.timeIntervalSince1970)" }
     let title: String
     let startDate: Date
     let endDate: Date

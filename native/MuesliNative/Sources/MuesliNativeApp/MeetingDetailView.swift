@@ -1821,7 +1821,7 @@ struct MeetingDetailView: View {
                     LazyVStack(alignment: .leading, spacing: 0) {
                         if !upcoming.isEmpty {
                             eventPopoverSectionHeader("Upcoming")
-                            ForEach(upcoming) { event in
+                            ForEach(upcoming, id: \.pickerRowID) { event in
                                 eventPopoverLinkRow(
                                     event: event,
                                     meeting: meeting,
@@ -1831,7 +1831,7 @@ struct MeetingDetailView: View {
                         }
                         if !past.isEmpty {
                             eventPopoverSectionHeader("Past")
-                            ForEach(past) { event in
+                            ForEach(past, id: \.pickerRowID) { event in
                                 eventPopoverLinkRow(
                                     event: event,
                                     meeting: meeting,
