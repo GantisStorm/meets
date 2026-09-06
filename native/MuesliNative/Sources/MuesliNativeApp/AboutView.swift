@@ -3,11 +3,6 @@ import MuesliCore
 
 struct AboutView: View {
     let appState: AppState
-    let onOpenManualDiagnosticReport: () -> Void
-    let onSetAutomaticDiagnosticIssuePrompts: (Bool) -> Void
-
-    private let githubURL = "https://github.com/Muesli-HQ/muesli"
-    private let donateURL = "https://buymeacoffee.com/phequals7"
     private let actionButtonWidth: CGFloat = 136
 
     private var version: String {
@@ -49,59 +44,6 @@ struct AboutView: View {
                     }
                 }
 
-                // MARK: - Support
-                sectionHeader("Support")
-                aboutCard {
-                    aboutRow("Support Development") {
-                        Button {
-                            if let url = URL(string: donateURL) { NSWorkspace.shared.open(url) }
-                        } label: {
-                            HStack(spacing: 6) {
-                                Image(systemName: "heart.fill")
-                                    .font(.system(size: 12))
-                                Text("Donate")
-                                    .font(.system(size: 13, weight: .semibold))
-                            }
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, MuesliTheme.spacing20)
-                            .padding(.vertical, MuesliTheme.spacing8)
-                            .frame(width: actionButtonWidth)
-                            .background(MuesliTheme.success)
-                            .clipShape(RoundedRectangle(cornerRadius: MuesliTheme.cornerSmall))
-                        }
-                        .buttonStyle(.plain)
-                    }
-
-                    Divider().background(MuesliTheme.surfaceBorder)
-
-                    aboutRow("Source Code") {
-                        actionButton("GitHub", icon: "arrow.up.right.square") {
-                            if let url = URL(string: githubURL) { NSWorkspace.shared.open(url) }
-                        }
-                    }
-
-                    Divider().background(MuesliTheme.surfaceBorder)
-
-                    aboutRow("Report a Problem") {
-                        actionButton("Open Report", icon: "exclamationmark.bubble") {
-                            onOpenManualDiagnosticReport()
-                        }
-                    }
-
-                    Divider().background(MuesliTheme.surfaceBorder)
-
-                    aboutRow("Automatic issue reporting prompts") {
-                        Toggle("Auto reporting", isOn: Binding(
-                            get: { appState.config.enableAutomaticDiagnosticIssuePrompts },
-                            set: onSetAutomaticDiagnosticIssuePrompts
-                        ))
-                        .toggleStyle(.switch)
-                        .labelsHidden()
-                        .help("Suggest an anonymized GitHub issue after an app error")
-                        .accessibilityLabel("Automatic issue reporting prompts")
-                    }
-                }
-
                 // MARK: - Data
                 sectionHeader("Data")
                 aboutCard {
@@ -128,6 +70,13 @@ struct AboutView: View {
                 // MARK: - Acknowledgements
                 sectionHeader("Acknowledgements")
                 aboutCard {
+                    acknowledgement(
+                        name: "Muesli by Muesli-HQ",
+                        description: "Meets is a meetings-only fork of Muesli (github.com/Muesli-HQ/muesli), \u{00A9} 2026 Pranav Hari, available under the MIT License."
+                    )
+
+                    Divider().background(MuesliTheme.surfaceBorder)
+
                     acknowledgement(
                         name: "FluidAudio by FluidInference",
                         description: "CoreML speech stack powering Parakeet, Qwen3 ASR, Silero VAD, and speaker diarization on Apple Silicon."

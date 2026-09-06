@@ -90,6 +90,8 @@ struct SettingsView: View {
     @State private var screenRecordingGranted = false
     @State private var systemAudioGranted = false
     @State private var isCheckingSystemAudioPermission = false
+    @State private var calendarGranted = false
+    @State private var isCheckingCalendarPermission = false
     @State private var isUsingCustomOpenRouterModel = false
     @State private var hasRefreshedMeetingCalendarSources = false
     @State private var isRefreshingCalendarAccess = false
@@ -610,7 +612,10 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: MuesliTheme.spacing24) {
             settingsSection("General") {
                 VStack(alignment: .leading, spacing: MuesliTheme.spacing8) {
-                    settingsRow("Launch at login") {
+                    settingsRow(
+                        "Launch at login",
+                        description: "Start Meets automatically when you sign in."
+                    ) {
                         settingsSwitch(isOn: appState.config.launchAtLogin) { newValue in
                             controller.setLaunchAtLogin(newValue)
                         }
@@ -620,7 +625,10 @@ struct SettingsView: View {
                     }
                 }
                 Divider().background(MuesliTheme.surfaceBorder)
-                settingsRow("Open dashboard on launch") {
+                settingsRow(
+                    "Open dashboard on launch",
+                    description: "Show the dashboard window on launch."
+                ) {
                     settingsSwitch(isOn: appState.config.openDashboardOnLaunch) { newValue in
                         controller.updateConfig { $0.openDashboardOnLaunch = newValue }
                     }
@@ -637,6 +645,7 @@ struct SettingsView: View {
                     .disabled(controller.isMeetingRecording())
                     .help("Stop the current meeting recording before clearing meeting history.")
                 }
+                settingsDescription("Permanently delete all saved meetings, notes, transcripts, and audio.")
             }
         }
     }
@@ -736,7 +745,11 @@ struct SettingsView: View {
             .id(FeatureTourTarget.liveCaptionsSetting.rawValue)
             .featureTourTarget(.liveCaptionsSetting)
             Divider().background(MuesliTheme.surfaceBorder)
-            settingsRow("Final transcript", controlWidth: meetingControlWidth) {
+            settingsRow(
+                "Final transcript",
+                description: "Model used for the saved meeting transcript.",
+                controlWidth: meetingControlWidth
+            ) {
                 if usesUnifiedMeetingTranscript {
                     Text("\(MeetingLiveCaptionBackend.nemotron35.label) (same model)")
                         .font(MuesliTheme.body())
@@ -760,22 +773,38 @@ struct SettingsView: View {
             }
             if usesUnifiedMeetingTranscript {
                 Divider().background(MuesliTheme.surfaceBorder)
-                settingsRow("Language", controlWidth: meetingControlWidth) {
+                settingsRow(
+                    "Language",
+                    description: "Language for live and final transcription.",
+                    controlWidth: meetingControlWidth
+                ) {
                     nemotron35LanguageMenu
                 }
             } else if appState.selectedMeetingTranscriptionBackend.backend == BackendOption.cohereTranscribe.backend {
                 Divider().background(MuesliTheme.surfaceBorder)
-                settingsRow("Cohere language", controlWidth: meetingControlWidth) {
+                settingsRow(
+                    "Cohere language",
+                    description: "Transcription language for the Cohere backend.",
+                    controlWidth: meetingControlWidth
+                ) {
                     cohereLanguageMenu
                 }
             } else if appState.selectedMeetingTranscriptionBackend.backend == BackendOption.indicASR.backend {
                 Divider().background(MuesliTheme.surfaceBorder)
-                settingsRow("Indic language", controlWidth: meetingControlWidth) {
+                settingsRow(
+                    "Indic language",
+                    description: "Transcription language for the IndicASR backend.",
+                    controlWidth: meetingControlWidth
+                ) {
                     indicLanguageMenu
                 }
             } else if appState.selectedMeetingTranscriptionBackend.supportsWhisperLanguageSelection {
                 Divider().background(MuesliTheme.surfaceBorder)
-                settingsRow("Whisper language", controlWidth: meetingControlWidth) {
+                settingsRow(
+                    "Whisper language",
+                    description: "Transcription language, or automatic detection.",
+                    controlWidth: meetingControlWidth
+                ) {
                     whisperLanguageMenu
                 }
             }
@@ -834,7 +863,11 @@ struct SettingsView: View {
             settingsDescription("Feed your written notes into AI summaries alongside the transcript. Notes are always kept verbatim either way.")
             Divider().background(MuesliTheme.surfaceBorder)
 
-            settingsRow("Summary backend", controlWidth: meetingControlWidth) {
+            settingsRow(
+                "Summary backend",
+                description: "Provider that writes AI meeting summaries.",
+                controlWidth: meetingControlWidth
+            ) {
                 settingsMenu(
                     selection: appState.selectedMeetingSummaryBackend.label,
                     options: MeetingSummaryBackendOption.all.map(\.label)
@@ -847,18 +880,30 @@ struct SettingsView: View {
             Divider().background(MuesliTheme.surfaceBorder)
 
             if appState.selectedMeetingSummaryBackend == .chatGPT {
-                settingsRow("Account", controlWidth: meetingControlWidth) {
+                settingsRow(
+                    "Account",
+                    description: "Signed-in ChatGPT account used for summaries.",
+                    controlWidth: meetingControlWidth
+                ) {
                     chatGPTAccountControl()
                 }
                 Divider().background(MuesliTheme.surfaceBorder)
-                settingsRow("Model", controlWidth: meetingControlWidth) {
+                settingsRow(
+                    "Model",
+                    description: "Model used for meeting summaries.",
+                    controlWidth: meetingControlWidth
+                ) {
                     settingsModelMenu(
                         currentModel: appState.config.chatGPTModel,
                         presets: SummaryModelPreset.chatGPTModels
                     ) { val in controller.updateConfig { $0.chatGPTModel = val } }
                 }
             } else if appState.selectedMeetingSummaryBackend == .openAI {
-                settingsRow("API Key", controlWidth: meetingControlWidth) {
+                settingsRow(
+                    "API Key",
+                    description: "Key used for OpenAI summaries. Stored locally.",
+                    controlWidth: meetingControlWidth
+                ) {
                     PastableSecureField(
                         text: appState.config.openAIAPIKey,
                         placeholder: "sk-...",
@@ -867,7 +912,11 @@ struct SettingsView: View {
                     .frame(height: 22)
                 }
                 Divider().background(MuesliTheme.surfaceBorder)
-                settingsRow("Model", controlWidth: meetingControlWidth) {
+                settingsRow(
+                    "Model",
+                    description: "Model used for meeting summaries.",
+                    controlWidth: meetingControlWidth
+                ) {
                     settingsModelMenu(
                         currentModel: appState.config.openAIModel,
                         presets: SummaryModelPreset.openAIModels
@@ -875,7 +924,11 @@ struct SettingsView: View {
                 }
                 keyStatusRow(key: appState.config.openAIAPIKey)
             } else if appState.selectedMeetingSummaryBackend == .ollama {
-                settingsRow("Ollama URL", controlWidth: meetingControlWidth) {
+                settingsRow(
+                    "Ollama URL",
+                    description: "Local Ollama server address.",
+                    controlWidth: meetingControlWidth
+                ) {
                     PastableTextField(
                         text: appState.config.ollamaURL,
                         placeholder: "http://localhost:11434",
@@ -884,14 +937,22 @@ struct SettingsView: View {
                     .frame(height: 22)
                 }
                 Divider().background(MuesliTheme.surfaceBorder)
-                settingsRow("Model", controlWidth: meetingControlWidth) {
+                settingsRow(
+                    "Model",
+                    description: "Model used for meeting summaries.",
+                    controlWidth: meetingControlWidth
+                ) {
                     settingsModelTextField(
                         currentModel: appState.config.ollamaModel,
                         placeholder: "qwen3.5"
                     ) { val in controller.updateConfig { $0.ollamaModel = val } }
                 }
             } else if appState.selectedMeetingSummaryBackend == .lmStudio {
-                settingsRow("LM Studio URL", controlWidth: meetingControlWidth) {
+                settingsRow(
+                    "LM Studio URL",
+                    description: "Local LM Studio server address.",
+                    controlWidth: meetingControlWidth
+                ) {
                     PastableTextField(
                         text: appState.config.lmStudioURL,
                         placeholder: "http://localhost:1234",
@@ -900,7 +961,11 @@ struct SettingsView: View {
                     .frame(height: 22)
                 }
                 Divider().background(MuesliTheme.surfaceBorder)
-                settingsRow("Model", controlWidth: meetingControlWidth) {
+                settingsRow(
+                    "Model",
+                    description: "Model used for meeting summaries.",
+                    controlWidth: meetingControlWidth
+                ) {
                     settingsModelTextField(
                         currentModel: appState.config.lmStudioModel,
                         placeholder: "Select a loaded LM Studio model"
@@ -925,15 +990,27 @@ struct SettingsView: View {
                 Divider().background(MuesliTheme.surfaceBorder)
                 acpThinkingMenuRow
             } else {
-                settingsRow("Account", controlWidth: meetingControlWidth) {
+                settingsRow(
+                    "Account",
+                    description: "Signed-in OpenRouter account used for summaries.",
+                    controlWidth: meetingControlWidth
+                ) {
                     openRouterAccountControl()
                 }
                 Divider().background(MuesliTheme.surfaceBorder)
-                settingsRow("Model", controlWidth: meetingControlWidth) {
+                settingsRow(
+                    "Model",
+                    description: "Model used for meeting summaries.",
+                    controlWidth: meetingControlWidth
+                ) {
                     openRouterFreeModelMenu
                 }
                 Divider().background(MuesliTheme.surfaceBorder)
-                settingsRow("Custom model ID", controlWidth: meetingControlWidth) {
+                settingsRow(
+                    "Custom model ID",
+                    description: "Use any OpenRouter model by its ID.",
+                    controlWidth: meetingControlWidth
+                ) {
                     settingsModelTextField(
                         currentModel: appState.config.openRouterModel,
                         placeholder: "provider/model",
@@ -947,7 +1024,11 @@ struct SettingsView: View {
     @ViewBuilder
     private func customLLMSettingsRows(model: String, onModelChange: @escaping (String) -> Void) -> some View {
         Divider().background(MuesliTheme.surfaceBorder)
-        settingsRow("API Format", controlWidth: meetingControlWidth) {
+        settingsRow(
+            "API Format",
+            description: "Request format for your endpoint.",
+            controlWidth: meetingControlWidth
+        ) {
             settingsMenu(
                 selection: CustomLLMFormat(rawValue: appState.config.customLLMFormat)?.label ?? CustomLLMFormat.openAI.label,
                 options: CustomLLMFormat.allCases.map(\.label)
@@ -957,7 +1038,11 @@ struct SettingsView: View {
             }
         }
         Divider().background(MuesliTheme.surfaceBorder)
-        settingsRow("Endpoint", controlWidth: meetingControlWidth) {
+        settingsRow(
+            "Endpoint",
+            description: "Base URL of your OpenAI-compatible or Anthropic server.",
+            controlWidth: meetingControlWidth
+        ) {
             PastableTextField(
                 text: appState.config.customLLMURL,
                 placeholder: appState.config.customLLMFormat == CustomLLMFormat.anthropic.rawValue
@@ -968,7 +1053,11 @@ struct SettingsView: View {
             .frame(height: 22)
         }
         Divider().background(MuesliTheme.surfaceBorder)
-        settingsRow("API Key", controlWidth: meetingControlWidth) {
+        settingsRow(
+            "API Key",
+            description: "API key for your server. Stored locally.",
+            controlWidth: meetingControlWidth
+        ) {
             PastableSecureField(
                 text: appState.config.customLLMAPIKey,
                 placeholder: appState.config.customLLMFormat == CustomLLMFormat.anthropic.rawValue
@@ -979,7 +1068,11 @@ struct SettingsView: View {
             .frame(height: 22)
         }
         Divider().background(MuesliTheme.surfaceBorder)
-        settingsRow("Model", controlWidth: meetingControlWidth) {
+        settingsRow(
+            "Model",
+            description: "Model used for meeting summaries.",
+            controlWidth: meetingControlWidth
+        ) {
             settingsModelTextField(
                 currentModel: model,
                 placeholder: appState.config.customLLMFormat == CustomLLMFormat.anthropic.rawValue
@@ -1008,7 +1101,10 @@ struct SettingsView: View {
     @ViewBuilder
     private var transcriptCleanupSettingsSection: some View {
         settingsSection("Transcript Cleanup") {
-            settingsRow("AI transcript cleanup") {
+            settingsRow(
+                "AI transcript cleanup",
+                description: "Automatically clean filler words and false starts from transcripts."
+            ) {
                 settingsSwitch(isOn: appState.config.enablePostProcessor) { newValue in
                     controller.setPostProcessorEnabled(newValue)
                 }
@@ -1031,7 +1127,11 @@ struct SettingsView: View {
                 }
                 if selectedCleanupBackend.isLocal {
                     Divider().background(MuesliTheme.surfaceBorder)
-                    settingsRow("Local model", controlWidth: meetingControlWidth) {
+                    settingsRow(
+                        "Local model",
+                        description: "Downloaded model used for on-device cleanup.",
+                        controlWidth: meetingControlWidth
+                    ) {
                         settingsMenu(
                             selection: selectedCleanupLocalModel.label,
                             options: cleanupLocalModels.map(\.label)
@@ -1043,7 +1143,11 @@ struct SettingsView: View {
                     }
                     if !selectedCleanupLocalModel.isDownloaded {
                         Divider().background(MuesliTheme.surfaceBorder)
-                        settingsRow("Download", controlWidth: meetingControlWidth) {
+                        settingsRow(
+                            "Download",
+                            description: "Download the on-device cleanup model.",
+                            controlWidth: meetingControlWidth
+                        ) {
                             if let progress = cleanupDownloads[selectedCleanupLocalModel.id] {
                                 HStack(spacing: 6) {
                                     ProgressView(value: progress)
@@ -1060,7 +1164,11 @@ struct SettingsView: View {
                         }
                     } else {
                         Divider().background(MuesliTheme.surfaceBorder)
-                        settingsRow("Delete model", controlWidth: meetingControlWidth) {
+                        settingsRow(
+                            "Delete model",
+                            description: "Remove the downloaded cleanup model to free space.",
+                            controlWidth: meetingControlWidth
+                        ) {
                             compactActionButton("Delete", systemImage: "trash") {
                                 controller.deletePostProcessorModel(selectedCleanupLocalModel)
                             }
@@ -1068,7 +1176,11 @@ struct SettingsView: View {
                     }
                 } else if selectedCleanupBackend.backend == "acp_agent" {
                     Divider().background(MuesliTheme.surfaceBorder)
-                    settingsRow("Command", controlWidth: meetingControlWidth) {
+                    settingsRow(
+                        "Command",
+                        description: "Agent command run for transcript cleanup.",
+                        controlWidth: meetingControlWidth
+                    ) {
                         PastableTextField(
                             text: appState.config.acpAgentCommand,
                             placeholder: "omp acp",
@@ -1080,7 +1192,11 @@ struct SettingsView: View {
                     acpThinkingMenuRow
                 } else {
                     Divider().background(MuesliTheme.surfaceBorder)
-                    settingsRow("Model", controlWidth: meetingControlWidth) {
+                    settingsRow(
+                        "Model",
+                        description: "Model used for AI transcript cleanup.",
+                        controlWidth: meetingControlWidth
+                    ) {
                         settingsModelTextField(
                             currentModel: cleanupConfiguredModel,
                             placeholder: TranscriptCleanupClient.defaultModel(for: selectedCleanupBackend)
@@ -1099,7 +1215,11 @@ struct SettingsView: View {
                     }
                 }
                 Divider().background(MuesliTheme.surfaceBorder)
-                settingsRow("Cleanup prompt", controlWidth: meetingControlWidth) {
+                settingsRow(
+                    "Cleanup prompt",
+                    description: "Edit the instructions used for cleanup.",
+                    controlWidth: meetingControlWidth
+                ) {
                     actionButton("Manage Prompts…") {
                         isShowingCleanupPromptManager = true
                     }
@@ -1148,7 +1268,11 @@ struct SettingsView: View {
             transcriptCleanupSettingsSection
 
             settingsSection("Meeting Notes") {
-                settingsRow("Default template", controlWidth: meetingControlWidth) {
+                settingsRow(
+                    "Default template",
+                    description: "Template applied to new meeting summaries.",
+                    controlWidth: meetingControlWidth
+                ) {
                     meetingTemplateMenu(selectionID: appState.config.defaultMeetingTemplateID) { id in
                         controller.updateDefaultMeetingTemplate(id: id)
                     }
@@ -1173,7 +1297,11 @@ struct SettingsView: View {
                 }
                 settingsDescription("Retry transient AI summary failures before saving failed notes.")
                 Divider().background(MuesliTheme.surfaceBorder)
-                settingsRow("Templates", controlWidth: meetingControlWidth) {
+                settingsRow(
+                    "Templates",
+                    description: "Create and edit summary templates.",
+                    controlWidth: meetingControlWidth
+                ) {
                     actionButton("Manage Templates…") {
                         controller.showMeetingTemplatesManager()
                     }
@@ -1181,13 +1309,19 @@ struct SettingsView: View {
             }
 
             settingsSection("Recording") {
-                settingsRow("Auto-record calendar meetings") {
+                settingsRow(
+                    "Auto-record calendar meetings",
+                    description: "Start recording automatically when a calendar meeting begins."
+                ) {
                     settingsSwitch(isOn: appState.config.autoRecordMeetings) { newValue in
                         controller.updateConfig { $0.autoRecordMeetings = newValue }
                     }
                 }
                 Divider().background(MuesliTheme.surfaceBorder)
-                settingsRow("Save meeting recording") {
+                settingsRow(
+                    "Save meeting recording",
+                    description: "Keep the recorded audio after transcription."
+                ) {
                     settingsMenu(
                         selection: recordingSaveLabel(for: appState.config.meetingRecordingSavePolicy),
                         options: MeetingRecordingSavePolicy.allCases.map(recordingSaveLabel(for:))
@@ -1212,18 +1346,27 @@ struct SettingsView: View {
             }
 
             settingsSection("Auto Export") {
-                settingsRow("Auto-export meetings") {
+                settingsRow(
+                    "Auto-export meetings",
+                    description: "Save each completed meeting to the chosen folder in the selected format."
+                ) {
                     settingsSwitch(isOn: appState.config.autoExportMarkdownEnabled) { newValue in
                         controller.updateConfig { $0.autoExportMarkdownEnabled = newValue }
                     }
                 }
                 if appState.config.autoExportMarkdownEnabled {
                     Divider().background(MuesliTheme.surfaceBorder)
-                    settingsRow("Destination folder") {
+                    settingsRow(
+                        "Destination folder",
+                        description: "Folder where exported meetings are saved."
+                    ) {
                         autoExportFolderPicker
                     }
                     Divider().background(MuesliTheme.surfaceBorder)
-                    settingsRow("Content") {
+                    settingsRow(
+                        "Content",
+                        description: "What each export contains."
+                    ) {
                         settingsMenu(
                             selection: appState.config.resolvedAutoExportMarkdownContent.displayName,
                             options: MeetingExportContent.allCases.map(\.displayName)
@@ -1234,7 +1377,10 @@ struct SettingsView: View {
                         }
                     }
                     Divider().background(MuesliTheme.surfaceBorder)
-                    settingsRow("File format") {
+                    settingsRow(
+                        "File format",
+                        description: "Export file type."
+                    ) {
                         settingsMenu(
                             selection: appState.config.resolvedAutoExportFileFormat.displayName,
                             options: MeetingAutoExportFileFormat.allCases.map(\.displayName)
@@ -1244,10 +1390,7 @@ struct SettingsView: View {
                         }
                     }
                 }
-                Text("Automatically saves each completed meeting to the chosen folder in the selected format.")
-                    .font(MuesliTheme.caption())
-                    .foregroundStyle(MuesliTheme.textTertiary)
-                    .padding(.horizontal, MuesliTheme.spacing16)
+    
             }
 
             cloudSyncSettingsSection
@@ -1324,17 +1467,29 @@ struct SettingsView: View {
             calendarManagementSection
 
             settingsSection("Advanced") {
-                settingsRow("Enable post-meeting hook", controlWidth: meetingControlWidth) {
+                settingsRow(
+                    "Enable post-meeting hook",
+                    description: "Run a script after each completed meeting.",
+                    controlWidth: meetingControlWidth
+                ) {
                     settingsSwitch(isOn: appState.config.meetingHookEnabled) { newValue in
                         controller.updateConfig { $0.meetingHookEnabled = newValue }
                     }
                 }
                 Divider().background(MuesliTheme.surfaceBorder)
-                settingsRow("Hook script", controlWidth: meetingControlWidth) {
+                settingsRow(
+                    "Hook script",
+                    description: "Executable run with meeting data on stdin.",
+                    controlWidth: meetingControlWidth
+                ) {
                     meetingHookPathPicker
                 }
                 Divider().background(MuesliTheme.surfaceBorder)
-                settingsRow("Timeout", controlWidth: meetingControlWidth) {
+                settingsRow(
+                    "Timeout",
+                    description: "How long the hook may run before Meets stops waiting.",
+                    controlWidth: meetingControlWidth
+                ) {
                     meetingHookTimeoutControl
                 }
                 settingsDescription("Runs a user-supplied executable after each completed meeting. The executable receives JSON on stdin and must already be runnable on its own.")
@@ -1374,7 +1529,11 @@ struct SettingsView: View {
             if appState.config.cloudSyncEnabled {
                 Divider().background(MuesliTheme.surfaceBorder)
                 if !cloudSyncLocations.isEmpty {
-                    settingsRow("Cloud folder", controlWidth: meetingControlWidth) {
+                    settingsRow(
+                        "Cloud folder",
+                        description: "Synced folder that holds your meeting library.",
+                        controlWidth: meetingControlWidth
+                    ) {
                         settingsMenu(
                             selection: selectedCloudSyncLocationName,
                             options: cloudSyncLocations.map(\.name),
@@ -1400,7 +1559,10 @@ struct SettingsView: View {
                     }
                 }
                 Divider().background(MuesliTheme.surfaceBorder)
-                settingsRow("Include audio recordings") {
+                settingsRow(
+                    "Include audio recordings",
+                    description: "Also copy recording audio into the cloud folder."
+                ) {
                     settingsSwitch(
                         isOn: appState.config.cloudSyncIncludesAudio,
                         onChange: { newValue in
@@ -1413,23 +1575,22 @@ struct SettingsView: View {
                     )
                 }
                 Divider().background(MuesliTheme.surfaceBorder)
-                settingsRow("Sync Now") {
+                settingsRow(
+                    "Sync Now",
+                    description: "Mirror all meetings to the cloud folder now."
+                ) {
                     compactActionButton(isSyncingCloud ? "Syncing…" : "Sync Now", systemImage: "arrow.triangle.2.circlepath") {
                         syncNowToCloud()
                     }
                     .disabled(isSyncingCloud)
                 }
                 if let cloudSyncOutcome {
-                    Text(cloudSyncOutcome)
-                        .font(MuesliTheme.caption())
-                        .foregroundStyle(cloudSyncOutcomeIsError ? MuesliTheme.recording : MuesliTheme.textSecondary)
-                        .padding(.horizontal, MuesliTheme.spacing16)
+                    settingsOutcome(cloudSyncOutcome, isError: cloudSyncOutcomeIsError)
                 }
             }
-            Text("Meetings are saved to \(cloudSyncFolderName) as Markdown notes (+ audio). Open that folder in iCloud Drive / Dropbox / Drive on your iPhone to read them.")
-                .font(MuesliTheme.caption())
-                .foregroundStyle(MuesliTheme.textTertiary)
-                .padding(.horizontal, MuesliTheme.spacing16)
+            if appState.config.cloudSyncEnabled && !appState.config.cloudSyncFolderPath.isEmpty {
+                settingsDescription("Meetings are saved to \(cloudSyncFolderName) as Markdown notes (+ audio). Open that folder in iCloud Drive / Dropbox / Drive on your iPhone to read them.")
+            }
         }
     }
 
@@ -2193,6 +2354,22 @@ struct SettingsView: View {
                     isBusy: isCheckingSystemAudioPermission
                 )
             }
+            Divider().background(MuesliTheme.surfaceBorder)
+            permissionStatusRow(
+                "Calendar",
+                granted: calendarGranted,
+                action: {
+                    guard !isCheckingCalendarPermission else { return }
+                    isCheckingCalendarPermission = true
+                    Task { @MainActor in
+                        defer { isCheckingCalendarPermission = false }
+                        await controller.refreshCalendarAccess()
+                        calendarGranted = appState.calendarAuthorization == .fullAccess
+                    }
+                },
+                pane: "Privacy_Calendars",
+                isBusy: isCheckingCalendarPermission
+            )
         }
     }
 
@@ -2315,6 +2492,8 @@ struct SettingsView: View {
     }
 
     private func refreshPermissionStatuses(for reason: SettingsPermissionRefreshReason) {
+        controller.syncCalendarAuthorizationState()
+        calendarGranted = appState.calendarAuthorization == .fullAccess
         micGranted = AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
         accessibilityGranted = AXIsProcessTrusted()
         inputMonitoringGranted = CGPreflightListenEventAccess()
@@ -2439,6 +2618,15 @@ struct SettingsView: View {
         Text(text)
             .font(MuesliTheme.caption())
             .foregroundStyle(MuesliTheme.textTertiary)
+            .padding(.horizontal, MuesliTheme.spacing16)
+            .padding(.top, -4)
+            .padding(.bottom, MuesliTheme.spacing8)
+    }
+
+    private func settingsOutcome(_ text: String, isError: Bool) -> some View {
+        Text(text)
+            .font(MuesliTheme.caption())
+            .foregroundStyle(isError ? MuesliTheme.recording : MuesliTheme.textSecondary)
             .padding(.horizontal, MuesliTheme.spacing16)
             .padding(.top, -4)
             .padding(.bottom, MuesliTheme.spacing8)

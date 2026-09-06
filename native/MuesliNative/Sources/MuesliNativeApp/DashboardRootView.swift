@@ -239,11 +239,7 @@ struct DashboardRootView: View {
             case .settings:
                 SettingsView(appState: appState, controller: controller)
             case .about:
-                AboutView(
-                    appState: appState,
-                    onOpenManualDiagnosticReport: { controller.openManualDiagnosticReport() },
-                    onSetAutomaticDiagnosticIssuePrompts: { controller.setAutomaticDiagnosticIssuePrompts($0) }
-                )
+                AboutView(appState: appState)
             }
         }
     }

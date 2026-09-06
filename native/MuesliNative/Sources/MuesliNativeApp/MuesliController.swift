@@ -1923,6 +1923,13 @@ public final class MuesliController: NSObject {
         .shared
     }
 
+    /// Re-reads EventKit authorization into appState without prompting.
+    /// Cheap and synchronous — safe to call from the Settings permission
+    /// polling loop so the Calendar row stays current.
+    func syncCalendarAuthorizationState() {
+        appState.calendarAuthorization = calendarEventKitManager.authorizationState
+    }
+
     /// Re-reads EventKit authorization and the calendar/account list into
     /// appState, requesting full access on first launch (macOS prompts the
     /// user). Call from UI entry points and after the user changes calendar
