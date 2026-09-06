@@ -1439,7 +1439,6 @@ struct SettingsView: View {
                 if appState.config.showMeetingDetectionNotification {
                     Divider().background(MuesliTheme.surfaceBorder)
                     customMeetingDetectionAppsControl
-                    Divider().background(MuesliTheme.surfaceBorder)
                     mutedMeetingDetectionAppsControl
                 }
             }
@@ -2712,12 +2711,6 @@ struct SettingsView: View {
                 }
             }
         }
-        .padding(.leading, MuesliTheme.spacing16)
-        .overlay(alignment: .leading) {
-            Rectangle()
-                .fill(MuesliTheme.surfaceBorder)
-                .frame(width: 2)
-        }
     }
 
     /// Renders the app's bundled brand icon when available (colored PNG), else
@@ -2881,12 +2874,6 @@ struct SettingsView: View {
                 .disabled(customAppBundleID.trimmingCharacters(in: .whitespaces).isEmpty)
                 .help("Add custom meeting app")
             }
-        }
-        .padding(.leading, MuesliTheme.spacing16)
-        .overlay(alignment: .leading) {
-            Rectangle()
-                .fill(MuesliTheme.surfaceBorder)
-                .frame(width: 2)
         }
     }
 
