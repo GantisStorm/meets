@@ -1120,8 +1120,8 @@ struct CalendarPageView: View {
     /// list's section builder also skips cancelled below, but the shared
     /// filter keeps month chips and day rows consistent).
     private var visibleCalendarEvents: [UnifiedCalendarEvent] {
-        guard appState.config.calendarHideCancelled else { return appState.calendarEvents }
-        return appState.calendarEvents.filter { !($0.isCancelled || $0.isDeclined) }
+        guard appState.config.calendarHideCancelled else { return appState.calendarEvents.filter { !$0.isAllDay } }
+        return appState.calendarEvents.filter { !$0.isAllDay && !($0.isCancelled || $0.isDeclined) }
     }
 
     /// Calendar-event → recorded meeting. Events link to meetings by the

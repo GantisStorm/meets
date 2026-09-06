@@ -1720,6 +1720,7 @@ struct MeetingDetailView: View {
         let date = sameYear
             ? event.startDate.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day())
             : event.startDate.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day().year())
+        guard !event.isAllDay else { return date }
         let time = event.startDate.formatted(date: .omitted, time: .shortened)
         return "\(date) \u{00B7} \(time)"
     }

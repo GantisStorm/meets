@@ -2065,16 +2065,18 @@ public final class MuesliController: NSObject {
         disabledIDs: Set<String>
     ) -> [UnifiedCalendarEvent] {
         let predicate = store.predicateForEvents(withStart: start, end: end, calendars: nil)
+        // All-day events are kept: the Add-to-Event picker and linkage need
+        // them (many users' calendars are mostly all-day). Surfaces that
+        // assume timed events filter them out themselves.
         let unified: [UnifiedCalendarEvent] = store.events(matching: predicate).compactMap { event -> UnifiedCalendarEvent? in
             guard let startDate = event.startDate, let endDate = event.endDate else { return nil }
-            guard !event.isAllDay else { return nil }
             let eventID = event.eventIdentifier ?? UUID().uuidString
             return UnifiedCalendarEvent(
                 id: eventID,
                 title: event.title ?? "Meeting",
                 startDate: startDate,
                 endDate: endDate,
-                isAllDay: false,
+                isAllDay: event.isAllDay,
                 source: .eventKit,
                 calendarID: event.calendar?.calendarIdentifier,
                 calendarOccurrence: CalendarMonitor.occurrenceReference(
