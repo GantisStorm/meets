@@ -10043,7 +10043,11 @@ public final class MuesliController: NSObject {
             icon = ""
         }
         statusBarController?.setStatus(message)
-        indicator.showWarning(floatingMessage, icon: icon, duration: 3.0)
+        if result.status == .done {
+            indicator.showSuccess(floatingMessage)
+        } else {
+            indicator.showWarning(floatingMessage, icon: icon, duration: 3.0)
+        }
     }
 
     /// Streaming RNNT dictation backend (handsfree live text at cursor).
