@@ -399,7 +399,7 @@ public final class MuesliController: NSObject {
         duckingController: audioDuckingController,
         routingController: dictationAudioRoutingController
     )
-    private lazy var computerUseAudioSessionManager = DictationAudioSessionManager(
+    lazy var computerUseAudioSessionManager = DictationAudioSessionManager(
         recorder: computerUseRecorder,
         duckingController: audioDuckingController,
         routingController: dictationAudioRoutingController
@@ -9079,7 +9079,7 @@ public final class MuesliController: NSObject {
         }
     }
 
-    private func handleComputerUsePrepare() {
+    func handleComputerUsePrepare() {
         guard canPrepareComputerUseCommand else { return }
         fputs("[cua] prepare\n", stderr)
         meetingMonitor.suppressWhileActive()
@@ -9510,11 +9510,18 @@ public final class MuesliController: NSObject {
         meetingMonitor.refreshState()
     }
 
+    /// Denial must release an already armed session before any permission UI.
+    func ensureComputerUseScreenRecordingAccess(isGranted: Bool) -> Bool {
+        guard isGranted else {
+            handleComputerUseCancel()
+            return false
+        }
+        return true
+    }
+
     private func handleComputerUseStart() {
         guard canStartComputerUseCommand else { return }
-        guard CGPreflightScreenCaptureAccess() else {
-            computerUseHotkeyMonitor.cancelToggleMode()
-            indicator.isToggleDictation = false
+        guard ensureComputerUseScreenRecordingAccess(isGranted: CGPreflightScreenCaptureAccess()) else {
             if !hasRequestedComputerUseScreenRecordingAccess {
                 hasRequestedComputerUseScreenRecordingAccess = true
                 // macOS owns this prompt and its Open System Settings action.
@@ -9726,7 +9733,7 @@ public final class MuesliController: NSObject {
         computerUseCommandTask = task
     }
 
-    private var canPrepareComputerUseCommand: Bool {
+    var canPrepareComputerUseCommand: Bool {
         !isMeetingRecording()
             && !isDictationTestMode
             && !isMeetingAudioProcessing

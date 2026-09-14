@@ -1416,9 +1416,14 @@ struct ComputerUseRunDiagnosticsTests {
         indicator.handleClick(atX: 80)
         #expect(stops == 1)
         #expect(dictationStops == 0)
+        indicator.handleClick(atX: 33)
+        #expect(stops == 2)
+        indicator.handleClick(atX: 34)
+        #expect(stops == 2)
+        #expect(dictationStops == 0)
         indicator.setComputerUseCancellationAvailable(false)
         indicator.handleClick(atX: 12)
-        #expect(stops == 1)
+        #expect(stops == 2)
     }
 
     @Test @MainActor
