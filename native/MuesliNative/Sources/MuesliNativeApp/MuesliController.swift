@@ -9511,6 +9511,22 @@ public final class MuesliController: NSObject {
 
     private func handleComputerUseStart() {
         guard canStartComputerUseCommand else { return }
+        guard CGPreflightScreenCaptureAccess() else {
+            computerUseHotkeyMonitor.cancelToggleMode()
+            indicator.isToggleDictation = false
+            let alert = NSAlert()
+            alert.messageText = "Allow Screen Recording for computer use"
+            alert.informativeText = "Muesli needs Screen Recording permission to see the apps you ask it to use. Enable it in System Settings, then try your command again."
+            alert.addButton(withTitle: "Open System Settings")
+            alert.addButton(withTitle: "Cancel")
+            if alert.runModal() == .alertFirstButtonReturn {
+                _ = CGRequestScreenCaptureAccess()
+                if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") {
+                    NSWorkspace.shared.open(url)
+                }
+            }
+            return
+        }
         fputs("[cua] recording start\n", stderr)
         meetingMonitor.suppressWhileActive()
         computerUseCommandStartedAt = Date()
@@ -9819,7 +9835,15 @@ public final class MuesliController: NSObject {
             runTrace.record(event)
         }
 
-        let result = await runtime.run(command: transcript)
+        let result: ComputerUsePlannerRuntimeResult
+        if CGPreflightScreenCaptureAccess() {
+            result = await runtime.run(command: transcript)
+        } else {
+            result = ComputerUsePlannerRuntimeResult(
+                status: .failed,
+                message: "Screen Recording permission is required. Enable it in System Settings and try again."
+            )
+        }
         guard computerUseCommandTaskID == taskID else { return }
         runTrace.finish(status: computerUseTraceStatus(result.status), message: result.message, finalEvents: result.traceEvents)
         activeComputerUseTrace = nil
