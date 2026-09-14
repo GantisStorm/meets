@@ -844,7 +844,7 @@ final class ComputerUseRunTrace {
     private let persist: ([ComputerUseTraceEvent], String, String) -> Void
     private let persistenceInterval: Duration
     private var lastPersistence: ContinuousClock.Instant?
-    private var pendingPersistence: Task<Void, Never>?
+    private(set) var pendingPersistence: Task<Void, Never>?
 
     init(
         persistenceInterval: Duration = .milliseconds(250),

@@ -1430,12 +1430,11 @@ struct ComputerUseRunDiagnosticsTests {
         trace.record(event)
         trace.record(event)
         #expect(writes.count == 1)
-        // Wait for the write, not a fixed sleep: AppKit work in another test
-        // can delay the pending main-actor flush beyond the sleep interval.
-        let deadline = ContinuousClock.now.advanced(by: .seconds(2))
-        while writes.count < 2 && ContinuousClock.now < deadline {
-            try await Task.sleep(for: .milliseconds(10))
-        }
+        // Join the actual trailing task. Concurrent AppKit tests can occupy
+        // the main actor beyond a wall-clock deadline without losing the write.
+        let pending = try #require(trace.pendingPersistence)
+        await pending.value
+        #expect(trace.events == [event, event, event])
         #expect(writes.count == 2)
         #expect(writes.last?.count == 3)
     }
@@ -1451,9 +1450,12 @@ struct ComputerUseRunDiagnosticsTests {
         let event = ComputerUseTraceEvent(kind: "planning", title: "Planning", body: "Step")
         trace.record(event)
         trace.record(event)
+        let pending = try #require(trace.pendingPersistence)
         trace.finish(status: "cancelled", message: "Stopped")
         #expect(latestCount == 3)
-        try await Task.sleep(for: .milliseconds(100))
+        await pending.value
+        #expect(trace.isFinalized)
+        #expect(trace.pendingPersistence == nil)
         #expect(statuses == ["running", "cancelled"])
     }
 
