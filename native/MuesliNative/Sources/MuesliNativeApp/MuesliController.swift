@@ -526,6 +526,7 @@ public final class MuesliController: NSObject {
     private var pendingComputerUseStopSessionID: UUID?
     private var computerUseCommandTask: Task<Void, Never>?
     private var computerUseCommandTaskID: UUID?
+    private var hasRequestedComputerUseScreenRecordingAccess = false
     private var activeComputerUseTrace: ComputerUseRunTrace?
     private var activeQuilAudioSessionID: UUID?
     private var quilStartedAt: Date?
@@ -9514,13 +9515,21 @@ public final class MuesliController: NSObject {
         guard CGPreflightScreenCaptureAccess() else {
             computerUseHotkeyMonitor.cancelToggleMode()
             indicator.isToggleDictation = false
+            if !hasRequestedComputerUseScreenRecordingAccess {
+                hasRequestedComputerUseScreenRecordingAccess = true
+                // macOS owns this prompt and its Open System Settings action.
+                // Opening Settings ourselves as well leaves the prompt behind.
+                _ = CGRequestScreenCaptureAccess()
+                return
+            }
+            // A denied request may no longer produce a system prompt. Offer a
+            // Settings shortcut on a subsequent attempt, without requesting again.
             let alert = NSAlert()
             alert.messageText = "Allow Screen Recording for computer use"
             alert.informativeText = "Muesli needs Screen Recording permission to see the apps you ask it to use. Enable it in System Settings, then try your command again."
             alert.addButton(withTitle: "Open System Settings")
             alert.addButton(withTitle: "Cancel")
             if alert.runModal() == .alertFirstButtonReturn {
-                _ = CGRequestScreenCaptureAccess()
                 if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") {
                     NSWorkspace.shared.open(url)
                 }
