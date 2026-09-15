@@ -752,6 +752,7 @@ enum MeetingLiveCaptionBackend: String, CaseIterable, Codable, Sendable {
 }
 
 enum SummaryReasoningEffort: String, CaseIterable, Codable, Sendable {
+    case off = "none"
     case low
     case medium
     case high
@@ -762,6 +763,7 @@ enum SummaryReasoningEffort: String, CaseIterable, Codable, Sendable {
 
     var label: String {
         switch self {
+        case .off: return "None"
         case .low: return "Low"
         case .medium: return "Medium"
         case .high: return "High"
@@ -839,26 +841,50 @@ struct SummaryModelPreset {
     }
 
     static func reasoningEffort(for model: String) -> String? {
-        switch model.trimmingCharacters(in: .whitespacesAndNewlines) {
-        case "gpt-6-astra", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna":
-            return "high"
-        default:
-            return nil
-        }
+        defaultReasoningEffort(for: model)?.rawValue
     }
 
     static func selectableReasoningEfforts(for model: String) -> [SummaryReasoningEffort] {
-        reasoningEffort(for: model) == nil ? [] : SummaryReasoningEffort.allCases
+        switch model.trimmingCharacters(in: .whitespacesAndNewlines) {
+        case "gpt-5.4-mini":
+            return [.off, .low, .medium, .high, .xhigh]
+        case "gpt-6-astra":
+            return [.low, .medium, .high, .xhigh, .max]
+        case "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna":
+            return SummaryReasoningEffort.allCases
+        default:
+            return []
+        }
+    }
+
+    static func resolvedReasoningEffort(
+        for model: String,
+        preferred preferredEffort: SummaryReasoningEffort?
+    ) -> SummaryReasoningEffort? {
+        let selectableEfforts = selectableReasoningEfforts(for: model)
+        guard !selectableEfforts.isEmpty else { return nil }
+        if let preferredEffort, selectableEfforts.contains(preferredEffort) {
+            return preferredEffort
+        }
+        return defaultReasoningEffort(for: model)
     }
 
     static func reasoningEffort(
         for model: String,
         preferred preferredEffort: SummaryReasoningEffort?
     ) -> String? {
-        guard !selectableReasoningEfforts(for: model).isEmpty else {
-            return reasoningEffort(for: model)
+        resolvedReasoningEffort(for: model, preferred: preferredEffort)?.rawValue
+    }
+
+    private static func defaultReasoningEffort(for model: String) -> SummaryReasoningEffort? {
+        switch model.trimmingCharacters(in: .whitespacesAndNewlines) {
+        case "gpt-5.4-mini":
+            return .off
+        case "gpt-6-astra", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna":
+            return .defaultEffort
+        default:
+            return nil
         }
-        return (preferredEffort ?? .defaultEffort).rawValue
     }
 
     static func migratedFromGPT55(_ model: String) -> String {
@@ -1710,7 +1736,7 @@ struct AppConfig: Codable {
     var openAIModel: String = ""
     var openRouterModel: String = ""
     var chatGPTModel: String = ""
-    var meetingSummaryReasoningEffort: SummaryReasoningEffort = .defaultEffort
+    var meetingSummaryReasoningEffort: SummaryReasoningEffort?
     var meetingSummaryRetryCount: Int = MeetingSummaryRetryPolicy.defaultRetryCount
     var ollamaURL: String = "http://localhost:11434"
     var ollamaModel: String = "qwen3.5"
@@ -2045,9 +2071,10 @@ struct AppConfig: Codable {
                 (try? c.decode(String.self, forKey: .chatGPTModel)) ?? defaults.chatGPTModel
             )
         )
-        meetingSummaryReasoningEffort =
-            (try? c.decode(SummaryReasoningEffort.self, forKey: .meetingSummaryReasoningEffort))
-            ?? defaults.meetingSummaryReasoningEffort
+        meetingSummaryReasoningEffort = try? c.decode(
+            SummaryReasoningEffort.self,
+            forKey: .meetingSummaryReasoningEffort
+        )
         meetingSummaryRetryCount = MeetingSummaryRetryPolicy.clampedRetryCount(
             (try? c.decode(Int.self, forKey: .meetingSummaryRetryCount)) ?? defaults.meetingSummaryRetryCount
         )

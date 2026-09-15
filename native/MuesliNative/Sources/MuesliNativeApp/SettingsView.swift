@@ -1754,7 +1754,7 @@ struct SettingsView: View {
                 if !SummaryModelPreset.selectableReasoningEfforts(for: model).isEmpty {
                     Divider().background(MuesliTheme.surfaceBorder)
                     settingsRow("Thinking", controlWidth: meetingControlWidth) {
-                        settingsSummaryReasoningSlider()
+                        settingsSummaryReasoningSlider(model: model)
                     }
                 }
             } else if appState.selectedMeetingSummaryBackend == .openAI {
@@ -1779,7 +1779,7 @@ struct SettingsView: View {
                 if !SummaryModelPreset.selectableReasoningEfforts(for: model).isEmpty {
                     Divider().background(MuesliTheme.surfaceBorder)
                     settingsRow("Thinking", controlWidth: meetingControlWidth) {
-                        settingsSummaryReasoningSlider()
+                        settingsSummaryReasoningSlider(model: model)
                     }
                 }
                 keyStatusRow(key: appState.config.openAIAPIKey)
@@ -3602,36 +3602,37 @@ struct SettingsView: View {
     }
 
     @ViewBuilder
-    private func settingsSummaryReasoningSlider() -> some View {
-        let efforts = SummaryReasoningEffort.allCases
-        HStack(spacing: 12) {
-            Slider(
-                value: Binding(
-                    get: {
-                        Double(
-                            efforts.firstIndex(of: appState.config.meetingSummaryReasoningEffort)
-                                ?? efforts.firstIndex(of: .defaultEffort)
-                                ?? 0
-                        )
-                    },
-                    set: { value in
-                        let index = min(max(Int(value.rounded()), 0), efforts.count - 1)
-                        controller.updateConfig { $0.meetingSummaryReasoningEffort = efforts[index] }
-                    }
-                ),
-                in: 0 ... Double(efforts.count - 1),
-                step: 1
-            )
-            .tint(MuesliTheme.accent)
-            .accessibilityLabel("Meeting summary thinking")
-            .accessibilityValue(appState.config.meetingSummaryReasoningEffort.label)
+    private func settingsSummaryReasoningSlider(model: String) -> some View {
+        let efforts = SummaryModelPreset.selectableReasoningEfforts(for: model)
+        if let effectiveEffort = SummaryModelPreset.resolvedReasoningEffort(
+            for: model,
+            preferred: appState.config.meetingSummaryReasoningEffort
+        ) {
+            HStack(spacing: 12) {
+                Slider(
+                    value: Binding(
+                        get: {
+                            Double(efforts.firstIndex(of: effectiveEffort) ?? 0)
+                        },
+                        set: { value in
+                            let index = min(max(Int(value.rounded()), 0), efforts.count - 1)
+                            controller.updateConfig { $0.meetingSummaryReasoningEffort = efforts[index] }
+                        }
+                    ),
+                    in: 0 ... Double(efforts.count - 1),
+                    step: 1
+                )
+                .tint(MuesliTheme.accent)
+                .accessibilityLabel("Meeting summary thinking")
+                .accessibilityValue(effectiveEffort.label)
 
-            Text(appState.config.meetingSummaryReasoningEffort.label)
-                .font(MuesliTheme.caption())
-                .foregroundStyle(MuesliTheme.textSecondary)
-                .frame(width: 80, alignment: .trailing)
+                Text(effectiveEffort.label)
+                    .font(MuesliTheme.caption())
+                    .foregroundStyle(MuesliTheme.textSecondary)
+                    .frame(width: 80, alignment: .trailing)
+            }
+            .frame(height: 24)
         }
-        .frame(height: 24)
     }
 
     @ViewBuilder

@@ -235,16 +235,29 @@ struct MeetingSummaryClientTests {
         #expect(reasoning?["effort"] == "max")
     }
 
-    @Test("ChatGPT Codex requests preserve GPT-5.4 Mini reasoning behavior")
-    func chatGPTCodexRequestPreservesGPT54MiniReasoning() {
+    @Test("ChatGPT Codex requests support GPT-5.4 Mini reasoning")
+    func chatGPTCodexRequestSupportsGPT54MiniReasoning() {
+        let defaultBody = ChatGPTResponsesClient.requestBody(
+            systemPrompt: "System",
+            userPrompt: "User",
+            model: "gpt-5.4-mini"
+        )
         let body = ChatGPTResponsesClient.requestBody(
             systemPrompt: "System",
             userPrompt: "User",
             model: "gpt-5.4-mini",
             reasoningEffort: .xhigh
         )
+        let invalidBody = ChatGPTResponsesClient.requestBody(
+            systemPrompt: "System",
+            userPrompt: "User",
+            model: "gpt-5.4-mini",
+            reasoningEffort: .max
+        )
 
-        #expect(body["reasoning"] == nil)
+        #expect((defaultBody["reasoning"] as? [String: String])?["effort"] == "none")
+        #expect((body["reasoning"] as? [String: String])?["effort"] == "xhigh")
+        #expect((invalidBody["reasoning"] as? [String: String])?["effort"] == "none")
     }
 
     @Test("ChatGPT Codex requests forward explicit output budgets")

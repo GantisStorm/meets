@@ -783,13 +783,13 @@ struct SummaryModelPresetTests {
         }
     }
 
-    @Test("reasoning models default to High and accept supported preferences")
+    @Test("reasoning models expose only their supported efforts")
     func reasoningEffort() {
         #expect(SummaryModelPreset.reasoningEffort(for: "gpt-6-astra") == "high")
         #expect(SummaryModelPreset.reasoningEffort(for: "gpt-5.6-sol") == "high")
         #expect(SummaryModelPreset.reasoningEffort(for: "gpt-5.6-terra") == "high")
         #expect(SummaryModelPreset.reasoningEffort(for: "gpt-5.6-luna") == "high")
-        #expect(SummaryModelPreset.reasoningEffort(for: "gpt-5.4-mini") == nil)
+        #expect(SummaryModelPreset.reasoningEffort(for: "gpt-5.4-mini") == "none")
         #expect(SummaryModelPreset.reasoningEffort(for: "gpt-5.5") == nil)
         #expect(
             SummaryModelPreset.reasoningEffort(for: "gpt-6-astra", preferred: .xhigh)
@@ -797,9 +797,18 @@ struct SummaryModelPresetTests {
         )
         #expect(
             SummaryModelPreset.selectableReasoningEfforts(for: "gpt-6-astra")
+                == [.low, .medium, .high, .xhigh, .max]
+        )
+        #expect(
+            SummaryModelPreset.selectableReasoningEfforts(for: "gpt-5.4-mini")
+                == [.off, .low, .medium, .high, .xhigh]
+        )
+        #expect(
+            SummaryModelPreset.selectableReasoningEfforts(for: "gpt-5.6-sol")
                 == SummaryReasoningEffort.allCases
         )
-        #expect(SummaryModelPreset.selectableReasoningEfforts(for: "gpt-5.4-mini").isEmpty)
+        #expect(SummaryModelPreset.reasoningEffort(for: "gpt-5.4-mini", preferred: .max) == "none")
+        #expect(SummaryModelPreset.reasoningEffort(for: "gpt-6-astra", preferred: .off) == "high")
     }
 
     @Test("model menu includes custom configured model")
@@ -959,6 +968,7 @@ struct AppConfigTests {
         #expect(config.meetingTranscriptionBackend == BackendOption.whisper.backend)
         #expect(config.meetingTranscriptionModel == BackendOption.whisper.model)
         #expect(config.meetingSummaryBackend == "chatgpt")
+        #expect(config.meetingSummaryReasoningEffort == nil)
         #expect(config.defaultMeetingTemplateID == MeetingTemplates.autoID)
         #expect(config.meetingRecordingSavePolicy == .never)
         #expect(config.showScheduledMeetingNotifications == true)
@@ -1323,16 +1333,16 @@ struct AppConfigTests {
         #expect(decoded.enableAutomaticDiagnosticIssuePrompts == false)
     }
 
-    @Test("Meeting summary reasoning defaults to High when absent or invalid")
-    func meetingSummaryReasoningDefaultsToHigh() throws {
+    @Test("Meeting summary reasoning uses model defaults when absent or invalid")
+    func meetingSummaryReasoningUsesModelDefaults() throws {
         let missing = try JSONDecoder().decode(AppConfig.self, from: Data("{}".utf8))
         let invalid = try JSONDecoder().decode(
             AppConfig.self,
             from: Data("{\"meeting_summary_reasoning_effort\":\"unsupported\"}".utf8)
         )
 
-        #expect(missing.meetingSummaryReasoningEffort == .high)
-        #expect(invalid.meetingSummaryReasoningEffort == .high)
+        #expect(missing.meetingSummaryReasoningEffort == nil)
+        #expect(invalid.meetingSummaryReasoningEffort == nil)
     }
 
     @Test("JSON coding keys use snake_case")
@@ -1340,6 +1350,7 @@ struct AppConfigTests {
         var config = AppConfig()
         config.contributionPromptNextWordCount = 1_000
         config.contributionPromptNextMeetingCount = 25
+        config.meetingSummaryReasoningEffort = .off
         let data = try JSONEncoder().encode(config)
         let json = try JSONSerialization.jsonObject(with: data) as! [String: Any]
 
