@@ -129,17 +129,38 @@ struct MeetingSummaryClientTests {
             participantNames: [
                 "  Priya Shah  ",
                 "Alex\nKim",
+                "李雷",
                 "PRIYA SHAH",
+                "michael@example.test",
+                "+1 949 870 7734",
                 MeetingContactIdentity.unnamedFallback,
                 "  ",
             ]
         )
 
         #expect(prompt.contains("Meeting participants (roster context only"))
-        #expect(prompt.contains("- Priya Shah\n- Alex Kim\n---"))
+        #expect(prompt.contains("- Priya Shah\n- Alex Kim\n- 李雷\n---"))
         #expect(!prompt.contains("Unnamed contact"))
+        #expect(!prompt.contains("michael@example.test"))
+        #expect(!prompt.contains("+1 949 870 7734"))
         #expect(prompt.components(separatedBy: "Priya Shah").count == 2)
         #expect(prompt.contains("Raw transcript:\nTranscript body"))
+    }
+
+    @Test("participant roster obeys its rendered character limit")
+    func participantRosterIsBounded() {
+        let names = (0..<100).map { index in
+            "Participant \(index) " + String(repeating: "x", count: 250)
+        }
+
+        let boundedNames = MeetingSummaryClient.participantNamesForPrompt(names)
+        let roster = boundedNames
+            .map { "- \($0)" }
+            .joined(separator: "\n")
+
+        #expect(!boundedNames.isEmpty)
+        #expect(boundedNames.allSatisfy { $0.count <= 200 })
+        #expect(roster.count <= 4_000)
     }
 
     @Test("title prompt includes written notes as meeting context")

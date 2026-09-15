@@ -394,7 +394,7 @@ enum MeetingSummaryClient {
         return prompt
     }
 
-    private static func participantNamesForPrompt(_ participantNames: [String]) -> [String] {
+    static func participantNamesForPrompt(_ participantNames: [String]) -> [String] {
         var seen = Set<String>()
         var result: [String] = []
         var characterCount = 0
@@ -405,6 +405,8 @@ enum MeetingSummaryClient {
                 .joined(separator: " ")
             guard !normalized.isEmpty,
                   normalized.caseInsensitiveCompare(MeetingContactIdentity.unnamedFallback) != .orderedSame,
+                  !MeetingContactIdentity.isEmailFallback(normalized),
+                  normalized.rangeOfCharacter(from: .letters) != nil,
                   seen.insert(normalized.lowercased()).inserted else {
                 continue
             }
@@ -415,9 +417,9 @@ enum MeetingSummaryClient {
             } else {
                 boundedName = normalized
             }
-            let addedCharacters = boundedName.count + (result.isEmpty ? 0 : 1)
+            let addedCharacters = boundedName.count + 2 + (result.isEmpty ? 0 : 1)
             guard characterCount + addedCharacters <= participantPromptCharacterLimit else {
-                break
+                continue
             }
             result.append(boundedName)
             characterCount += addedCharacters
