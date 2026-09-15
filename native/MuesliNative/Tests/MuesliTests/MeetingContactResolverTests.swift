@@ -203,4 +203,19 @@ struct MeetingContactResolverTests {
         #expect(participant.displayName == "Michael Smith")
         #expect(participant.emailAddress == "michael@example.test")
     }
+
+    @Test("an unnamed unified contact does not replace the picker display name")
+    func unnamedResolvedContactPreservesPickerName() {
+        let pickerContact = namedContact(emailAddress: "MICHAEL@EXAMPLE.TEST")
+        let resolvedContact = CNMutableContact()
+
+        let participant = MeetingContactIdentity.participant(
+            for: resolvedContact,
+            preservingIdentifierFrom: pickerContact
+        )
+
+        #expect(participant.participantIdentifier == "email:michael@example.test")
+        #expect(participant.displayName == "Michael Smith")
+        #expect(participant.emailAddress == "michael@example.test")
+    }
 }

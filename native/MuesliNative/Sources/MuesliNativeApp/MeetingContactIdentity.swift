@@ -49,9 +49,12 @@ enum MeetingContactIdentity {
     ) -> MeetingParticipantDraft {
         let selectedParticipant = participant(for: selectedContact)
         let resolvedParticipant = participant(for: resolvedContact)
+        let displayName = resolvedParticipant.displayName == unnamedFallback
+            ? selectedParticipant.displayName
+            : resolvedParticipant.displayName
         return MeetingParticipantDraft(
             participantIdentifier: selectedParticipant.participantIdentifier,
-            displayName: resolvedParticipant.displayName,
+            displayName: displayName,
             emailAddress: resolvedParticipant.emailAddress ?? selectedParticipant.emailAddress
         )
     }

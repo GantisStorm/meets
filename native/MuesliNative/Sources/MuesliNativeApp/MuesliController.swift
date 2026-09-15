@@ -5628,6 +5628,7 @@ public final class MuesliController: NSObject {
         Task { [weak self] in
             guard let self else { return }
             let plan = MeetingResummarizationPolicy.plan(for: meeting)
+            let participantNames = await self.summaryParticipantNames(meetingID: meeting.id)
             do {
                 let notes = try await MeetingSummaryClient.summarize(
                     transcript: meeting.rawTranscript,
@@ -5636,6 +5637,7 @@ public final class MuesliController: NSObject {
                     template: templateSnapshot,
                     existingNotes: self.notesContextForResummary(meeting),
                     manualNotesToRetain: meeting.manualNotes,
+                    participantNames: participantNames,
                     openRouterAPIKeyOverride: openRouterKey
                 )
                 try self.dictationStore.updateMeetingSummary(
@@ -5714,6 +5716,7 @@ public final class MuesliController: NSObject {
                 }
 
                 let templateSnapshot = self.meetingTemplateSnapshot(for: meeting)
+                let participantNames = await self.summaryParticipantNames(meetingID: meeting.id)
                 let formattedNotes: String
                 do {
                     formattedNotes = try await MeetingSummaryClient.summarize(
@@ -5722,7 +5725,8 @@ public final class MuesliController: NSObject {
                         config: self.config,
                         template: templateSnapshot,
                         existingNotes: self.notesContextForResummary(meeting),
-                        manualNotesToRetain: meeting.manualNotes
+                        manualNotesToRetain: meeting.manualNotes,
+                        participantNames: participantNames
                     )
                 } catch {
                     fputs("[muesli-native] re-transcription summary generation failed: \(error)\n", stderr)
@@ -5793,6 +5797,15 @@ public final class MuesliController: NSObject {
         return try await Task.detached(priority: .userInitiated) {
             try DictationStore(databaseURL: databaseURL).listMeetingParticipants(meetingID: meetingID)
         }.value
+    }
+
+    private func summaryParticipantNames(meetingID: Int64) async -> [String] {
+        do {
+            return try await meetingParticipants(meetingID: meetingID).map(\.displayName)
+        } catch {
+            fputs("[summary] failed to load participants for meeting \(meetingID): \(error.localizedDescription)\n", stderr)
+            return []
+        }
     }
 
     func attachMeetingParticipant(
@@ -7203,6 +7216,10 @@ public final class MuesliController: NSObject {
                         return self.manualNotesForLiveMeeting(id: meetingID)
                     }
                 }
+                meetingSession.participantNamesProvider = { [weak self] in
+                    guard let self else { return [] }
+                    return await self.summaryParticipantNames(meetingID: meetingID)
+                }
                 meetingSession.liveTitleProvider = { [weak self] in
                     await MainActor.run {
                         guard let self else { return nil }
@@ -8177,6 +8194,7 @@ public final class MuesliController: NSObject {
             )
         }
 
+        let participantNames = await summaryParticipantNames(meetingID: meetingID)
         let regeneratedNotes: String
         do {
             regeneratedNotes = try await MeetingSummaryClient.summarize(
@@ -8186,6 +8204,7 @@ public final class MuesliController: NSObject {
                 template: result.templateSnapshot,
                 existingNotes: nil,
                 manualNotesToRetain: manualNotes,
+                participantNames: participantNames,
                 visualContext: mergedVisualContext
             )
         } catch {

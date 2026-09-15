@@ -66,6 +66,7 @@ struct MeetingSummaryClientTests {
         let instructions = MeetingSummaryClient.summaryInstructions(for: MeetingTemplates.auto.snapshot)
 
         #expect(instructions.contains("You are a meeting notes assistant"))
+        #expect(instructions.contains("do not infer which participant said a transcript line"))
         #expect(instructions.contains("## Meeting Summary"))
         #expect(instructions.contains("## Action Items"))
     }
@@ -118,6 +119,27 @@ struct MeetingSummaryClientTests {
         #expect(prompt.contains("First-class meeting context from written notes typed by the user during the meeting"))
         #expect(prompt.contains("identify the meeting's topic, decisions, action items, risks, and outcomes"))
         #expect(prompt.contains("- User typed decision"))
+    }
+
+    @Test("summary user prompt includes a bounded, normalized participant roster")
+    func userPromptIncludesParticipantRoster() {
+        let prompt = MeetingSummaryClient.summaryUserPrompt(
+            transcript: "Transcript body",
+            meetingTitle: "Customer Call",
+            participantNames: [
+                "  Priya Shah  ",
+                "Alex\nKim",
+                "PRIYA SHAH",
+                MeetingContactIdentity.unnamedFallback,
+                "  ",
+            ]
+        )
+
+        #expect(prompt.contains("Meeting participants (roster context only"))
+        #expect(prompt.contains("- Priya Shah\n- Alex Kim\n---"))
+        #expect(!prompt.contains("Unnamed contact"))
+        #expect(prompt.components(separatedBy: "Priya Shah").count == 2)
+        #expect(prompt.contains("Raw transcript:\nTranscript body"))
     }
 
     @Test("title prompt includes written notes as meeting context")
