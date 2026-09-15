@@ -751,24 +751,83 @@ enum MeetingLiveCaptionBackend: String, CaseIterable, Codable, Sendable {
     }
 }
 
-enum SummaryReasoningEffort: String, CaseIterable, Codable, Sendable {
+enum ReasoningEffort: String, CaseIterable, Codable, Sendable {
     case off = "none"
+    case minimal
     case low
     case medium
     case high
     case xhigh
     case max
 
-    static let defaultEffort: Self = .high
-
     var label: String {
         switch self {
         case .off: return "None"
+        case .minimal: return "Minimal"
         case .low: return "Low"
         case .medium: return "Medium"
         case .high: return "High"
         case .xhigh: return "Extra High"
         case .max: return "Maximum"
+        }
+    }
+}
+
+/// Centralizes the reasoning capabilities shared by OpenAI API and ChatGPT
+/// account-backed requests. Unsupported preferences fall back to the selected
+/// model's default rather than sending an invalid API value.
+enum ReasoningEffortPolicy {
+    private struct Capabilities {
+        let efforts: [ReasoningEffort]
+        let defaultEffort: ReasoningEffort
+    }
+
+    static func selectableEfforts(for model: String) -> [ReasoningEffort] {
+        capabilities(for: model)?.efforts ?? []
+    }
+
+    static func defaultEffort(for model: String) -> ReasoningEffort? {
+        capabilities(for: model)?.defaultEffort
+    }
+
+    static func resolvedEffort(
+        for model: String,
+        preferred: ReasoningEffort?
+    ) -> ReasoningEffort? {
+        guard let capabilities = capabilities(for: model) else { return nil }
+        if let preferred, capabilities.efforts.contains(preferred) {
+            return preferred
+        }
+        return capabilities.defaultEffort
+    }
+
+    static func apiValue(for model: String, preferred: ReasoningEffort? = nil) -> String? {
+        resolvedEffort(for: model, preferred: preferred)?.rawValue
+    }
+
+    private static func capabilities(for model: String) -> Capabilities? {
+        switch model.trimmingCharacters(in: .whitespacesAndNewlines) {
+        case "gpt-5.4-mini", "gpt-5.4", "gpt-5.4-nano", "gpt-5.2":
+            return Capabilities(
+                efforts: [.off, .low, .medium, .high, .xhigh],
+                defaultEffort: .off
+            )
+        case "gpt-5.4-pro":
+            return Capabilities(efforts: [.medium, .high, .xhigh], defaultEffort: .medium)
+        case "gpt-6-astra":
+            return Capabilities(
+                efforts: [.low, .medium, .high, .xhigh, .max],
+                defaultEffort: .high
+            )
+        case "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna":
+            return Capabilities(
+                efforts: [.off, .low, .medium, .high, .xhigh, .max],
+                defaultEffort: .high
+            )
+        case "gpt-5-mini":
+            return Capabilities(efforts: [.minimal, .low, .medium, .high], defaultEffort: .medium)
+        default:
+            return nil
         }
     }
 }
@@ -801,6 +860,7 @@ struct SummaryModelPreset {
 
     static let chatGPTTranscriptCleanupModels: [SummaryModelPreset] = [
         SummaryModelPreset(id: "gpt-5.6-terra", label: "GPT-5.6 Terra (default)"),
+        SummaryModelPreset(id: "gpt-6-astra", label: "GPT-6 Astra"),
         SummaryModelPreset(id: "gpt-5.4-mini", label: "GPT-5.4 Mini"),
         SummaryModelPreset(id: "gpt-5.6-sol", label: "GPT-5.6 Sol"),
         SummaryModelPreset(id: "gpt-5.6-luna", label: "GPT-5.6 Luna"),
@@ -813,6 +873,7 @@ struct SummaryModelPreset {
 
     static let computerUsePlannerModels: [SummaryModelPreset] = [
         SummaryModelPreset(id: "gpt-5.6-sol", label: "GPT-5.6 Sol (default)"),
+        SummaryModelPreset(id: "gpt-6-astra", label: "GPT-6 Astra"),
         SummaryModelPreset(id: "gpt-5.6-terra", label: "GPT-5.6 Terra"),
         SummaryModelPreset(id: "gpt-5.6-luna", label: "GPT-5.6 Luna"),
         SummaryModelPreset(id: "gpt-5.4", label: "GPT-5.4"),
@@ -838,53 +899,6 @@ struct SummaryModelPreset {
     static func supportedChatGPTModel(_ model: String) -> String {
         let trimmed = model.trimmingCharacters(in: .whitespacesAndNewlines)
         return unsupportedChatGPTModelIDs.contains(trimmed) ? "" : trimmed
-    }
-
-    static func reasoningEffort(for model: String) -> String? {
-        defaultReasoningEffort(for: model)?.rawValue
-    }
-
-    static func selectableReasoningEfforts(for model: String) -> [SummaryReasoningEffort] {
-        switch model.trimmingCharacters(in: .whitespacesAndNewlines) {
-        case "gpt-5.4-mini":
-            return [.off, .low, .medium, .high, .xhigh]
-        case "gpt-6-astra":
-            return [.low, .medium, .high, .xhigh, .max]
-        case "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna":
-            return SummaryReasoningEffort.allCases
-        default:
-            return []
-        }
-    }
-
-    static func resolvedReasoningEffort(
-        for model: String,
-        preferred preferredEffort: SummaryReasoningEffort?
-    ) -> SummaryReasoningEffort? {
-        let selectableEfforts = selectableReasoningEfforts(for: model)
-        guard !selectableEfforts.isEmpty else { return nil }
-        if let preferredEffort, selectableEfforts.contains(preferredEffort) {
-            return preferredEffort
-        }
-        return defaultReasoningEffort(for: model)
-    }
-
-    static func reasoningEffort(
-        for model: String,
-        preferred preferredEffort: SummaryReasoningEffort?
-    ) -> String? {
-        resolvedReasoningEffort(for: model, preferred: preferredEffort)?.rawValue
-    }
-
-    private static func defaultReasoningEffort(for model: String) -> SummaryReasoningEffort? {
-        switch model.trimmingCharacters(in: .whitespacesAndNewlines) {
-        case "gpt-5.4-mini":
-            return .off
-        case "gpt-6-astra", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna":
-            return .defaultEffort
-        default:
-            return nil
-        }
     }
 
     static func migratedFromGPT55(_ model: String) -> String {
@@ -1686,6 +1700,7 @@ struct AppConfig: Codable {
     var computerUseHotkeyDefaultDisabledMigrationApplied: Bool = true
     var enableComputerUsePlanner: Bool = true
     var computerUsePlannerModel: String = ""
+    var computerUseReasoningEffort: ReasoningEffort?
     var computerUseTimeoutSeconds: Int = 120
     var sttBackend: String = BackendOption.parakeetUnified.backend
     var sttModel: String = BackendOption.parakeetUnified.model
@@ -1736,7 +1751,7 @@ struct AppConfig: Codable {
     var openAIModel: String = ""
     var openRouterModel: String = ""
     var chatGPTModel: String = ""
-    var meetingSummaryReasoningEffort: SummaryReasoningEffort?
+    var meetingSummaryReasoningEffort: ReasoningEffort?
     var meetingSummaryRetryCount: Int = MeetingSummaryRetryPolicy.defaultRetryCount
     var ollamaURL: String = "http://localhost:11434"
     var ollamaModel: String = "qwen3.5"
@@ -1782,6 +1797,7 @@ struct AppConfig: Codable {
     var activePostProcessorId: String = PostProcessorOption.defaultOption.id
     var postProcessorChatGPTModel: String = ""
     var postProcessorOpenAIModel: String = ""
+    var transcriptCleanupReasoningEffort: ReasoningEffort?
     var postProcessorOpenRouterModel: String = ""
     var postProcessorOllamaModel: String = ""
     var postProcessorLMStudioModel: String = ""
@@ -1826,6 +1842,7 @@ struct AppConfig: Codable {
         case computerUseHotkeyDefaultDisabledMigrationApplied = "computer_use_hotkey_default_disabled_migration_applied"
         case enableComputerUsePlanner = "enable_computer_use_planner"
         case computerUsePlannerModel = "computer_use_planner_model"
+        case computerUseReasoningEffort = "computer_use_reasoning_effort"
         case computerUseTimeoutSeconds = "computer_use_timeout_seconds"
         case sttBackend = "stt_backend"
         case sttModel = "stt_model"
@@ -1921,6 +1938,7 @@ struct AppConfig: Codable {
         case activePostProcessorId = "active_post_processor_id"
         case postProcessorChatGPTModel = "post_processor_chatgpt_model"
         case postProcessorOpenAIModel = "post_processor_openai_model"
+        case transcriptCleanupReasoningEffort = "transcript_cleanup_reasoning_effort"
         case postProcessorOpenRouterModel = "post_processor_openrouter_model"
         case postProcessorOllamaModel = "post_processor_ollama_model"
         case postProcessorLMStudioModel = "post_processor_lmstudio_model"
@@ -1972,6 +1990,10 @@ struct AppConfig: Codable {
         enableComputerUsePlanner = (try? c.decode(Bool.self, forKey: .enableComputerUsePlanner)) ?? defaults.enableComputerUsePlanner
         computerUsePlannerModel = SummaryModelPreset.migratedFromGPT55(
             (try? c.decode(String.self, forKey: .computerUsePlannerModel)) ?? defaults.computerUsePlannerModel
+        )
+        computerUseReasoningEffort = try? c.decode(
+            ReasoningEffort.self,
+            forKey: .computerUseReasoningEffort
         )
         computerUseTimeoutSeconds = (try? c.decode(Int.self, forKey: .computerUseTimeoutSeconds)) ?? defaults.computerUseTimeoutSeconds
         sttBackend = (try? c.decode(String.self, forKey: .sttBackend)) ?? defaults.sttBackend
@@ -2072,7 +2094,7 @@ struct AppConfig: Codable {
             )
         )
         meetingSummaryReasoningEffort = try? c.decode(
-            SummaryReasoningEffort.self,
+            ReasoningEffort.self,
             forKey: .meetingSummaryReasoningEffort
         )
         meetingSummaryRetryCount = MeetingSummaryRetryPolicy.clampedRetryCount(
@@ -2153,6 +2175,10 @@ struct AppConfig: Codable {
         )
         postProcessorOpenAIModel = SummaryModelPreset.migratedFromGPT55(
             (try? c.decode(String.self, forKey: .postProcessorOpenAIModel)) ?? defaults.postProcessorOpenAIModel
+        )
+        transcriptCleanupReasoningEffort = try? c.decode(
+            ReasoningEffort.self,
+            forKey: .transcriptCleanupReasoningEffort
         )
         postProcessorOpenRouterModel = (try? c.decode(String.self, forKey: .postProcessorOpenRouterModel)) ?? defaults.postProcessorOpenRouterModel
         postProcessorOllamaModel = (try? c.decode(String.self, forKey: .postProcessorOllamaModel)) ?? defaults.postProcessorOllamaModel

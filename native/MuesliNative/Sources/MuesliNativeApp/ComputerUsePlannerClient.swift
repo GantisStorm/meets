@@ -67,7 +67,8 @@ enum ComputerUsePlannerClient {
                 systemPrompt: instructions,
                 userPrompt: requestPrompt(for: request),
                 imageDataURL: request.latestWindowState.screenshot?.imageDataURL,
-                model: plannerModel(for: config)
+                model: plannerModel(for: config),
+                reasoningEffort: config.computerUseReasoningEffort
             )
         } catch ChatGPTAuthError.notAuthenticated {
             throw ComputerUsePlannerError.notAuthenticated
@@ -96,14 +97,16 @@ enum ComputerUsePlannerClient {
         systemPrompt: String,
         userPrompt: String,
         imageDataURL: String?,
-        model: String
+        model: String,
+        reasoningEffort: ReasoningEffort?
     ) async throws -> ComputerUsePlannerResponse {
         let (token, accountId) = try await ChatGPTAuthManager.shared.validAccessToken()
         let body = requestBody(
             systemPrompt: systemPrompt,
             userPrompt: userPrompt,
             imageDataURL: imageDataURL,
-            model: model
+            model: model,
+            reasoningEffort: reasoningEffort
         )
 
         let urlRequest = try ChatGPTResponsesTransport.makeRequest(
@@ -194,7 +197,8 @@ enum ComputerUsePlannerClient {
         systemPrompt: String,
         userPrompt: String,
         imageDataURL: String?,
-        model: String
+        model: String,
+        reasoningEffort: ReasoningEffort? = nil
     ) -> [String: Any] {
         var content: [[String: Any]] = [
             ["type": "input_text", "text": userPrompt],
@@ -217,7 +221,7 @@ enum ComputerUsePlannerClient {
                 ] as [String: Any],
             ],
         ]
-        if let effort = SummaryModelPreset.reasoningEffort(for: model) {
+        if let effort = ReasoningEffortPolicy.apiValue(for: model, preferred: reasoningEffort) {
             body["reasoning"] = ["effort": effort]
         }
         return body

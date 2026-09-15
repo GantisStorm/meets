@@ -85,7 +85,7 @@ enum ChatGPTResponsesClient {
         userPrompt: String,
         model: String,
         maxOutputTokens: Int? = nil,
-        reasoningEffort: SummaryReasoningEffort? = nil,
+        reasoningEffort: ReasoningEffort? = nil,
         logCategory: String
     ) async throws -> String {
         let (token, accountId) = try await ChatGPTAuthManager.shared.validAccessToken()
@@ -137,7 +137,7 @@ enum ChatGPTResponsesClient {
         userPrompt: String,
         model: String,
         maxOutputTokens: Int? = nil,
-        reasoningEffort: SummaryReasoningEffort? = nil
+        reasoningEffort: ReasoningEffort? = nil
     ) -> [String: Any] {
         var body: [String: Any] = [
             "model": model,
@@ -149,7 +149,7 @@ enum ChatGPTResponsesClient {
                 "content": [["type": "input_text", "text": userPrompt]],
             ] as [String: Any]],
         ]
-        if let effort = SummaryModelPreset.reasoningEffort(for: model, preferred: reasoningEffort) {
+        if let effort = ReasoningEffortPolicy.apiValue(for: model, preferred: reasoningEffort) {
             body["reasoning"] = ["effort": effort]
         }
         if let maxOutputTokens, maxOutputTokens > 0 {

@@ -557,21 +557,21 @@ enum MeetingSummaryClient {
             previousMeetingNotes: previousMeetingNotes
         )
         let model = config.openAIModel.isEmpty ? defaultOpenAIModel : config.openAIModel
-        let body: [String: Any] = [
+        var body: [String: Any] = [
             "model": model,
             "input": [
                 ["role": "system", "content": instructions],
                 ["role": "user", "content": userPrompt],
             ],
-            "reasoning": [
-                "effort": SummaryModelPreset.reasoningEffort(
-                    for: model,
-                    preferred: config.meetingSummaryReasoningEffort
-                ) ?? "low",
-            ],
             "text": ["verbosity": "low"],
             "max_output_tokens": defaultSummaryMaxOutputTokens,
         ]
+        if let effort = ReasoningEffortPolicy.apiValue(
+            for: model,
+            preferred: config.meetingSummaryReasoningEffort
+        ) {
+            body["reasoning"] = ["effort": effort]
+        }
 
         var request = URLRequest(url: openAIURL)
         request.httpMethod = "POST"
@@ -1307,7 +1307,7 @@ enum MeetingSummaryClient {
     private static func callChatCompletions(
         url: URL, apiKey: String, model: String,
         systemPrompt: String, userPrompt: String,
-        maxTokens: Int?, reasoningEffort: SummaryReasoningEffort? = nil,
+        maxTokens: Int?, reasoningEffort: ReasoningEffort? = nil,
         extraHeaders: [String: String], timeout: TimeInterval? = nil
     ) async -> String? {
         let isOpenAI = url.host?.contains("openai.com") == true
@@ -1322,7 +1322,7 @@ enum MeetingSummaryClient {
             // OpenAI newer models require max_completion_tokens; OpenRouter uses max_tokens
             body[isOpenAI ? "max_completion_tokens" : "max_tokens"] = maxTokens
         }
-        if isOpenAI, let effort = SummaryModelPreset.reasoningEffort(for: model, preferred: reasoningEffort) {
+        if isOpenAI, let effort = ReasoningEffortPolicy.apiValue(for: model, preferred: reasoningEffort) {
             body["reasoning_effort"] = effort
         }
 

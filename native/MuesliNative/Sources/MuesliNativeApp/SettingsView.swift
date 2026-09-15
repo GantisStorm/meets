@@ -1590,6 +1590,19 @@ struct SettingsView: View {
                     presets: SummaryModelPreset.chatGPTTranscriptCleanupModels
                 ) { controller.updatePostProcessorModel($0, for: backend) }
             }
+            let model = TranscriptCleanupClient.configuredModel(for: backend, config: appState.config)
+            if !ReasoningEffortPolicy.selectableEfforts(for: model).isEmpty {
+                Divider().background(MuesliTheme.surfaceBorder)
+                settingsRow("Thinking", controlWidth: meetingControlWidth) {
+                    settingsReasoningSlider(
+                        model: model,
+                        preferred: appState.config.transcriptCleanupReasoningEffort,
+                        accessibilityLabel: "Transcript cleanup thinking"
+                    ) { effort in
+                        controller.updateConfig { $0.transcriptCleanupReasoningEffort = effort }
+                    }
+                }
+            }
         case .some(.openAI):
             Divider().background(MuesliTheme.surfaceBorder)
             settingsRow("API Key", controlWidth: meetingControlWidth) {
@@ -1606,6 +1619,19 @@ struct SettingsView: View {
                     currentModel: appState.config.postProcessorOpenAIModel,
                     presets: SummaryModelPreset.openAIModels
                 ) { controller.updatePostProcessorModel($0, for: backend) }
+            }
+            let model = TranscriptCleanupClient.configuredModel(for: backend, config: appState.config)
+            if !ReasoningEffortPolicy.selectableEfforts(for: model).isEmpty {
+                Divider().background(MuesliTheme.surfaceBorder)
+                settingsRow("Thinking", controlWidth: meetingControlWidth) {
+                    settingsReasoningSlider(
+                        model: model,
+                        preferred: appState.config.transcriptCleanupReasoningEffort,
+                        accessibilityLabel: "Transcript cleanup thinking"
+                    ) { effort in
+                        controller.updateConfig { $0.transcriptCleanupReasoningEffort = effort }
+                    }
+                }
             }
             keyStatusRow(key: appState.config.openAIAPIKey)
         case .some(.openRouter):
@@ -1751,10 +1777,16 @@ struct SettingsView: View {
                 let model = appState.config.chatGPTModel.isEmpty
                     ? (SummaryModelPreset.chatGPTModels.first?.id ?? "")
                     : appState.config.chatGPTModel
-                if !SummaryModelPreset.selectableReasoningEfforts(for: model).isEmpty {
+                if !ReasoningEffortPolicy.selectableEfforts(for: model).isEmpty {
                     Divider().background(MuesliTheme.surfaceBorder)
                     settingsRow("Thinking", controlWidth: meetingControlWidth) {
-                        settingsSummaryReasoningSlider(model: model)
+                        settingsReasoningSlider(
+                            model: model,
+                            preferred: appState.config.meetingSummaryReasoningEffort,
+                            accessibilityLabel: "Meeting summary thinking"
+                        ) { effort in
+                            controller.updateConfig { $0.meetingSummaryReasoningEffort = effort }
+                        }
                     }
                 }
             } else if appState.selectedMeetingSummaryBackend == .openAI {
@@ -1776,10 +1808,16 @@ struct SettingsView: View {
                 let model = appState.config.openAIModel.isEmpty
                     ? (SummaryModelPreset.openAIModels.first?.id ?? "")
                     : appState.config.openAIModel
-                if !SummaryModelPreset.selectableReasoningEfforts(for: model).isEmpty {
+                if !ReasoningEffortPolicy.selectableEfforts(for: model).isEmpty {
                     Divider().background(MuesliTheme.surfaceBorder)
                     settingsRow("Thinking", controlWidth: meetingControlWidth) {
-                        settingsSummaryReasoningSlider(model: model)
+                        settingsReasoningSlider(
+                            model: model,
+                            preferred: appState.config.meetingSummaryReasoningEffort,
+                            accessibilityLabel: "Meeting summary thinking"
+                        ) { effort in
+                            controller.updateConfig { $0.meetingSummaryReasoningEffort = effort }
+                        }
                     }
                 }
                 keyStatusRow(key: appState.config.openAIAPIKey)
@@ -1959,6 +1997,19 @@ struct SettingsView: View {
                         currentModel: appState.config.computerUsePlannerModel,
                         presets: SummaryModelPreset.computerUsePlannerModels
                     ) { val in controller.updateConfig { $0.computerUsePlannerModel = val } }
+                }
+                let plannerModel = ComputerUsePlannerClient.plannerModel(for: appState.config)
+                if !ReasoningEffortPolicy.selectableEfforts(for: plannerModel).isEmpty {
+                    Divider().background(MuesliTheme.surfaceBorder)
+                    settingsRow("Thinking", controlWidth: meetingControlWidth) {
+                        settingsReasoningSlider(
+                            model: plannerModel,
+                            preferred: appState.config.computerUseReasoningEffort,
+                            accessibilityLabel: "Computer use thinking"
+                        ) { effort in
+                            controller.updateConfig { $0.computerUseReasoningEffort = effort }
+                        }
+                    }
                 }
                 Divider().background(MuesliTheme.surfaceBorder)
                 settingsRow("Timeout", controlWidth: meetingControlWidth) {
@@ -3602,11 +3653,16 @@ struct SettingsView: View {
     }
 
     @ViewBuilder
-    private func settingsSummaryReasoningSlider(model: String) -> some View {
-        let efforts = SummaryModelPreset.selectableReasoningEfforts(for: model)
-        if let effectiveEffort = SummaryModelPreset.resolvedReasoningEffort(
+    private func settingsReasoningSlider(
+        model: String,
+        preferred: ReasoningEffort?,
+        accessibilityLabel: String,
+        onChange: @escaping (ReasoningEffort) -> Void
+    ) -> some View {
+        let efforts = ReasoningEffortPolicy.selectableEfforts(for: model)
+        if let effectiveEffort = ReasoningEffortPolicy.resolvedEffort(
             for: model,
-            preferred: appState.config.meetingSummaryReasoningEffort
+            preferred: preferred
         ) {
             HStack(spacing: 12) {
                 Slider(
@@ -3616,14 +3672,14 @@ struct SettingsView: View {
                         },
                         set: { value in
                             let index = min(max(Int(value.rounded()), 0), efforts.count - 1)
-                            controller.updateConfig { $0.meetingSummaryReasoningEffort = efforts[index] }
+                            onChange(efforts[index])
                         }
                     ),
                     in: 0 ... Double(efforts.count - 1),
                     step: 1
                 )
                 .tint(MuesliTheme.accent)
-                .accessibilityLabel("Meeting summary thinking")
+                .accessibilityLabel(accessibilityLabel)
                 .accessibilityValue(effectiveEffort.label)
 
                 Text(effectiveEffort.label)

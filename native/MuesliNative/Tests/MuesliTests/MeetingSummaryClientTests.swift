@@ -260,6 +260,33 @@ struct MeetingSummaryClientTests {
         #expect((invalidBody["reasoning"] as? [String: String])?["effort"] == "none")
     }
 
+    @Test("OpenAI transcript cleanup forwards its own reasoning preference")
+    func openAITranscriptCleanupUsesSelectedReasoning() {
+        let body = TranscriptCleanupClient.openAIRequestBody(
+            systemPrompt: "Clean the transcript.",
+            userPrompt: "hello world",
+            model: "gpt-5.4-mini",
+            maxOutputTokens: 200,
+            reasoningEffort: .high
+        )
+
+        #expect((body["reasoning"] as? [String: String])?["effort"] == "high")
+        #expect(body["max_output_tokens"] as? Int == 200)
+    }
+
+    @Test("OpenAI transcript cleanup omits reasoning for non-reasoning models")
+    func openAITranscriptCleanupOmitsUnsupportedReasoning() {
+        let body = TranscriptCleanupClient.openAIRequestBody(
+            systemPrompt: "Clean the transcript.",
+            userPrompt: "hello world",
+            model: "chat-latest",
+            maxOutputTokens: 200,
+            reasoningEffort: .high
+        )
+
+        #expect(body["reasoning"] == nil)
+    }
+
     @Test("ChatGPT Codex requests forward explicit output budgets")
     func chatGPTCodexRequestForwardsOutputBudget() {
         let body = ChatGPTResponsesClient.requestBody(
