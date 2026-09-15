@@ -1721,7 +1721,12 @@ struct SettingsView: View {
 
     private var meetingSummarySettingsSection: some View {
         settingsSection("Meeting Summaries") {
-            settingsRow("Summary backend", controlWidth: meetingControlWidth) {
+            settingsRow(
+                "Summary backend",
+                description: "Summaries may include the transcript, written notes, captured screen context, "
+                    + "and participant names. With a hosted or remote endpoint, this information leaves your Mac.",
+                controlWidth: meetingControlWidth
+            ) {
                 settingsMenu(
                     selection: appState.selectedMeetingSummaryBackend.label,
                     options: MeetingSummaryBackendOption.all.map(\.label)

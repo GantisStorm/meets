@@ -363,8 +363,9 @@ enum MeetingSummaryClient {
         fputs("[summary] prompt participantNamesIncluded=\(!rosterNames.isEmpty) participantCount=\(rosterNames.count)\n", stderr)
         if !rosterNames.isEmpty {
             prompt += "Meeting participants (roster context only; use these names to understand who attended, but do not infer speaker attribution):\n"
-            prompt += rosterNames.map { "- \($0)" }.joined(separator: "\n")
-            prompt += "\n---\n\n"
+            prompt += "<meeting_participants>\n"
+            prompt += rosterNames.map(participantPromptLine).joined(separator: "\n")
+            prompt += "\n</meeting_participants>\n---\n\n"
         }
 
         let visualContextCharCount = visualContext?.trimmingCharacters(in: .whitespacesAndNewlines).count ?? 0
@@ -417,7 +418,7 @@ enum MeetingSummaryClient {
             } else {
                 boundedName = normalized
             }
-            let addedCharacters = boundedName.count + 2 + (result.isEmpty ? 0 : 1)
+            let addedCharacters = participantPromptLine(boundedName).count + (result.isEmpty ? 0 : 1)
             guard characterCount + addedCharacters <= participantPromptCharacterLimit else {
                 continue
             }
@@ -425,6 +426,14 @@ enum MeetingSummaryClient {
             characterCount += addedCharacters
         }
         return result
+    }
+
+    static func participantPromptLine(_ participantName: String) -> String {
+        let promptSafeName = participantName
+            .replacingOccurrences(of: "&", with: "&amp;")
+            .replacingOccurrences(of: "<", with: "&lt;")
+            .replacingOccurrences(of: ">", with: "&gt;")
+        return "- <participant_name>\(promptSafeName)</participant_name>"
     }
 
     static func notesByRetainingManualNotes(generatedNotes: String, manualNotes: String?) -> String {
