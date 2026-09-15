@@ -392,8 +392,8 @@ struct ComputerUsePlannerModelTests {
         #expect(ComputerUsePlannerClient.plannerModel(for: config) == "gpt-5.4")
     }
 
-    @Test("uses fixed High reasoning for every GPT-5.6 planner tier")
-    func usesHighReasoningForGPT56Family() {
+    @Test("uses model defaults when no computer use preference is stored")
+    func usesModelDefaultReasoning() {
         for model in ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"] {
             let body = ComputerUsePlannerClient.requestBody(
                 systemPrompt: "System",
@@ -407,16 +407,32 @@ struct ComputerUsePlannerModelTests {
         }
     }
 
-    @Test("keeps GPT-5.4 Mini available without changing its reasoning behavior")
-    func preservesGPT54MiniReasoning() {
-        let body = ComputerUsePlannerClient.requestBody(
+    @Test("forwards computer use reasoning independently")
+    func forwardsComputerUseReasoning() {
+        let defaultBody = ComputerUsePlannerClient.requestBody(
             systemPrompt: "System",
             userPrompt: "User",
             imageDataURL: nil,
             model: "gpt-5.4-mini"
         )
+        let selectedBody = ComputerUsePlannerClient.requestBody(
+            systemPrompt: "System",
+            userPrompt: "User",
+            imageDataURL: nil,
+            model: "gpt-5.4-mini",
+            reasoningEffort: .xhigh
+        )
+        let invalidBody = ComputerUsePlannerClient.requestBody(
+            systemPrompt: "System",
+            userPrompt: "User",
+            imageDataURL: nil,
+            model: "gpt-5.4-mini",
+            reasoningEffort: .max
+        )
 
-        #expect(body["reasoning"] == nil)
+        #expect((defaultBody["reasoning"] as? [String: String])?["effort"] == "none")
+        #expect((selectedBody["reasoning"] as? [String: String])?["effort"] == "xhigh")
+        #expect((invalidBody["reasoning"] as? [String: String])?["effort"] == "none")
     }
 }
 
