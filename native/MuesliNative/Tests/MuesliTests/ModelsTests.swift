@@ -706,6 +706,7 @@ struct SummaryModelPresetTests {
     func openAIModels() {
         #expect(!SummaryModelPreset.openAIModels.isEmpty)
         #expect(SummaryModelPreset.openAIModels.first?.id == "gpt-5.4-mini")
+        #expect(SummaryModelPreset.openAIModels.contains { $0.id == "gpt-6-astra" })
         #expect(SummaryModelPreset.openAIModels.contains { $0.id == "gpt-5.6-sol" })
         #expect(SummaryModelPreset.openAIModels.contains { $0.id == "gpt-5.6-terra" })
         #expect(SummaryModelPreset.openAIModels.contains { $0.id == "gpt-5.6-luna" })
@@ -721,6 +722,7 @@ struct SummaryModelPresetTests {
     func chatGPTModels() {
         #expect(!SummaryModelPreset.chatGPTModels.isEmpty)
         #expect(SummaryModelPreset.chatGPTModels.first?.id == "gpt-5.4-mini")
+        #expect(SummaryModelPreset.chatGPTModels.contains { $0.id == "gpt-6-astra" })
         #expect(SummaryModelPreset.chatGPTModels.contains { $0.id == "gpt-5.6-sol" })
         #expect(SummaryModelPreset.chatGPTModels.contains { $0.id == "gpt-5.6-terra" })
         #expect(SummaryModelPreset.chatGPTModels.contains { $0.id == "gpt-5.6-luna" })
@@ -781,13 +783,23 @@ struct SummaryModelPresetTests {
         }
     }
 
-    @Test("GPT-5.6 family uses fixed High reasoning")
-    func gpt56ReasoningEffort() {
+    @Test("reasoning models default to High and accept supported preferences")
+    func reasoningEffort() {
+        #expect(SummaryModelPreset.reasoningEffort(for: "gpt-6-astra") == "high")
         #expect(SummaryModelPreset.reasoningEffort(for: "gpt-5.6-sol") == "high")
         #expect(SummaryModelPreset.reasoningEffort(for: "gpt-5.6-terra") == "high")
         #expect(SummaryModelPreset.reasoningEffort(for: "gpt-5.6-luna") == "high")
         #expect(SummaryModelPreset.reasoningEffort(for: "gpt-5.4-mini") == nil)
         #expect(SummaryModelPreset.reasoningEffort(for: "gpt-5.5") == nil)
+        #expect(
+            SummaryModelPreset.reasoningEffort(for: "gpt-6-astra", preferred: .xhigh)
+                == "xhigh"
+        )
+        #expect(
+            SummaryModelPreset.selectableReasoningEfforts(for: "gpt-6-astra")
+                == SummaryReasoningEffort.allCases
+        )
+        #expect(SummaryModelPreset.selectableReasoningEfforts(for: "gpt-5.4-mini").isEmpty)
     }
 
     @Test("model menu includes custom configured model")
@@ -1190,6 +1202,7 @@ struct AppConfigTests {
         config.customLLMAPIKey = "custom-key"
         config.customLLMModel = "custom-model"
         config.customLLMFormat = "anthropic"
+        config.meetingSummaryReasoningEffort = .xhigh
         config.meetingSummaryRetryCount = 5
         config.postProcessorBackend = TranscriptCleanupBackendOption.hosted(.openRouter).backend
         config.postProcessorChatGPTModel = "gpt-5.4-mini"
@@ -1273,6 +1286,7 @@ struct AppConfigTests {
         #expect(decoded.customLLMAPIKey == "custom-key")
         #expect(decoded.customLLMModel == "custom-model")
         #expect(decoded.customLLMFormat == "anthropic")
+        #expect(decoded.meetingSummaryReasoningEffort == .xhigh)
         #expect(decoded.meetingSummaryRetryCount == 5)
         #expect(decoded.postProcessorBackend == "openrouter")
         #expect(decoded.postProcessorChatGPTModel == "gpt-5.4-mini")
@@ -1309,6 +1323,18 @@ struct AppConfigTests {
         #expect(decoded.enableAutomaticDiagnosticIssuePrompts == false)
     }
 
+    @Test("Meeting summary reasoning defaults to High when absent or invalid")
+    func meetingSummaryReasoningDefaultsToHigh() throws {
+        let missing = try JSONDecoder().decode(AppConfig.self, from: Data("{}".utf8))
+        let invalid = try JSONDecoder().decode(
+            AppConfig.self,
+            from: Data("{\"meeting_summary_reasoning_effort\":\"unsupported\"}".utf8)
+        )
+
+        #expect(missing.meetingSummaryReasoningEffort == .high)
+        #expect(invalid.meetingSummaryReasoningEffort == .high)
+    }
+
     @Test("JSON coding keys use snake_case")
     func snakeCaseKeys() throws {
         var config = AppConfig()
@@ -1328,6 +1354,7 @@ struct AppConfigTests {
         #expect(json["hotkey_trigger_threshold_ms"] != nil)
         #expect(json["computer_use_hotkey_trigger_threshold_ms"] != nil)
         #expect(json["meeting_recording_hotkey_trigger_threshold_ms"] != nil)
+        #expect(json["meeting_summary_reasoning_effort"] != nil)
         #expect(json["cohere_language"] != nil)
         #expect(json["indic_asr_language"] != nil)
         #expect(json["whisper_language"] != nil)

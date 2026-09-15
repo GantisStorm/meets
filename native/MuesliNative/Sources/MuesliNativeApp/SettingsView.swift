@@ -1723,8 +1723,7 @@ struct SettingsView: View {
         settingsSection("Meeting Summaries") {
             settingsRow(
                 "Summary backend",
-                description: "Summaries may include the transcript, written notes, captured screen context, "
-                    + "and participant names. With a hosted or remote endpoint, this information leaves your Mac.",
+                description: "Remote summaries may send transcripts, notes, screen context, and participant names.",
                 controlWidth: meetingControlWidth
             ) {
                 settingsMenu(
@@ -1749,6 +1748,15 @@ struct SettingsView: View {
                         presets: SummaryModelPreset.chatGPTModels
                     ) { val in controller.updateConfig { $0.chatGPTModel = val } }
                 }
+                let model = appState.config.chatGPTModel.isEmpty
+                    ? (SummaryModelPreset.chatGPTModels.first?.id ?? "")
+                    : appState.config.chatGPTModel
+                if !SummaryModelPreset.selectableReasoningEfforts(for: model).isEmpty {
+                    Divider().background(MuesliTheme.surfaceBorder)
+                    settingsRow("Thinking", controlWidth: meetingControlWidth) {
+                        settingsSummaryReasoningSlider()
+                    }
+                }
             } else if appState.selectedMeetingSummaryBackend == .openAI {
                 settingsRow("API Key", controlWidth: meetingControlWidth) {
                     PastableSecureField(
@@ -1764,6 +1772,15 @@ struct SettingsView: View {
                         currentModel: appState.config.openAIModel,
                         presets: SummaryModelPreset.openAIModels
                     ) { val in controller.updateConfig { $0.openAIModel = val } }
+                }
+                let model = appState.config.openAIModel.isEmpty
+                    ? (SummaryModelPreset.openAIModels.first?.id ?? "")
+                    : appState.config.openAIModel
+                if !SummaryModelPreset.selectableReasoningEfforts(for: model).isEmpty {
+                    Divider().background(MuesliTheme.surfaceBorder)
+                    settingsRow("Thinking", controlWidth: meetingControlWidth) {
+                        settingsSummaryReasoningSlider()
+                    }
                 }
                 keyStatusRow(key: appState.config.openAIAPIKey)
             } else if appState.selectedMeetingSummaryBackend == .ollama {
@@ -3581,6 +3598,39 @@ struct SettingsView: View {
                 onChange(selectedId == presets.first?.id ? "" : selectedId)
             }
         )
+        .frame(height: 24)
+    }
+
+    @ViewBuilder
+    private func settingsSummaryReasoningSlider() -> some View {
+        let efforts = SummaryReasoningEffort.allCases
+        HStack(spacing: 12) {
+            Slider(
+                value: Binding(
+                    get: {
+                        Double(
+                            efforts.firstIndex(of: appState.config.meetingSummaryReasoningEffort)
+                                ?? efforts.firstIndex(of: .defaultEffort)
+                                ?? 0
+                        )
+                    },
+                    set: { value in
+                        let index = min(max(Int(value.rounded()), 0), efforts.count - 1)
+                        controller.updateConfig { $0.meetingSummaryReasoningEffort = efforts[index] }
+                    }
+                ),
+                in: 0 ... Double(efforts.count - 1),
+                step: 1
+            )
+            .tint(MuesliTheme.accent)
+            .accessibilityLabel("Meeting summary thinking")
+            .accessibilityValue(appState.config.meetingSummaryReasoningEffort.label)
+
+            Text(appState.config.meetingSummaryReasoningEffort.label)
+                .font(MuesliTheme.caption())
+                .foregroundStyle(MuesliTheme.textSecondary)
+                .frame(width: 80, alignment: .trailing)
+        }
         .frame(height: 24)
     }
 

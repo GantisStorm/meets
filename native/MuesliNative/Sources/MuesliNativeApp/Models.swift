@@ -751,12 +751,33 @@ enum MeetingLiveCaptionBackend: String, CaseIterable, Codable, Sendable {
     }
 }
 
+enum SummaryReasoningEffort: String, CaseIterable, Codable, Sendable {
+    case low
+    case medium
+    case high
+    case xhigh
+    case max
+
+    static let defaultEffort: Self = .high
+
+    var label: String {
+        switch self {
+        case .low: return "Low"
+        case .medium: return "Medium"
+        case .high: return "High"
+        case .xhigh: return "Extra High"
+        case .max: return "Maximum"
+        }
+    }
+}
+
 struct SummaryModelPreset {
     let id: String
     let label: String
 
     static let openAIModels: [SummaryModelPreset] = [
         SummaryModelPreset(id: "gpt-5.4-mini", label: "GPT-5.4 Mini (default)"),
+        SummaryModelPreset(id: "gpt-6-astra", label: "GPT-6 Astra"),
         SummaryModelPreset(id: "gpt-5.6-sol", label: "GPT-5.6 Sol"),
         SummaryModelPreset(id: "gpt-5.6-terra", label: "GPT-5.6 Terra"),
         SummaryModelPreset(id: "gpt-5.6-luna", label: "GPT-5.6 Luna"),
@@ -770,6 +791,7 @@ struct SummaryModelPreset {
 
     static let chatGPTModels: [SummaryModelPreset] = [
         SummaryModelPreset(id: "gpt-5.4-mini", label: "GPT-5.4 Mini (default)"),
+        SummaryModelPreset(id: "gpt-6-astra", label: "GPT-6 Astra"),
         SummaryModelPreset(id: "gpt-5.6-sol", label: "GPT-5.6 Sol"),
         SummaryModelPreset(id: "gpt-5.6-terra", label: "GPT-5.6 Terra"),
         SummaryModelPreset(id: "gpt-5.6-luna", label: "GPT-5.6 Luna"),
@@ -818,11 +840,25 @@ struct SummaryModelPreset {
 
     static func reasoningEffort(for model: String) -> String? {
         switch model.trimmingCharacters(in: .whitespacesAndNewlines) {
-        case "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna":
+        case "gpt-6-astra", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna":
             return "high"
         default:
             return nil
         }
+    }
+
+    static func selectableReasoningEfforts(for model: String) -> [SummaryReasoningEffort] {
+        reasoningEffort(for: model) == nil ? [] : SummaryReasoningEffort.allCases
+    }
+
+    static func reasoningEffort(
+        for model: String,
+        preferred preferredEffort: SummaryReasoningEffort?
+    ) -> String? {
+        guard !selectableReasoningEfforts(for: model).isEmpty else {
+            return reasoningEffort(for: model)
+        }
+        return (preferredEffort ?? .defaultEffort).rawValue
     }
 
     static func migratedFromGPT55(_ model: String) -> String {
@@ -1674,6 +1710,7 @@ struct AppConfig: Codable {
     var openAIModel: String = ""
     var openRouterModel: String = ""
     var chatGPTModel: String = ""
+    var meetingSummaryReasoningEffort: SummaryReasoningEffort = .defaultEffort
     var meetingSummaryRetryCount: Int = MeetingSummaryRetryPolicy.defaultRetryCount
     var ollamaURL: String = "http://localhost:11434"
     var ollamaModel: String = "qwen3.5"
@@ -1814,6 +1851,7 @@ struct AppConfig: Codable {
         case openAIModel = "openai_model"
         case openRouterModel = "openrouter_model"
         case chatGPTModel = "chatgpt_model"
+        case meetingSummaryReasoningEffort = "meeting_summary_reasoning_effort"
         case meetingSummaryRetryCount = "meeting_summary_retry_count"
         case ollamaURL = "ollama_url"
         case ollamaModel = "ollama_model"
@@ -2007,6 +2045,9 @@ struct AppConfig: Codable {
                 (try? c.decode(String.self, forKey: .chatGPTModel)) ?? defaults.chatGPTModel
             )
         )
+        meetingSummaryReasoningEffort =
+            (try? c.decode(SummaryReasoningEffort.self, forKey: .meetingSummaryReasoningEffort))
+            ?? defaults.meetingSummaryReasoningEffort
         meetingSummaryRetryCount = MeetingSummaryRetryPolicy.clampedRetryCount(
             (try? c.decode(Int.self, forKey: .meetingSummaryRetryCount)) ?? defaults.meetingSummaryRetryCount
         )

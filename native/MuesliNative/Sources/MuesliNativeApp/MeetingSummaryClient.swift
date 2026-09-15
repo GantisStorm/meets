@@ -563,7 +563,12 @@ enum MeetingSummaryClient {
                 ["role": "system", "content": instructions],
                 ["role": "user", "content": userPrompt],
             ],
-            "reasoning": ["effort": SummaryModelPreset.reasoningEffort(for: model) ?? "low"],
+            "reasoning": [
+                "effort": SummaryModelPreset.reasoningEffort(
+                    for: model,
+                    preferred: config.meetingSummaryReasoningEffort
+                ) ?? "low",
+            ],
             "text": ["verbosity": "low"],
             "max_output_tokens": defaultSummaryMaxOutputTokens,
         ]
@@ -684,6 +689,7 @@ enum MeetingSummaryClient {
                     previousMeetingNotes: previousMeetingNotes
                 ),
                 model: config.chatGPTModel.isEmpty ? defaultChatGPTModel : config.chatGPTModel,
+                reasoningEffort: config.meetingSummaryReasoningEffort,
                 logCategory: "summary"
             )
             guard !text.isEmpty else {
@@ -1251,6 +1257,7 @@ enum MeetingSummaryClient {
             systemPrompt: titleInstructions,
             userPrompt: excerpt,
             maxTokens: nil,
+            reasoningEffort: config.meetingSummaryReasoningEffort,
             extraHeaders: [:]
         )
     }
@@ -1300,7 +1307,8 @@ enum MeetingSummaryClient {
     private static func callChatCompletions(
         url: URL, apiKey: String, model: String,
         systemPrompt: String, userPrompt: String,
-        maxTokens: Int?, extraHeaders: [String: String], timeout: TimeInterval? = nil
+        maxTokens: Int?, reasoningEffort: SummaryReasoningEffort? = nil,
+        extraHeaders: [String: String], timeout: TimeInterval? = nil
     ) async -> String? {
         let isOpenAI = url.host?.contains("openai.com") == true
         var body: [String: Any] = [
@@ -1314,7 +1322,7 @@ enum MeetingSummaryClient {
             // OpenAI newer models require max_completion_tokens; OpenRouter uses max_tokens
             body[isOpenAI ? "max_completion_tokens" : "max_tokens"] = maxTokens
         }
-        if isOpenAI, let effort = SummaryModelPreset.reasoningEffort(for: model) {
+        if isOpenAI, let effort = SummaryModelPreset.reasoningEffort(for: model, preferred: reasoningEffort) {
             body["reasoning_effort"] = effort
         }
 
@@ -1411,6 +1419,7 @@ enum MeetingSummaryClient {
                 systemPrompt: titleInstructions,
                 userPrompt: transcript,
                 model: model,
+                reasoningEffort: config.meetingSummaryReasoningEffort,
                 logCategory: "summary"
             )
             let title = result.trimmingCharacters(in: .whitespacesAndNewlines.union(.init(charactersIn: "\"")))

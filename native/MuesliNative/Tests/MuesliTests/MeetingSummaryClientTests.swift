@@ -207,9 +207,10 @@ struct MeetingSummaryClientTests {
         #expect(prompt.count <= 6_000)
     }
 
-    @Test("ChatGPT Codex requests fix GPT-5.6 reasoning to High")
-    func chatGPTCodexRequestUsesHighReasoningForGPT56() {
-        for model in ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"] {
+    @Test("ChatGPT Codex reasoning models default to High")
+    func chatGPTCodexRequestDefaultsReasoningToHigh() {
+        let models = ["gpt-6-astra", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"]
+        for model in models {
             let body = ChatGPTResponsesClient.requestBody(
                 systemPrompt: "System",
                 userPrompt: "User",
@@ -221,12 +222,26 @@ struct MeetingSummaryClientTests {
         }
     }
 
+    @Test("ChatGPT Codex requests forward selected Astra reasoning")
+    func chatGPTCodexRequestUsesSelectedAstraReasoning() {
+        let body = ChatGPTResponsesClient.requestBody(
+            systemPrompt: "System",
+            userPrompt: "User",
+            model: "gpt-6-astra",
+            reasoningEffort: .max
+        )
+        let reasoning = body["reasoning"] as? [String: String]
+
+        #expect(reasoning?["effort"] == "max")
+    }
+
     @Test("ChatGPT Codex requests preserve GPT-5.4 Mini reasoning behavior")
     func chatGPTCodexRequestPreservesGPT54MiniReasoning() {
         let body = ChatGPTResponsesClient.requestBody(
             systemPrompt: "System",
             userPrompt: "User",
-            model: "gpt-5.4-mini"
+            model: "gpt-5.4-mini",
+            reasoningEffort: .xhigh
         )
 
         #expect(body["reasoning"] == nil)

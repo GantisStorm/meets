@@ -1646,9 +1646,8 @@ struct OnboardingView: View {
                     .foregroundStyle(MuesliTheme.textPrimary)
 
                 Text(
-                    "Connect an LLM provider to get AI-powered meeting notes.\n"
-                        + "Summaries may send transcripts, written notes, captured screen context, and participant names "
-                        + "to the selected provider. You can set this up later in Settings."
+                    "Connect an LLM provider for AI-powered meeting notes.\n"
+                        + "Remote summaries may send transcripts, notes, screen context, and participant names off-device."
                 )
                     .font(MuesliTheme.body())
                     .foregroundStyle(MuesliTheme.textSecondary)
