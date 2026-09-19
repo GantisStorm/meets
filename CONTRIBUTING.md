@@ -1,8 +1,11 @@
 # Contributing to Meets
 
-Thanks for helping improve Meets. This project is a native macOS app built
-with SwiftPM, AppKit, SwiftUI, and a small set of shell scripts around local
-builds and CI shards.
+Found something the agent declared finished? Welcome.
+
+Meets is a native macOS app built with SwiftPM, AppKit, SwiftUI, and shell
+scripts. Contributions should make it easier to understand and harder to
+break. A smaller diff that fixes the problem is an excellent contribution.
+It does not need a new abstraction, a rebrand, or its own `STRATEGY.md`.
 
 ## Requirements
 
@@ -12,6 +15,8 @@ builds and CI shards.
 - `xcodegen` and CMake (`brew install xcodegen cmake`)
 
 ## Local Development Build
+
+Please reproduce the problem before asking a model to confidently fix a different one.
 
 Maintainer release builds are signed with a Developer ID certificate that
 external contributors do not have. For local development, build the isolated
@@ -136,6 +141,8 @@ packaging.
 
 ## SwiftPM Build Cache
 
+The agents are enthusiastic about making worktrees. Your SSD has not expressed the same enthusiasm.
+
 SwiftPM writes build artifacts to `native/MeetsNative/.build` by default,
 which can become large across worktrees. Use a shared scratch path for local
 testing:
@@ -149,6 +156,8 @@ Do not run concurrent builds from different worktrees into the same scratch
 path. Use separate names such as `dev`, `test`, or `agent-1`.
 
 ## Tests
+
+Report the command and the result. “Should work” is a prediction. “All done” is a chat message. Neither is test output.
 
 Run the native test package:
 
@@ -172,6 +181,10 @@ swift test --package-path native/MeetsNative \
 ```
 
 ## Pull Requests
+
+Explain what was broken, what changed, and how you checked it. The reviewer
+needs enough context to assess the patch, not the transcript of your agent's
+journey toward believing in itself.
 
 - Keep changes focused and include tests for behavioral changes.
 - Mention the test commands you ran in the PR description.
@@ -229,6 +242,12 @@ those commits with `--signoff`, or follow the individual remediation
 instructions reported by the DCO check.
 
 ## AI-Assisted Contributions
+
+Yes, obviously. Look around.
+
+AI assistance is welcome. Please review the diff, including the parts the
+agent called “minor cleanup.” If it rewrote three unrelated files on the way
+to changing a label, those files still count as your contribution.
 
 You remain responsible for every contribution you submit, including work
 created with an AI coding tool or agent. In the pull request description:
