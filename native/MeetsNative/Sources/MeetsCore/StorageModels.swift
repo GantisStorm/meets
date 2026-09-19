@@ -326,6 +326,69 @@ public struct MeetingEventLink: Identifiable, Equatable, Sendable {
     }
 }
 
+/// Lightweight, browse-only view of one meeting: identity, follow-up link,
+/// timing, status, folder, and recording source — but never transcript or
+/// notes text. The meetings browser builds its follow-up shelves from these
+/// so every meeting in scope is represented without loading transcripts for
+/// the whole library or issuing per-row queries.
+///
+/// This type is deliberately not a substitute for `MeetingRecord`: detail,
+/// summary, export, and search surfaces must keep reading full records.
+public struct MeetingBrowserEntry: Identifiable, Equatable, Sendable {
+    public let id: Int64
+    public let title: String
+    public let startTime: String
+    public let durationSeconds: Double
+    public let folderID: Int64?
+    public let status: MeetingStatus
+    public let source: MeetingSource
+    public let savedRecordingPath: String?
+    public let followUpToID: Int64?
+    /// Title of the follow-up predecessor when that meeting still exists.
+    /// Resolved in the same read so a child whose parent sits outside the
+    /// current scope can still name the parent it hangs from.
+    public let predecessorTitle: String?
+
+    public init(
+        id: Int64,
+        title: String,
+        startTime: String,
+        durationSeconds: Double,
+        folderID: Int64?,
+        status: MeetingStatus,
+        source: MeetingSource = .meeting,
+        savedRecordingPath: String? = nil,
+        followUpToID: Int64? = nil,
+        predecessorTitle: String? = nil
+    ) {
+        self.id = id
+        self.title = title
+        self.startTime = startTime
+        self.durationSeconds = durationSeconds
+        self.folderID = folderID
+        self.status = status
+        self.source = source
+        self.savedRecordingPath = savedRecordingPath
+        self.followUpToID = followUpToID
+        self.predecessorTitle = predecessorTitle
+    }
+
+    /// Browse entry for a meeting whose full record is already loaded.
+    public init(record: MeetingRecord) {
+        self.init(
+            id: record.id,
+            title: record.title,
+            startTime: record.startTime,
+            durationSeconds: record.durationSeconds,
+            folderID: record.folderID,
+            status: record.status,
+            source: record.source,
+            savedRecordingPath: record.savedRecordingPath,
+            followUpToID: record.followUpToID
+        )
+    }
+}
+
 public struct MeetingFolder: Identifiable, Codable, Sendable {
     public let id: Int64
     public var name: String

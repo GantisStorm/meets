@@ -28,21 +28,160 @@ enum MeetingBrowserSort: Hashable {
     }
 }
 
-struct MeetingBrowserPresentation {
-    let meetings: [MeetingRecord]
+/// How the meetings browser lays out its shelves. Persisted with `@AppStorage`
+/// so the choice survives relaunches.
+enum MeetingBrowserLayout: String, CaseIterable, Hashable {
+    case grid
+    case list
+
+    static let storageKey = "meetings.browser.layout"
+    static let defaultLayout: MeetingBrowserLayout = .grid
+
+    var label: String {
+        switch self {
+        case .grid: return "Grid"
+        case .list: return "List"
+        }
+    }
+
+    var symbolName: String {
+        switch self {
+        case .grid: return "square.grid.2x2"
+        case .list: return "list.bullet"
+        }
+    }
+}
+
+/// A predecessor that is not part of the shelf it is displayed in, so a scoped
+/// shelf root can still navigate up to the meeting it follows on from.
+struct MeetingBrowserParentLink: Equatable {
+    let id: Int64
+    let title: String
+}
+
+/// One meeting inside a rendered shelf. `record` is present only for meetings
+/// inside the recently loaded window; everything else comes from the
+/// lightweight browse index, so a shelf can show members the browser never
+/// loaded in full.
+struct MeetingBrowserNode: Identifiable {
+    let entry: MeetingBrowserEntry
+    let record: MeetingRecord?
+    /// Predecessor to link to when it sits outside this shelf.
+    let externalParent: MeetingBrowserParentLink?
+    /// Predecessor title, set when the row should name the meeting it follows
+    /// on from: its parent is outside this shelf, or the row sits past the
+    /// indentation cap and indentation alone no longer carries the hierarchy.
+    let parentLinkTitle: String?
+    /// False when the meeting is shown only to keep a matching descendant's
+    /// thread context.
+    let matchesFilter: Bool
+    /// Nesting depth inside its shelf; the shelf root is 0.
+    let depth: Int
+
+    var id: Int64 { entry.id }
+}
+
+/// A follow-up family rendered as one unit: the root meeting, then every
+/// descendant in thread order. `descendants` is flat and pre-ordered, carrying
+/// its own `depth`, so arbitrarily deep branches never recurse.
+struct MeetingBrowserShelf: Identifiable {
+    let id: Int64
+    let root: MeetingBrowserNode
+    let descendants: [MeetingBrowserNode]
+    /// Meetings in this shelf that satisfy the active date filter.
+    let matchCount: Int
+    /// Newest (or oldest, following the active sort) meeting time in the shelf.
+    let activity: Date
+
+    var nodes: [MeetingBrowserNode] { [root] + descendants }
+    var totalCount: Int { descendants.count + 1 }
+    var contextCount: Int { totalCount - matchCount }
+}
+
+struct MeetingBrowserShelfPresentation {
+    let shelves: [MeetingBrowserShelf]
     let meetingIDsWithFollowUps: Set<Int64>
+    /// Meetings matching the date filter. Ancestors retained for context are
+    /// not counted, so the header never over-reports a range.
+    let matchCount: Int
+    /// Meetings rendered, including context ancestors.
+    let displayedCount: Int
+    /// Oldest start date across everything in scope, so the date-range menu can
+    /// be derived from the same pass that built the shelves instead of walking
+    /// every meeting a second time.
+    let oldestStartDate: Date?
+
+    var contextCount: Int { max(0, displayedCount - matchCount) }
+
+    static let empty = MeetingBrowserShelfPresentation(
+        shelves: [],
+        meetingIDsWithFollowUps: [],
+        matchCount: 0,
+        displayedCount: 0,
+        oldestStartDate: nil
+    )
+}
+
+/// Which descendants a collapsed shelf shows, and what the overflow control
+/// must account for. A filtered thread can otherwise bury its only matching
+/// meeting behind context ancestors.
+struct MeetingBrowserDescendantPlan: Equatable {
+    let visibleCount: Int
+    let hiddenCount: Int
+    /// Hidden descendants that satisfy the active date range.
+    let hiddenMatchCount: Int
+
+    /// Label for the overflow control. The hidden-match count is reported
+    /// whenever a date range is active and something hidden matches — a chain
+    /// whose visible window is all context can hide the only match. "All time"
+    /// passes `false`: there is no range, so there is nothing to compare
+    /// against.
+    func summary(annotatingMatches: Bool) -> String {
+        let followUps = "\(hiddenCount) more follow-up\(hiddenCount == 1 ? "" : "s")"
+        guard annotatingMatches, hiddenMatchCount > 0 else { return followUps }
+        return "\(followUps) \u{00B7} \(hiddenMatchCount) in range"
+    }
 }
 
 enum MeetingBrowserLogic {
+    /// Deepest nesting level that still earns extra indentation. Descendants
+    /// below it keep their place in the shelf and instead name the parent they
+    /// hang from, so nothing is dropped from view.
+    static let indentationCapDepth = 3
+
+    /// Descendants a shelf shows before it collapses the rest behind a
+    /// "show all" control.
+    static let initialDescendantLimit = 3
+
     static func availableFilters(
         for meetings: [MeetingRecord],
         now: Date = Date(),
         calendar: Calendar = .current
     ) -> [MeetingBrowserFilter] {
-        var filters: [MeetingBrowserFilter] = [.all]
-        let oldestDate = meetings.compactMap { parseDate($0.startTime) }.min()
+        availableFilters(forStartTimes: meetings.map(\.startTime), now: now, calendar: calendar)
+    }
 
-        guard let oldest = oldestDate else { return filters }
+    static func availableFilters(
+        forStartTimes startTimes: [String],
+        now: Date = Date(),
+        calendar: Calendar = .current
+    ) -> [MeetingBrowserFilter] {
+        availableFilters(
+            oldestStartDate: startTimes.compactMap(parseDate).min(),
+            now: now,
+            calendar: calendar
+        )
+    }
+
+    /// Ranges worth offering, from the oldest start date already computed while
+    /// building the shelves.
+    static func availableFilters(
+        oldestStartDate: Date?,
+        now: Date = Date(),
+        calendar: Calendar = .current
+    ) -> [MeetingBrowserFilter] {
+        var filters: [MeetingBrowserFilter] = [.all]
+        guard let oldest = oldestStartDate else { return filters }
         let daysSinceOldest = calendar.dateComponents([.day], from: oldest, to: now).day ?? 0
 
         if daysSinceOldest >= 1 { filters.append(.last2Days) }
@@ -54,6 +193,35 @@ enum MeetingBrowserLogic {
         return filters
     }
 
+    /// Descendants a shelf shows while collapsed, and how many of the hidden
+    /// ones match the active range. Thread order is preserved: the overflow
+    /// control reports hidden matches instead of reordering the thread.
+    static func descendantPlan(
+        matchFlags: [Bool],
+        isExpanded: Bool,
+        limit: Int = initialDescendantLimit
+    ) -> MeetingBrowserDescendantPlan {
+        guard !isExpanded else {
+            return MeetingBrowserDescendantPlan(
+                visibleCount: matchFlags.count,
+                hiddenCount: 0,
+                hiddenMatchCount: 0
+            )
+        }
+        let visibleCount = min(limit, matchFlags.count)
+        let hidden = matchFlags[visibleCount...]
+        return MeetingBrowserDescendantPlan(
+            visibleCount: visibleCount,
+            hiddenCount: hidden.count,
+            hiddenMatchCount: hidden.reduce(into: 0) { total, matches in
+                if matches { total += 1 }
+            }
+        )
+    }
+
+    /// Flat, shelf-ordered meeting list. Follow-up families stay together and
+    /// in thread order, which is the same result as a plain date sort when no
+    /// meeting has a follow-up.
     static func filteredMeetings(
         from meetings: [MeetingRecord],
         filter: MeetingBrowserFilter,
@@ -61,49 +229,250 @@ enum MeetingBrowserLogic {
         now: Date = Date(),
         calendar: Calendar = .current
     ) -> [MeetingRecord] {
-        presentation(
-            from: meetings,
+        let recordsByID = Dictionary(meetings.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        return shelves(
+            entries: meetings.map(MeetingBrowserEntry.init(record:)),
+            records: meetings,
             filter: filter,
             sort: sort,
             now: now,
             calendar: calendar
-        ).meetings
+        ).shelves.flatMap { shelf in
+            shelf.nodes.compactMap { recordsByID[$0.id] }
+        }
     }
 
-    static func presentation(
-        from meetings: [MeetingRecord],
+    /// Builds the follow-up shelves for one folder scope.
+    ///
+    /// - Parameters:
+    ///   - entries: the complete, text-free browse index for the scope.
+    ///   - records: the recently loaded full records; whichever of these are
+    ///     missing from `entries` are added so the browser still works when the
+    ///     index read fails.
+    ///
+    /// A meeting whose predecessor is outside the scope becomes the root of a
+    /// scoped shelf and links to that predecessor. Meetings that only exist to
+    /// keep a matching descendant's context are retained but excluded from
+    /// `matchCount`. Follow-up cycles and self-links are broken at the lowest
+    /// id on the cycle so every member renders exactly once.
+    static func shelves(
+        entries: [MeetingBrowserEntry],
+        records: [MeetingRecord] = [],
         filter: MeetingBrowserFilter,
         sort: MeetingBrowserSort,
         now: Date = Date(),
         calendar: Calendar = .current
-    ) -> MeetingBrowserPresentation {
-        let threshold = threshold(for: filter, now: now, calendar: calendar)
+    ) -> MeetingBrowserShelfPresentation {
+        var universe: [Int64: MeetingBrowserEntry] = [:]
+        universe.reserveCapacity(entries.count + records.count)
+        for entry in entries { universe[entry.id] = entry }
+        for record in records where universe[record.id] == nil {
+            universe[record.id] = MeetingBrowserEntry(record: record)
+        }
+        guard !universe.isEmpty else { return .empty }
+
+        var recordsByID: [Int64: MeetingRecord] = [:]
+        recordsByID.reserveCapacity(records.count)
+        for record in records { recordsByID[record.id] = record }
+
+        // Follow-up edges. `parentByID` keeps only links whose predecessor is
+        // visible in this scope, so traversal never leaves the scope;
+        // `linkByID` keeps every real link so a child whose predecessor sits
+        // outside the scope can still name it. The "has follow-ups" indicator
+        // is scope-wide, matching indexing the scoped slice before filtering.
+        var parentByID: [Int64: Int64] = [:]
+        var linkByID: [Int64: Int64] = [:]
         var meetingIDsWithFollowUps = Set<Int64>()
-        var filtered: [MeetingRecord] = []
-
-        for meeting in meetings {
-            if let followUpToID = meeting.followUpToID {
-                meetingIDsWithFollowUps.insert(followUpToID)
-            }
-            if isAfterThreshold(meeting, threshold: threshold) {
-                filtered.append(meeting)
+        for entry in universe.values {
+            guard let parentID = entry.followUpToID, parentID != entry.id else { continue }
+            linkByID[entry.id] = parentID
+            meetingIDsWithFollowUps.insert(parentID)
+            if universe[parentID] != nil {
+                parentByID[entry.id] = parentID
             }
         }
 
-        let sorted = filtered.sorted { lhs, rhs in
-            let lhsDate = parseDate(lhs.startTime) ?? .distantPast
-            let rhsDate = parseDate(rhs.startTime) ?? .distantPast
-            switch sort {
-            case .newestFirst:
-                return lhsDate > rhsDate
-            case .oldestFirst:
-                return lhsDate < rhsDate
+        let threshold = threshold(for: filter, now: now, calendar: calendar)
+        var dateByID: [Int64: Date] = [:]
+        dateByID.reserveCapacity(universe.count)
+        var oldestStartDate: Date?
+        var matches: Set<Int64> = []
+        for (id, entry) in universe {
+            // One parse per meeting for the whole build: the same value feeds
+            // ordering, family activity, and the date range check.
+            let date = parseDate(entry.startTime)
+            dateByID[id] = date ?? .distantPast
+            if let date, oldestStartDate.map({ date < $0 }) ?? true {
+                oldestStartDate = date
+            }
+            if isAfterThreshold(date, threshold: threshold) {
+                matches.insert(id)
+            }
+        }
+        guard !matches.isEmpty else {
+            return MeetingBrowserShelfPresentation(
+                shelves: [],
+                meetingIDsWithFollowUps: meetingIDsWithFollowUps,
+                matchCount: 0,
+                displayedCount: 0,
+                oldestStartDate: oldestStartDate
+            )
+        }
+
+        // Keep every match plus the ancestors that explain where it came from.
+        var retained = matches
+        for id in matches {
+            var cursor = parentByID[id]
+            while let parentID = cursor, retained.insert(parentID).inserted {
+                cursor = parentByID[parentID]
             }
         }
 
-        return MeetingBrowserPresentation(
-            meetings: sorted,
-            meetingIDsWithFollowUps: meetingIDsWithFollowUps
+        // Break every follow-up cycle at the lowest id *on the cycle*, so the
+        // walk still reaches the whole thread. A meeting has at most one
+        // predecessor, so a cycle is always a closed loop of links; a lower-id
+        // leaf hanging off that loop must stay a descendant, not become a root.
+        var resolved: Set<Int64> = []
+        for start in retained.sorted() where !resolved.contains(start) {
+            var path: [Int64] = []
+            var positionByID: [Int64: Int] = [:]
+            var current: Int64? = start
+            while let node = current {
+                if let position = positionByID[node] {
+                    if let breaker = path[position...].min() {
+                        parentByID.removeValue(forKey: breaker)
+                    }
+                    break
+                }
+                if resolved.contains(node) { break }
+                positionByID[node] = path.count
+                path.append(node)
+                current = parentByID[node].flatMap { retained.contains($0) ? $0 : nil }
+            }
+            resolved.formUnion(path)
+        }
+
+        // Roots: anything whose predecessor is absent from this scope.
+        let rootIDs = retained
+            .filter { id in
+                guard let parentID = parentByID[id] else { return true }
+                return !retained.contains(parentID)
+            }
+            .sorted()
+
+        var childrenByID: [Int64: [Int64]] = [:]
+        childrenByID.reserveCapacity(retained.count)
+        for id in retained {
+            guard let parentID = parentByID[id], retained.contains(parentID) else { continue }
+            childrenByID[parentID, default: []].append(id)
+        }
+        childrenByID = childrenByID.mapValues { childIDs in
+            childIDs.sorted { lhs, rhs in
+                let lhsDate = dateByID[lhs] ?? .distantPast
+                let rhsDate = dateByID[rhs] ?? .distantPast
+                return lhsDate == rhsDate ? lhs < rhs : lhsDate < rhsDate
+            }
+        }
+
+        // Thread order, iteratively: descendants depth first, siblings in
+        // chronological order.
+        var depthByID: [Int64: Int] = [:]
+        var visited: Set<Int64> = []
+        var rootOrder: [Int64] = []
+        var descendantOrder: [Int64: [Int64]] = [:]
+        func walk(from root: Int64) -> [Int64] {
+            var stack: [(id: Int64, depth: Int)] = [(root, 0)]
+            var preorder: [Int64] = []
+            while let top = stack.popLast() {
+                guard visited.insert(top.id).inserted else { continue }
+                depthByID[top.id] = top.depth
+                preorder.append(top.id)
+                for child in (childrenByID[top.id] ?? []).reversed() {
+                    stack.append((child, top.depth + 1))
+                }
+            }
+            return Array(preorder.dropFirst())
+        }
+        for root in rootIDs where !visited.contains(root) {
+            rootOrder.append(root)
+            descendantOrder[root] = walk(from: root)
+        }
+        // Completeness backstop: a retained meeting the family walk could not
+        // reach still renders as its own shelf rather than disappearing.
+        for id in retained.sorted() where !visited.contains(id) {
+            rootOrder.append(id)
+            descendantOrder[id] = walk(from: id)
+        }
+
+        func makeNode(_ id: Int64, shelfMembers: Set<Int64>) -> MeetingBrowserNode {
+            let record = recordsByID[id]
+            // `retained` only ever holds ids present in `universe`; the default
+            // keeps the node renderable if that invariant is ever broken.
+            let entry = universe[id] ?? MeetingBrowserEntry(
+                id: id,
+                title: record?.title ?? "Untitled meeting",
+                startTime: record?.startTime ?? "",
+                durationSeconds: record?.durationSeconds ?? 0,
+                folderID: record?.folderID,
+                status: record?.status ?? .completed
+            )
+            let depth = depthByID[id] ?? 0
+            let parentID = linkByID[id]
+            let parentIsInShelf = parentID.map(shelfMembers.contains) ?? false
+            let parentTitle = parentID.flatMap { parent in
+                entry.predecessorTitle ?? universe[parent]?.title
+            }
+            var externalParent: MeetingBrowserParentLink?
+            if let parentID, let parentTitle, !parentIsInShelf {
+                externalParent = MeetingBrowserParentLink(id: parentID, title: parentTitle)
+            }
+            let showsParentLink = externalParent != nil
+                || (parentID != nil && parentTitle != nil && depth > indentationCapDepth)
+            return MeetingBrowserNode(
+                entry: entry,
+                record: record,
+                externalParent: externalParent,
+                parentLinkTitle: showsParentLink ? parentTitle : nil,
+                matchesFilter: matches.contains(id),
+                depth: depth
+            )
+        }
+
+        var shelfList: [MeetingBrowserShelf] = []
+        shelfList.reserveCapacity(rootOrder.count)
+        for root in rootOrder {
+            let descendantIDs = descendantOrder[root] ?? []
+            let memberIDs = [root] + descendantIDs
+            let shelfMembers = Set(memberIDs)
+            // Order by the meetings that actually matched, so a retained older
+            // ancestor never decides where a filtered shelf sorts.
+            let matchingDates = memberIDs.filter { matches.contains($0) }.compactMap { dateByID[$0] }
+            let activity = (sort == .newestFirst ? matchingDates.max() : matchingDates.min()) ?? .distantPast
+            let matchCount = memberIDs.reduce(into: 0) { total, id in
+                if matches.contains(id) { total += 1 }
+            }
+            shelfList.append(MeetingBrowserShelf(
+                id: root,
+                root: makeNode(root, shelfMembers: shelfMembers),
+                descendants: descendantIDs.map { makeNode($0, shelfMembers: shelfMembers) },
+                matchCount: matchCount,
+                activity: activity
+            ))
+        }
+
+        shelfList.sort { lhs, rhs in
+            if lhs.activity != rhs.activity {
+                return sort == .newestFirst ? lhs.activity > rhs.activity : lhs.activity < rhs.activity
+            }
+            return lhs.id < rhs.id
+        }
+
+        return MeetingBrowserShelfPresentation(
+            shelves: shelfList,
+            meetingIDsWithFollowUps: meetingIDsWithFollowUps,
+            matchCount: matches.count,
+            displayedCount: shelfList.reduce(0) { $0 + $1.totalCount },
+            oldestStartDate: oldestStartDate
         )
     }
 
@@ -128,9 +497,9 @@ enum MeetingBrowserLogic {
         }
     }
 
-    private static func isAfterThreshold(_ meeting: MeetingRecord, threshold: Date?) -> Bool {
+    private static func isAfterThreshold(_ date: Date?, threshold: Date?) -> Bool {
         guard let threshold else { return true }
-        guard let date = parseDate(meeting.startTime) else { return false }
+        guard let date else { return false }
         return date >= threshold
     }
 
@@ -147,13 +516,45 @@ enum MeetingBrowserLogic {
         guard let date = parseDate(raw) else {
             return formatStartTimeFallback(raw)
         }
-        let formatter = DateFormatter()
-        formatter.locale = locale
-        formatter.timeZone = timeZone
-        formatter.dateStyle = .medium
-        formatter.timeStyle = .medium
-        return formatter.string(from: date)
+        return startTimeFormatters.string(from: date, locale: locale, timeZone: timeZone)
     }
+
+    /// Bounded cache of display formatters. The browser formats a date for
+    /// every rendered row, and building a `DateFormatter` per call costs more
+    /// than the format itself. Keyed by locale and time zone; capped so callers
+    /// that vary them cannot grow it without bound. Formatting happens under the
+    /// lock because `DateFormatter` is not safe to share across threads.
+    private final class StartTimeFormatterCache: @unchecked Sendable {
+        private let lock = NSLock()
+        private var storage: [String: DateFormatter] = [:]
+        private var order: [String] = []
+        private let limit = 4
+
+        func string(from date: Date, locale: Locale, timeZone: TimeZone) -> String {
+            lock.lock()
+            defer { lock.unlock() }
+            return formatter(locale: locale, timeZone: timeZone).string(from: date)
+        }
+
+        private func formatter(locale: Locale, timeZone: TimeZone) -> DateFormatter {
+            let key = "\(locale.identifier)|\(timeZone.identifier)"
+            if let cached = storage[key] { return cached }
+            let formatter = DateFormatter()
+            formatter.locale = locale
+            formatter.timeZone = timeZone
+            formatter.dateStyle = .medium
+            formatter.timeStyle = .medium
+            if order.count >= limit, let oldest = order.first {
+                order.removeFirst()
+                storage.removeValue(forKey: oldest)
+            }
+            order.append(key)
+            storage[key] = formatter
+            return formatter
+        }
+    }
+
+    private static let startTimeFormatters = StartTimeFormatterCache()
 
     private static func formatStartTimeFallback(_ raw: String) -> String {
         let clean = raw.replacingOccurrences(of: "T", with: " ")
@@ -195,14 +596,28 @@ struct MeetingsView: View {
     let controller: MeetsController
     @State private var selectedFilter: MeetingBrowserFilter = .all
     @State private var selectedSort: MeetingBrowserSort = .newestFirst
+    /// Shelves the user expanded past the initial descendant limit.
+    @State private var expandedShelfIDs: Set<Int64> = []
+    /// Persisted layout choice; the grid is the default.
+    @AppStorage(MeetingBrowserLayout.storageKey)
+    private var layout: MeetingBrowserLayout = MeetingBrowserLayout.defaultLayout
 
+    /// Complete browse index for the current scope, so shelves keep every
+    /// follow-up member even when it sits outside the recently loaded window.
+    private var scopedEntries: [MeetingBrowserEntry] {
+        appState.meetingBrowserEntries
+    }
+
+    /// Recently loaded full records; the only source of notes, transcripts,
+    /// and recording details in the browser.
     private var scopedMeetings: [MeetingRecord] {
         appState.meetingRows
     }
 
-    private var browserPresentation: MeetingBrowserPresentation {
-        MeetingBrowserLogic.presentation(
-            from: scopedMeetings,
+    private var browserPresentation: MeetingBrowserShelfPresentation {
+        MeetingBrowserLogic.shelves(
+            entries: scopedEntries,
+            records: scopedMeetings,
             filter: selectedFilter,
             sort: selectedSort
         )
@@ -246,72 +661,107 @@ struct MeetingsView: View {
 
     @ViewBuilder
     private var browserView: some View {
-        ScrollView {
-            let presentation = browserPresentation
-            VStack(alignment: .leading, spacing: MeetsTheme.spacing24) {
-                PageTitle("Meetings")
+        // The window's detail column can be as narrow as ~280 points once the
+        // sidebar is subtracted, so page padding and grid columns follow the
+        // space actually available instead of assuming a wide canvas.
+        GeometryReader { proxy in
+            let contentWidth = proxy.size.width
+            ScrollView {
+                let presentation = browserPresentation
+                VStack(alignment: .leading, spacing: MeetsTheme.spacing24) {
+                    PageTitle("Meetings")
 
-                if !appState.upcomingCalendarEvents.isEmpty {
-                    comingUpSection
-                }
+                    if !appState.upcomingCalendarEvents.isEmpty {
+                        comingUpSection
+                    }
 
-                if appState.isMeetingStarting {
-                    MeetingPreparationBanner(
-                        status: appState.meetingStartStatus,
-                        onCancel: { controller.cancelMeetingPreparation() }
-                    )
-                }
+                    if appState.isMeetingStarting {
+                        MeetingPreparationBanner(
+                            status: appState.meetingStartStatus,
+                            onCancel: { controller.cancelMeetingPreparation() }
+                        )
+                    }
 
-                if let activeLiveMeeting {
-                    activeMeetingBanner(activeLiveMeeting)
-                }
+                    if let activeLiveMeeting {
+                        activeMeetingBanner(activeLiveMeeting)
+                    }
 
-                browserHeader(meetingCount: presentation.meetings.count)
+                    folderNavigation(width: contentWidth)
 
-                if presentation.meetings.isEmpty {
-                    emptyState
-                } else {
-                    LazyVStack(spacing: MeetsTheme.spacing12) {
-                        ForEach(presentation.meetings) { meeting in
-                            MeetingListItemView(
-                                record: meeting,
-                                isSelected: appState.selectedMeetingID == meeting.id,
-                                hasFollowUps: presentation.meetingIDsWithFollowUps.contains(meeting.id),
-                                folders: appState.folders,
-                                onSelect: { controller.showMeetingDocument(id: meeting.id) },
-                                onMove: { folderID in
-                                    controller.moveMeeting(id: meeting.id, toFolder: folderID)
-                                },
-                                onCreateFolderAndMove: { name in
-                                    controller.createFolderAndMoveMeeting(name: name, meetingID: meeting.id)
-                                },
-                                onDelete: controller.canDeleteMeeting(meeting) ? {
-                                    controller.deleteMeeting(id: meeting.id)
-                                } : nil
-                            )
-                        }
+                    browserHeader(presentation: presentation)
+
+                    if presentation.shelves.isEmpty {
+                        emptyState
+                    } else {
+                        shelfLayout(
+                            shelves: presentation.shelves,
+                            meetingIDsWithFollowUps: presentation.meetingIDsWithFollowUps,
+                            width: contentWidth
+                        )
                     }
                 }
+                .frame(maxWidth: 960, alignment: .leading)
+                .padding(.horizontal, Self.horizontalPadding(for: contentWidth))
+                .padding(.top, MeetsTheme.pageTop)
+                .padding(.bottom, 32)
+                .frame(maxWidth: .infinity, alignment: .center)
             }
-            .frame(maxWidth: 960, alignment: .leading)
-            .padding(.horizontal, 40)
-            .padding(.top, MeetsTheme.pageTop)
-            .padding(.bottom, 32)
-            .frame(maxWidth: .infinity, alignment: .center)
-        }
-        .onDrop(of: ["public.file-url"], isTargeted: nil) { providers in
-            guard let provider = providers.first else { return false }
-            provider.loadItem(forTypeIdentifier: "public.file-url", options: nil) { item, _ in
-                guard let data = item as? Data,
-                      let urlString = String(data: data, encoding: .utf8),
-                      let url = URL(string: urlString) else { return }
-                guard AudioFileImportController.isSupportedFileURL(url) else { return }
-                DispatchQueue.main.async {
-                    controller.importAudioFileFromURL(url)
+            .onDrop(of: ["public.file-url"], isTargeted: nil) { providers in
+                guard let provider = providers.first else { return false }
+                provider.loadItem(forTypeIdentifier: "public.file-url", options: nil) { item, _ in
+                    guard let data = item as? Data,
+                          let urlString = String(data: data, encoding: .utf8),
+                          let url = URL(string: urlString) else { return }
+                    guard AudioFileImportController.isSupportedFileURL(url) else { return }
+                    DispatchQueue.main.async {
+                        controller.importAudioFileFromURL(url)
+                    }
                 }
+                return true
             }
-            return true
         }
+    }
+
+    /// Page gutters: 40 points when there is room, 16 once the detail column is
+    /// narrow enough that 40 would eat the content.
+    static func horizontalPadding(for width: CGFloat) -> CGFloat {
+        width < 640 ? 16 : 40
+    }
+
+    /// Card grid columns, or a single flexible column when a multi-column grid
+    /// cannot hold its minimum card width without clipping.
+    static func shelfColumns(for width: CGFloat) -> [GridItem] {
+        guard width >= 640 else {
+            return [GridItem(.flexible(minimum: 0, maximum: .infinity), spacing: 0, alignment: .top)]
+        }
+        return [GridItem(.adaptive(minimum: 320, maximum: 460), spacing: MeetsTheme.spacing16, alignment: .top)]
+    }
+
+    /// Folder-card columns: same rule, with the smaller folder-card minimum.
+    static func folderColumns(for width: CGFloat) -> [GridItem] {
+        guard width >= 640 else {
+            return [GridItem(.flexible(minimum: 0, maximum: .infinity), spacing: 0, alignment: .top)]
+        }
+        return [GridItem(.adaptive(minimum: 200, maximum: 340), spacing: MeetsTheme.spacing12, alignment: .top)]
+    }
+
+    /// Card width below which a title and its action cluster cannot share a row
+    /// without squeezing the title into a stub.
+    static let compactCardWidth: CGFloat = 300
+
+    /// Rendered width of one shelf card at the given page width, derived from
+    /// the same column policy `shelfColumns(for:)` uses.
+    static func cardWidth(for width: CGFloat) -> CGFloat {
+        let content = width - horizontalPadding(for: width) * 2
+        guard width >= 640 else { return max(0, content) }
+        let spacing = MeetsTheme.spacing16
+        let columns = max(1, Int((content + spacing) / (320 + spacing)))
+        return max(0, (content - CGFloat(columns - 1) * spacing) / CGFloat(columns))
+    }
+
+    /// True when cards must stack their actions under a full-width title.
+    static func usesCompactCardHeader(for width: CGFloat) -> Bool {
+        cardWidth(for: width) < compactCardWidth
     }
 
     // MARK: - Coming Up
@@ -609,25 +1059,29 @@ struct MeetingsView: View {
     }
 
     @ViewBuilder
-    private func browserHeader(meetingCount: Int) -> some View {
+    private func browserHeader(presentation: MeetingBrowserShelfPresentation) -> some View {
         VStack(alignment: .leading, spacing: MeetsTheme.spacing8) {
             ViewThatFits(in: .horizontal) {
                 HStack(alignment: .top, spacing: MeetsTheme.spacing16) {
                     browserHeaderTitle
                     Spacer(minLength: MeetsTheme.spacing16)
-                    browserHeaderActions
+                    browserHeaderActions(presentation: presentation)
                 }
 
                 VStack(alignment: .leading, spacing: MeetsTheme.spacing12) {
                     browserHeaderTitle
                     HStack {
                         Spacer(minLength: 0)
-                        browserHeaderActions
+                        browserHeaderActions(presentation: presentation)
                     }
                 }
             }
 
-            browserHeaderMeta(meetingCount: meetingCount)
+            MeetingBrowserHeaderMeta(
+                matchCount: presentation.matchCount,
+                contextCount: presentation.contextCount,
+                filter: selectedFilter
+            )
         }
     }
 
@@ -640,78 +1094,99 @@ struct MeetingsView: View {
     }
 
     @ViewBuilder
-    private func browserHeaderMeta(meetingCount: Int) -> some View {
-        HStack(spacing: MeetsTheme.spacing8) {
-            Text("\(meetingCount) meeting\(meetingCount == 1 ? "" : "s")")
-                .font(MeetsTheme.callout())
-                .foregroundStyle(MeetsTheme.textSecondary)
-                .fixedSize()
+    private func browserHeaderActions(presentation: MeetingBrowserShelfPresentation) -> some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: MeetsTheme.spacing8) {
+                meetingActionButtons
+                browserDisplayControls(presentation: presentation)
+            }
+            .fixedSize(horizontal: true, vertical: false)
 
-            Text("\u{2022}")
-                .font(MeetsTheme.callout())
-                .foregroundStyle(MeetsTheme.textTertiary)
-                .fixedSize()
-
-            Text("Open a meeting to review notes, transcript, and template-driven summaries")
-                .font(MeetsTheme.callout())
-                .foregroundStyle(MeetsTheme.textTertiary)
+            // Narrow detail columns cannot hold five controls on one line.
+            VStack(alignment: .trailing, spacing: MeetsTheme.spacing8) {
+                meetingActionButtons
+                browserDisplayControls(presentation: presentation)
+            }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: .trailing)
     }
 
     @ViewBuilder
-    private var browserHeaderActions: some View {
-        HStack(spacing: MeetsTheme.spacing8) {
-            Button {
-                controller.startQuickNoteMeeting()
-            } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: "plus")
-                        .font(.system(size: 11, weight: .semibold))
-                    Text("Quick Note")
-                        .font(.system(size: 12, weight: .semibold))
-                        .lineLimit(1)
-                }
-                .foregroundStyle(appState.isMeetingRecording || appState.isMeetingStarting ? MeetsTheme.textPrimary : MeetsTheme.accentContent)
-                .padding(.horizontal, MeetsTheme.spacing12)
-                .padding(.vertical, 8)
-                .background(appState.isMeetingRecording || appState.isMeetingStarting ? MeetsTheme.surfacePrimary : MeetsTheme.accent)
-                .clipShape(RoundedRectangle(cornerRadius: MeetsTheme.cornerSmall))
-            }
-            .buttonStyle(.plain)
-            .disabled(appState.isMeetingRecording || appState.isMeetingStarting)
-            .help("Start a quick meeting note")
-            .fixedSize()
+    private func browserDisplayControls(presentation: MeetingBrowserShelfPresentation) -> some View {
+        MeetingBrowserDisplayControls(
+            filter: $selectedFilter,
+            sort: $selectedSort,
+            layout: $layout,
+            availableFilters: MeetingBrowserLogic.availableFilters(oldestStartDate: presentation.oldestStartDate)
+        )
+    }
 
-            Button {
-                controller.importAudioFile()
-            } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: "square.and.arrow.down")
-                        .font(.system(size: 11, weight: .semibold))
-                    Text("Import Audio")
-                        .font(.system(size: 12, weight: .semibold))
-                        .lineLimit(1)
-                }
-                .foregroundStyle(MeetsTheme.textPrimary)
-                .padding(.horizontal, MeetsTheme.spacing12)
-                .padding(.vertical, 8)
-                .background(MeetsTheme.surfacePrimary)
-                .clipShape(RoundedRectangle(cornerRadius: MeetsTheme.cornerSmall))
-                .overlay(
-                    RoundedRectangle(cornerRadius: MeetsTheme.cornerSmall)
-                        .strokeBorder(MeetsTheme.surfaceBorder, lineWidth: 1)
-                )
+    @ViewBuilder
+    private var meetingActionButtons: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: MeetsTheme.spacing8) {
+                quickNoteButton
+                importAudioButton
             }
-            .buttonStyle(.plain)
-            .disabled(appState.isMeetingRecording || appState.isMeetingStarting)
-            .help("Import an audio file for offline transcription")
-            .fixedSize()
+            .fixedSize(horizontal: true, vertical: false)
 
-            sortButton
-            dateFilterButton
+            VStack(alignment: .trailing, spacing: MeetsTheme.spacing8) {
+                quickNoteButton
+                importAudioButton
+            }
         }
-        .fixedSize(horizontal: true, vertical: false)
+    }
+
+    @ViewBuilder
+    private var quickNoteButton: some View {
+        Button {
+            controller.startQuickNoteMeeting()
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "plus")
+                    .font(.system(size: 11, weight: .semibold))
+                Text("Quick Note")
+                    .font(.system(size: 12, weight: .semibold))
+                    .lineLimit(1)
+            }
+            .foregroundStyle(appState.isMeetingRecording || appState.isMeetingStarting ? MeetsTheme.textPrimary : MeetsTheme.accentContent)
+            .padding(.horizontal, MeetsTheme.spacing12)
+            .padding(.vertical, 8)
+            .background(appState.isMeetingRecording || appState.isMeetingStarting ? MeetsTheme.surfacePrimary : MeetsTheme.accent)
+            .clipShape(RoundedRectangle(cornerRadius: MeetsTheme.cornerSmall))
+        }
+        .buttonStyle(.plain)
+        .disabled(appState.isMeetingRecording || appState.isMeetingStarting)
+        .help("Start a quick meeting note")
+        .fixedSize()
+    }
+
+    @ViewBuilder
+    private var importAudioButton: some View {
+        Button {
+            controller.importAudioFile()
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "square.and.arrow.down")
+                    .font(.system(size: 11, weight: .semibold))
+                Text("Import Audio")
+                    .font(.system(size: 12, weight: .semibold))
+                    .lineLimit(1)
+            }
+            .foregroundStyle(MeetsTheme.textPrimary)
+            .padding(.horizontal, MeetsTheme.spacing12)
+            .padding(.vertical, 8)
+            .background(MeetsTheme.surfacePrimary)
+            .clipShape(RoundedRectangle(cornerRadius: MeetsTheme.cornerSmall))
+            .overlay(
+                RoundedRectangle(cornerRadius: MeetsTheme.cornerSmall)
+                    .strokeBorder(MeetsTheme.surfaceBorder, lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+        .disabled(appState.isMeetingRecording || appState.isMeetingStarting)
+        .help("Import an audio file for offline transcription")
+        .fixedSize()
     }
 
     @ViewBuilder
@@ -813,76 +1288,6 @@ struct MeetingsView: View {
     }
 
     @ViewBuilder
-    private var sortButton: some View {
-        Menu {
-            ForEach([MeetingBrowserSort.newestFirst, .oldestFirst], id: \.self) { option in
-                Button {
-                    selectedSort = option
-                } label: {
-                    HStack {
-                        Text(option.label)
-                        if selectedSort == option {
-                            Image(systemName: "checkmark")
-                        }
-                    }
-                }
-            }
-        } label: {
-            HStack(spacing: 4) {
-                Image(systemName: "arrow.up.arrow.down")
-                    .font(.system(size: 11))
-                Text(selectedSort.label)
-                    .font(.system(size: 11))
-            }
-            .foregroundStyle(selectedSort != .newestFirst ? MeetsTheme.accent : MeetsTheme.textSecondary)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 3)
-            .background(selectedSort != .newestFirst ? MeetsTheme.accent.opacity(0.12) : MeetsTheme.surfacePrimary.opacity(0.5))
-            .clipShape(Capsule())
-        }
-        .menuStyle(.borderlessButton)
-        .fixedSize()
-    }
-
-    @ViewBuilder
-    private var dateFilterButton: some View {
-        Menu {
-            ForEach(availableFilters, id: \.self) { filter in
-                Button {
-                    selectedFilter = filter
-                } label: {
-                    HStack {
-                        Text(filter.label)
-                        if selectedFilter == filter {
-                            Image(systemName: "checkmark")
-                        }
-                    }
-                }
-            }
-        } label: {
-            HStack(spacing: 4) {
-                Image(systemName: "line.3.horizontal.decrease")
-                    .font(.system(size: 11))
-                if selectedFilter != .all {
-                    Text(selectedFilter.label)
-                        .font(.system(size: 11))
-                }
-            }
-            .foregroundStyle(selectedFilter != .all ? MeetsTheme.accent : MeetsTheme.textTertiary)
-            .padding(.horizontal, selectedFilter != .all ? 8 : 0)
-            .padding(.vertical, 3)
-            .background(selectedFilter != .all ? MeetsTheme.accent.opacity(0.12) : Color.clear)
-            .clipShape(Capsule())
-        }
-        .menuStyle(.borderlessButton)
-        .fixedSize()
-    }
-
-    private var availableFilters: [MeetingBrowserFilter] {
-        MeetingBrowserLogic.availableFilters(for: scopedMeetings)
-    }
-
-    @ViewBuilder
     private var emptyState: some View {
         VStack(alignment: .leading, spacing: MeetsTheme.spacing12) {
             Image(systemName: appState.selectedFolderID == nil ? "person.2.wave.2" : "folder")
@@ -919,5 +1324,187 @@ struct MeetingsView: View {
         return appState.selectedFolderID == nil
             ? "Start a recording from the menu bar to create your first meeting note."
             : "Choose another folder or move a meeting here from the browser."
+    }
+
+    // MARK: - Folders
+
+    /// Breadcrumb for the current scope plus cards for the folder level
+    /// directly beneath it, so nested folders stay reachable without leaving
+    /// the meetings browser.
+    @ViewBuilder
+    private func folderNavigation(width: CGFloat) -> some View {
+        let path = folderPath(to: appState.selectedFolderID)
+        let childFolders = childFolders(of: appState.selectedFolderID)
+        if appState.selectedFolderID != nil || !childFolders.isEmpty {
+            VStack(alignment: .leading, spacing: MeetsTheme.spacing12) {
+                if appState.selectedFolderID != nil {
+                    folderBreadcrumb(path)
+                }
+                if !childFolders.isEmpty {
+                    folderCards(childFolders, width: width)
+                }
+            }
+        }
+    }
+
+    private func folderPath(to folderID: Int64?) -> [MeetingFolder] {
+        guard let folderID else { return [] }
+        let foldersByID = Dictionary(appState.folders.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        var path: [MeetingFolder] = []
+        var seen: Set<Int64> = []
+        var current: Int64? = folderID
+        while let id = current, let folder = foldersByID[id], seen.insert(id).inserted {
+            path.insert(folder, at: 0)
+            current = folder.parentID
+        }
+        return path
+    }
+
+    private func childFolders(of parentID: Int64?) -> [MeetingFolder] {
+        appState.folders.filter { $0.parentID == parentID }
+    }
+
+    @ViewBuilder
+    private func folderBreadcrumb(_ path: [MeetingFolder]) -> some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                breadcrumbItem("All Meetings", folderID: nil, isCurrent: false)
+                ForEach(path) { folder in
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 8, weight: .semibold))
+                        .foregroundStyle(MeetsTheme.textTertiary)
+                    breadcrumbItem(
+                        folder.name,
+                        folderID: folder.id,
+                        isCurrent: folder.id == appState.selectedFolderID
+                    )
+                }
+            }
+        }
+        .accessibilityLabel("Folder path")
+    }
+
+    @ViewBuilder
+    private func breadcrumbItem(_ name: String, folderID: Int64?, isCurrent: Bool) -> some View {
+        if isCurrent {
+            Text(name)
+                .font(MeetsTheme.callout().weight(.semibold))
+                .foregroundStyle(MeetsTheme.textPrimary)
+                .lineLimit(1)
+        } else {
+            Button {
+                controller.showMeetingsHome(folderID: folderID)
+            } label: {
+                Text(name)
+                    .font(MeetsTheme.callout())
+                    .foregroundStyle(MeetsTheme.accent)
+                    .lineLimit(1)
+            }
+            .buttonStyle(.plain)
+            .help("Show \(name)")
+        }
+    }
+
+    @ViewBuilder
+    private func folderCards(_ folders: [MeetingFolder], width: CGFloat) -> some View {
+        LazyVGrid(
+            columns: Self.folderColumns(for: width),
+            alignment: .leading,
+            spacing: MeetsTheme.spacing12
+        ) {
+            ForEach(folders) { folder in
+                MeetingFolderCardView(
+                    folder: folder,
+                    meetingCount: appState.meetingCountsByFolder[folder.id] ?? 0,
+                    hasSubfolders: appState.folders.contains { $0.parentID == folder.id },
+                    onOpen: { controller.showMeetingsHome(folderID: folder.id) }
+                )
+            }
+        }
+    }
+
+    // MARK: - Shelves
+
+    @ViewBuilder
+    private func shelfLayout(
+        shelves: [MeetingBrowserShelf],
+        meetingIDsWithFollowUps: Set<Int64>,
+        width: CGFloat
+    ) -> some View {
+        switch layout {
+        case .grid:
+            LazyVGrid(
+                columns: Self.shelfColumns(for: width),
+                alignment: .leading,
+                spacing: MeetsTheme.spacing16
+            ) {
+                shelfCells(shelves: shelves, meetingIDsWithFollowUps: meetingIDsWithFollowUps, width: width)
+            }
+        case .list:
+            LazyVStack(alignment: .leading, spacing: MeetsTheme.spacing16) {
+                shelfCells(shelves: shelves, meetingIDsWithFollowUps: meetingIDsWithFollowUps, width: width)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func shelfCells(
+        shelves: [MeetingBrowserShelf],
+        meetingIDsWithFollowUps: Set<Int64>,
+        width: CGFloat
+    ) -> some View {
+        let actions = shelfActions
+        let breadcrumbs = folderBreadcrumbsByID
+        let compact = Self.usesCompactCardHeader(for: width)
+        ForEach(shelves) { shelf in
+            MeetingShelfView(
+                shelf: shelf,
+                isSelected: appState.selectedMeetingID == shelf.root.id,
+                isExpanded: expandedShelfIDs.contains(shelf.id),
+                rootHasFollowUps: meetingIDsWithFollowUps.contains(shelf.root.id),
+                selectedMeetingID: appState.selectedMeetingID,
+                folders: appState.folders,
+                folderBreadcrumbs: breadcrumbs,
+                compact: compact,
+                annotatesHiddenMatches: selectedFilter != .all,
+                actions: actions
+            )
+        }
+    }
+
+    private var folderBreadcrumbsByID: [Int64: String] {
+        MeetingFolderBreadcrumbs.paths(for: appState.folders)
+    }
+
+    private var shelfActions: MeetingShelfActions {
+        MeetingShelfActions(
+            open: { controller.showMeetingDocument(id: $0) },
+            toggleExpanded: { shelfID in
+                if expandedShelfIDs.contains(shelfID) {
+                    expandedShelfIDs.remove(shelfID)
+                } else {
+                    expandedShelfIDs.insert(shelfID)
+                }
+            },
+            move: { meetingID, folderID in
+                controller.moveMeeting(id: meetingID, toFolder: folderID)
+            },
+            createFolderAndMove: { name, meetingID in
+                controller.createFolderAndMoveMeeting(name: name, meetingID: meetingID)
+            },
+            delete: { controller.deleteMeeting(id: $0) },
+            startFollowUp: { controller.startFollowUpMeeting(fromMeetingID: $0) },
+            canDelete: { controller.canDeleteMeeting(id: $0.id, status: $0.entry.status) },
+            canStartFollowUp: { node in
+                canStartFollowUps
+                    && controller.canStartFollowUpMeeting(status: node.entry.status)
+            }
+        )
+    }
+
+    /// Starting a follow-up is refused while a recording is being prepared or
+    /// is running, so the control is hidden for the same window.
+    private var canStartFollowUps: Bool {
+        !appState.isMeetingRecording && !appState.isMeetingStarting
     }
 }

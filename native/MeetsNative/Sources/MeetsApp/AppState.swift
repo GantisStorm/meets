@@ -98,6 +98,11 @@ enum OpenRouterModelCatalogLoadState: Equatable {
 final class AppState {
     // Dashboard data
     var meetingRows: [MeetingRecord] = []
+    /// Complete browse index for the current folder scope: one lightweight
+    /// entry per meeting, no transcripts. `meetingRows` stays the recently
+    /// loaded full records; the browser combines both so shelves keep every
+    /// follow-up member without reading the whole library's notes.
+    var meetingBrowserEntries: [MeetingBrowserEntry] = []
     var totalMeetingCount: Int = 0
     var meetingCountsByFolder: [Int64: Int] = [:]
     var directMeetingCountsByFolder: [Int64: Int] = [:]

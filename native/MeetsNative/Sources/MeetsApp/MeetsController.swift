@@ -789,6 +789,13 @@ public final class MeetsController: NSObject {
             limit: 200,
             folderID: appState.selectedFolderID
         )) ?? []
+        // Complete, text-free index for the same scope. Without it a follow-up
+        // whose relative sits outside the recent 200 would render without its
+        // parent; with it the browser can rebuild every thread in scope while
+        // `meetingRows` keeps supplying full records to the loaded window.
+        appState.meetingBrowserEntries = (try? dictationStore.meetingBrowserEntries(
+            folderID: appState.selectedFolderID
+        )) ?? []
         // Single cheap pass so views can index extra "Add to Event"
         // attachments without per-meeting queries.
         appState.meetingEventLinks = (try? dictationStore.allMeetingEventLinks()) ?? []
@@ -4137,11 +4144,18 @@ public final class MeetsController: NSObject {
     }
 
     func canDeleteMeeting(_ meeting: MeetingRecord) -> Bool {
-        guard meeting.id != activeMeetingID else { return false }
-        if staleLiveMeetingRecoveryFailures.contains(meeting.id) {
+        canDeleteMeeting(id: meeting.id, status: meeting.status)
+    }
+
+    /// Same policy as `canDeleteMeeting(_:)` for browser rows that only carry a
+    /// lightweight index entry, so rendering a row does not resolve a full
+    /// record per row.
+    func canDeleteMeeting(id: Int64, status: MeetingStatus) -> Bool {
+        guard id != activeMeetingID else { return false }
+        if staleLiveMeetingRecoveryFailures.contains(id) {
             return true
         }
-        switch meeting.status {
+        switch status {
         case .recording, .processing:
             return false
         case .completed, .noteOnly, .failed:
@@ -4526,7 +4540,13 @@ public final class MeetsController: NSObject {
 
     /// Whether `meeting` can spawn a follow-up meeting right now (also gates the UI control).
     func canStartFollowUpMeeting(_ meeting: MeetingRecord) -> Bool {
-        MeetingFollowUpPolicy.canStartFollowUp(status: meeting.status)
+        canStartFollowUpMeeting(status: meeting.status)
+    }
+
+    /// Same policy as `canStartFollowUpMeeting(_:)` for browser rows that only
+    /// carry a lightweight index entry.
+    func canStartFollowUpMeeting(status: MeetingStatus) -> Bool {
+        MeetingFollowUpPolicy.canStartFollowUp(status: status)
     }
 
     /// Starts a *new* meeting linked into `meetingID`'s thread (vs. resume, which

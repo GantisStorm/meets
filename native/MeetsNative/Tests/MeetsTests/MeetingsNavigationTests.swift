@@ -1620,3 +1620,533 @@ struct MeetingBrowserLogicTests {
         )
     }
 }
+
+/// Follow-up hierarchy coverage: deep chains, siblings, out-of-scope parents,
+/// dangling links, cycles, date-filter context, sort ties, and shelves that
+/// stay complete when the loaded record window excludes members.
+@Suite("Meeting browser shelves")
+struct MeetingBrowserShelfTests {
+    private let baseDate = Date(timeIntervalSince1970: 1_770_000_000)
+    private let calendar = Calendar(identifier: .gregorian)
+
+    private func dateString(daysAgo: Double) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter.string(from: baseDate.addingTimeInterval(-daysAgo * 86_400))
+    }
+
+    private func entry(
+        _ id: Int64,
+        daysAgo: Double,
+        followUpTo: Int64? = nil,
+        predecessorTitle: String? = nil
+    ) -> MeetingBrowserEntry {
+        MeetingBrowserEntry(
+            id: id,
+            title: "Meeting \(id)",
+            startTime: dateString(daysAgo: daysAgo),
+            durationSeconds: 1800,
+            folderID: nil,
+            status: .completed,
+            followUpToID: followUpTo,
+            predecessorTitle: predecessorTitle
+        )
+    }
+
+    private func record(_ id: Int64, daysAgo: Double) -> MeetingRecord {
+        MeetingRecord(
+            id: id,
+            title: "Meeting \(id)",
+            startTime: dateString(daysAgo: daysAgo),
+            durationSeconds: 1800,
+            rawTranscript: "Transcript \(id)",
+            formattedNotes: "## Summary \(id)",
+            wordCount: 42,
+            folderID: nil
+        )
+    }
+
+    private func shelves(
+        _ entries: [MeetingBrowserEntry],
+        records: [MeetingRecord] = [],
+        filter: MeetingBrowserFilter = .all,
+        sort: MeetingBrowserSort = .newestFirst
+    ) -> MeetingBrowserShelfPresentation {
+        MeetingBrowserLogic.shelves(
+            entries: entries,
+            records: records,
+            filter: filter,
+            sort: sort,
+            now: baseDate,
+            calendar: calendar
+        )
+    }
+
+    @Test("a deep chain renders as one shelf in thread order")
+    func deepChainRendersInThreadOrder() throws {
+        var entries: [MeetingBrowserEntry] = []
+        for index in 1...5 {
+            let parent: Int64? = index == 1 ? nil : Int64(index - 1)
+            entries.append(entry(Int64(index), daysAgo: Double(6 - index), followUpTo: parent))
+        }
+
+        let presentation = shelves(entries)
+        let shelf = try #require(presentation.shelves.first)
+
+        #expect(presentation.shelves.count == 1)
+        #expect(shelf.nodes.map(\.id) == [1, 2, 3, 4, 5])
+        #expect(shelf.nodes.map(\.depth) == [0, 1, 2, 3, 4])
+        #expect(shelf.descendants.count == 4)
+        #expect(presentation.matchCount == 5)
+        #expect(presentation.displayedCount == 5)
+    }
+
+    @Test("indentation stops at the cap and deeper rows name their parent")
+    func indentationCapNamesParentBeyondCap() throws {
+        var entries: [MeetingBrowserEntry] = []
+        for index in 1...8 {
+            let parent: Int64? = index == 1 ? nil : Int64(index - 1)
+            entries.append(entry(Int64(index), daysAgo: Double(9 - index), followUpTo: parent))
+        }
+
+        let shelf = try #require(shelves(entries).shelves.first)
+
+        #expect(shelf.nodes.map(\.id) == [1, 2, 3, 4, 5, 6, 7, 8])
+        // Depths up to the cap are carried by the rail alone.
+        for node in shelf.nodes where node.depth <= MeetingBrowserLogic.indentationCapDepth {
+            #expect(node.parentLinkTitle == nil)
+        }
+        // Past the cap every descendant still names where it hangs from.
+        for node in shelf.nodes where node.depth > MeetingBrowserLogic.indentationCapDepth {
+            #expect(node.parentLinkTitle == "Meeting \(node.id - 1)")
+        }
+    }
+
+    @Test("siblings render chronologically and ties fall back to id")
+    func siblingsRenderChronologicallyWithStableTies() throws {
+        let entries = [
+            entry(1, daysAgo: 10),
+            entry(4, daysAgo: 5, followUpTo: 1),
+            entry(2, daysAgo: 5, followUpTo: 1),
+            entry(3, daysAgo: 2, followUpTo: 1)
+        ]
+
+        let shelf = try #require(shelves(entries).shelves.first)
+
+        #expect(shelf.nodes.map(\.id) == [1, 2, 4, 3])
+        #expect(shelf.nodes.map(\.depth) == [0, 1, 1, 1])
+    }
+
+    @Test("a child of an out-of-scope parent is a scoped root that links to it")
+    func childOutsideScopeBecomesScopedRootWithParentLink() throws {
+        let entries = [
+            MeetingBrowserEntry(
+                id: 42,
+                title: "Child",
+                startTime: dateString(daysAgo: 1),
+                durationSeconds: 1800,
+                folderID: 7,
+                status: .completed,
+                followUpToID: 99,
+                predecessorTitle: "Outside parent"
+            )
+        ]
+
+        let presentation = shelves(entries)
+        let shelf = try #require(presentation.shelves.first)
+
+        #expect(presentation.shelves.count == 1)
+        #expect(shelf.root.id == 42)
+        #expect(shelf.root.depth == 0)
+        #expect(shelf.root.entry.followUpToID == 99)
+        #expect(shelf.root.externalParent == MeetingBrowserParentLink(id: 99, title: "Outside parent"))
+        #expect(shelf.root.parentLinkTitle == "Outside parent")
+    }
+
+    @Test("a dangling predecessor keeps the meeting visible without inventing a parent")
+    func danglingParentKeepsMeetingVisible() throws {
+        let shelf = try #require(shelves([entry(7, daysAgo: 1, followUpTo: 404)]).shelves.first)
+
+        #expect(shelf.root.id == 7)
+        #expect(shelf.root.externalParent == nil)
+        #expect(shelf.root.parentLinkTitle == nil)
+        #expect(shelf.root.entry.followUpToID == 404)
+    }
+
+    @Test("a self-linked meeting renders once as its own shelf")
+    func selfLinkRendersOnce() throws {
+        let presentation = shelves([entry(9, daysAgo: 1, followUpTo: 9)])
+        let shelf = try #require(presentation.shelves.first)
+
+        #expect(presentation.shelves.count == 1)
+        #expect(shelf.totalCount == 1)
+        #expect(shelf.root.parentLinkTitle == nil)
+    }
+
+    @Test("a follow-up cycle breaks at its lowest id on the cycle")
+    func pureCycleBreaksAtCycleMinimum() throws {
+        let presentation = shelves([
+            entry(20, daysAgo: 2, followUpTo: 21),
+            entry(21, daysAgo: 1, followUpTo: 20)
+        ])
+        let shelf = try #require(presentation.shelves.first)
+
+        #expect(presentation.shelves.count == 1)
+        #expect(shelf.nodes.map(\.id) == [20, 21])
+        #expect(shelf.nodes.map(\.depth) == [0, 1])
+    }
+
+    @Test("a lower-id leaf hanging off a higher-id cycle stays a descendant")
+    func lowerIDLeafAttachedToHigherIDCycleStaysDescendant() throws {
+        // The leaf 1 has the lowest id but is not on the 5 ⇄ 6 cycle, so
+        // breaking at it would strand both cycle members.
+        let presentation = shelves([
+            entry(1, daysAgo: 3, followUpTo: 5),
+            entry(5, daysAgo: 2, followUpTo: 6),
+            entry(6, daysAgo: 1, followUpTo: 5)
+        ])
+        let shelf = try #require(presentation.shelves.first)
+
+        #expect(presentation.shelves.count == 1)
+        #expect(presentation.displayedCount == 3)
+        #expect(shelf.id == 5)
+        #expect(shelf.nodes.map(\.id) == [5, 1, 6])
+        #expect(shelf.nodes.map(\.depth) == [0, 1, 1])
+    }
+
+    @Test("a rooted tree and two cycles each keep their members and descendants")
+    func mixedRootedTreeAndTwoCyclesKeepEveryMemberOnce() throws {
+        let entries = [
+            entry(10, daysAgo: 9),
+            entry(11, daysAgo: 8, followUpTo: 10),
+            entry(20, daysAgo: 7, followUpTo: 21),
+            entry(21, daysAgo: 6, followUpTo: 20),
+            entry(22, daysAgo: 5, followUpTo: 20),
+            entry(23, daysAgo: 4, followUpTo: 22),
+            entry(30, daysAgo: 3, followUpTo: 31),
+            entry(31, daysAgo: 2, followUpTo: 30)
+        ]
+
+        let presentation = shelves(entries)
+        let renderedIDs = presentation.shelves.flatMap { $0.nodes.map(\.id) }
+
+        #expect(presentation.shelves.count == 3)
+        #expect(renderedIDs.count == entries.count)
+        #expect(Set(renderedIDs).count == renderedIDs.count)
+        #expect(presentation.displayedCount == entries.count)
+
+        let tree = try #require(presentation.shelves.first { $0.id == 10 })
+        #expect(tree.nodes.map(\.id) == [10, 11])
+
+        let firstCycle = try #require(presentation.shelves.first { $0.id == 20 })
+        #expect(firstCycle.nodes.map(\.id) == [20, 21, 22, 23])
+        #expect(firstCycle.nodes.map(\.depth) == [0, 1, 1, 2])
+
+        let secondCycle = try #require(presentation.shelves.first { $0.id == 30 })
+        #expect(secondCycle.nodes.map(\.id) == [30, 31])
+    }
+
+    @Test("a date range keeps matching descendants inside their thread")
+    func filterRetainsAncestorContextWithoutDoubleCounting() throws {
+        let entries = [
+            entry(1, daysAgo: 20),
+            entry(2, daysAgo: 15, followUpTo: 1),
+            entry(3, daysAgo: 1, followUpTo: 2)
+        ]
+
+        let presentation = shelves(entries, filter: .lastWeek)
+        let shelf = try #require(presentation.shelves.first)
+
+        #expect(presentation.shelves.count == 1)
+        #expect(shelf.nodes.map(\.id) == [1, 2, 3])
+        #expect(shelf.nodes.map(\.matchesFilter) == [false, false, true])
+        #expect(shelf.matchCount == 1)
+        #expect(shelf.contextCount == 2)
+        #expect(presentation.matchCount == 1)
+        #expect(presentation.displayedCount == 3)
+        #expect(presentation.contextCount == 2)
+    }
+
+    @Test("a filtered shelf sorts by its matching meeting, not the retained ancestor")
+    func filteredShelfSortsByMatchingMember() throws {
+        let entries = [
+            entry(1, daysAgo: 30),
+            entry(2, daysAgo: 1, followUpTo: 1),
+            entry(3, daysAgo: 2)
+        ]
+
+        let presentation = shelves(entries, filter: .lastWeek)
+
+        // The retained 30-day-old ancestor must not push its thread behind the
+        // standalone meeting that actually matched two days ago.
+        #expect(presentation.shelves.map(\.id) == [1, 3])
+        #expect(presentation.matchCount == 2)
+        #expect(presentation.displayedCount == 3)
+
+        // Oldest-first compares the matching members too: the standalone
+        // meeting matched two days ago, the thread only one day ago, so the
+        // standalone leads. Counting the retained ancestor here would wrongly
+        // put the thread first.
+        let oldest = shelves(entries, filter: .lastWeek, sort: .oldestFirst)
+        #expect(oldest.shelves.map(\.id) == [3, 1])
+    }
+
+    @Test("families sort by activity and ties fall back to root id")
+    func familiesSortByActivityAndTieOnRootID() {
+        let entries = [
+            entry(1, daysAgo: 10),
+            entry(2, daysAgo: 1, followUpTo: 1),
+            entry(9, daysAgo: 4),
+            entry(5, daysAgo: 4)
+        ]
+
+        let newest = shelves(entries, sort: .newestFirst)
+        #expect(newest.shelves.map(\.id) == [1, 5, 9])
+
+        let oldest = shelves(entries, sort: .oldestFirst)
+        // Family 1's oldest member is 10 days back, so it leads; 5 and 9 tie at
+        // four days and resolve by root id.
+        #expect(oldest.shelves.map(\.id) == [1, 5, 9])
+    }
+
+    @Test("threads stay complete when the loaded record window excludes members")
+    func shelvesStayCompleteBeyondLoadedWindow() throws {
+        var entries: [MeetingBrowserEntry] = []
+        for id in 1...210 {
+            entries.append(entry(Int64(id), daysAgo: Double(211 - id)))
+        }
+        // A family whose root sits outside the recent window while its
+        // follow-ups sit inside it.
+        entries[4] = entry(5, daysAgo: 206)
+        entries[199] = entry(200, daysAgo: 11, followUpTo: 5)
+        entries[204] = entry(205, daysAgo: 6, followUpTo: 5)
+        // A family with a member older than the window.
+        entries[2] = entry(3, daysAgo: 208, followUpTo: 150)
+
+        let records = (11...210).map { record(Int64($0), daysAgo: Double(211 - $0)) }
+        let presentation = shelves(entries, records: records)
+        let renderedIDs = presentation.shelves.flatMap { $0.nodes.map(\.id) }
+
+        #expect(renderedIDs.count == 210)
+        #expect(Set(renderedIDs).count == 210)
+        #expect(presentation.displayedCount == 210)
+
+        let oldRoot = try #require(presentation.shelves.first { $0.id == 5 })
+        #expect(oldRoot.nodes.map(\.id) == [5, 200, 205])
+        #expect(oldRoot.root.record == nil)
+        #expect(oldRoot.descendants.allSatisfy { $0.record != nil })
+
+        let newerRoot = try #require(presentation.shelves.first { $0.id == 150 })
+        #expect(newerRoot.nodes.map(\.id) == [150, 3])
+        #expect(newerRoot.root.record != nil)
+        #expect(newerRoot.descendants.first?.record == nil)
+    }
+
+    @Test("a loaded record outside the browse index still renders")
+    func loadedRecordsAloneStillBuildShelves() throws {
+        let presentation = shelves([], records: [record(1, daysAgo: 2), record(2, daysAgo: 1)])
+
+        #expect(presentation.matchCount == 2)
+        #expect(presentation.displayedCount == 2)
+        #expect(presentation.shelves.count == 2)
+        #expect(presentation.shelves.allSatisfy { $0.root.record != nil })
+    }
+
+    @Test("a collapsed shelf shows the limit and counts the rest")
+    func collapsedShelfShowsLimitAndCountsRest() {
+        let four = [false, false, false, false]
+
+        let collapsed = MeetingBrowserLogic.descendantPlan(matchFlags: four, isExpanded: false)
+        #expect(collapsed.visibleCount == 3)
+        #expect(collapsed.hiddenCount == 1)
+        #expect(collapsed.hiddenMatchCount == 0)
+        #expect(collapsed.summary(annotatingMatches: false) == "1 more follow-up")
+
+        let expanded = MeetingBrowserLogic.descendantPlan(matchFlags: four, isExpanded: true)
+        #expect(expanded.visibleCount == 4)
+        #expect(expanded.hiddenCount == 0)
+
+        let exactLimit = MeetingBrowserLogic.descendantPlan(
+            matchFlags: [false, false, false],
+            isExpanded: false
+        )
+        #expect(exactLimit.visibleCount == 3)
+        #expect(exactLimit.hiddenCount == 0)
+    }
+
+    @Test("the hidden-match annotation appears only for an active date range")
+    func hiddenMatchAnnotationIsSuppressedWhenRedundant() {
+        // All time: nothing is out of range, so the count is noise.
+        let allMatching = MeetingBrowserLogic.descendantPlan(
+            matchFlags: [true, true, true, true, true, true],
+            isExpanded: false
+        )
+        #expect(allMatching.hiddenMatchCount == 3)
+        #expect(allMatching.summary(annotatingMatches: false) == "3 more follow-ups")
+
+        // A range is active and every hidden follow-up is inside it: the label
+        // has to say so, because the visible window can be entirely context.
+        #expect(allMatching.summary(annotatingMatches: true) == "3 more follow-ups \u{00B7} 3 in range")
+
+        // Mixed hidden set under an active range.
+        let mixed = MeetingBrowserLogic.descendantPlan(
+            matchFlags: [true, true, true, false, true, true],
+            isExpanded: false
+        )
+        #expect(mixed.hiddenMatchCount == 2)
+        #expect(mixed.summary(annotatingMatches: true) == "3 more follow-ups \u{00B7} 2 in range")
+
+        // Active range with no hidden match: nothing to report.
+        let noneMatching = MeetingBrowserLogic.descendantPlan(
+            matchFlags: [true, true, true, false, false, false],
+            isExpanded: false
+        )
+        #expect(noneMatching.summary(annotatingMatches: true) == "3 more follow-ups")
+    }
+
+    @Test("a collapsed filtered chain reports the matches it hides")
+    func collapsedFilteredChainReportsHiddenMatches() throws {
+        // Seven-deep thread where only the last two meetings fall in range: the
+        // collapsed shelf shows three context ancestors, so the control has to
+        // say that matching meetings are still behind it.
+        var entries: [MeetingBrowserEntry] = []
+        for index in 1...7 {
+            let parent: Int64? = index == 1 ? nil : Int64(index - 1)
+            let daysAgo: Double = index >= 6 ? Double(8 - index) : Double(40 - index)
+            entries.append(entry(Int64(index), daysAgo: daysAgo, followUpTo: parent))
+        }
+
+        let presentation = shelves(entries, filter: .lastWeek)
+        let shelf = try #require(presentation.shelves.first)
+        let plan = MeetingBrowserLogic.descendantPlan(
+            matchFlags: shelf.descendants.map(\.matchesFilter),
+            isExpanded: false
+        )
+
+        #expect(shelf.matchCount == 2)
+        #expect(shelf.nodes.count == 7)
+        #expect(plan.visibleCount == 3)
+        #expect(plan.hiddenCount == 3)
+        #expect(plan.hiddenMatchCount == 2)
+        #expect(plan.summary(annotatingMatches: true) == "3 more follow-ups \u{00B7} 2 in range")
+        #expect(plan.summary(annotatingMatches: false) == "3 more follow-ups")
+        // Thread order is untouched: the hidden matches stay where they belong.
+        #expect(shelf.nodes.map(\.id) == [1, 2, 3, 4, 5, 6, 7])
+    }
+
+    @Test("a chain whose only match is the sole hidden descendant still says so")
+    func soleHiddenMatchIsReported() throws {
+        // Root plus four follow-ups: the visible window is entirely old context
+        // and the one meeting inside the range is the one the control hides.
+        var entries: [MeetingBrowserEntry] = [entry(1, daysAgo: 40)]
+        let daysAgo: [Double] = [35, 30, 25, 2]
+        for (offset, days) in daysAgo.enumerated() {
+            let id = Int64(offset + 2)
+            entries.append(entry(id, daysAgo: days, followUpTo: id - 1))
+        }
+
+        let presentation = shelves(entries, filter: .lastWeek)
+        let shelf = try #require(presentation.shelves.first)
+        let plan = MeetingBrowserLogic.descendantPlan(
+            matchFlags: shelf.descendants.map(\.matchesFilter),
+            isExpanded: false
+        )
+
+        #expect(shelf.nodes.map(\.id) == [1, 2, 3, 4, 5])
+        #expect(shelf.matchCount == 1)
+        #expect(plan.visibleCount == 3)
+        #expect(plan.hiddenCount == 1)
+        #expect(plan.hiddenMatchCount == 1)
+        #expect(plan.summary(annotatingMatches: true) == "1 more follow-up \u{00B7} 1 in range")
+        #expect(plan.summary(annotatingMatches: false) == "1 more follow-up")
+
+        let expanded = MeetingBrowserLogic.descendantPlan(
+            matchFlags: shelf.descendants.map(\.matchesFilter),
+            isExpanded: true
+        )
+        #expect(expanded.visibleCount == 4)
+        #expect(expanded.hiddenCount == 0)
+    }
+
+    @Test("the shelf presentation provides the oldest date for the range menu")
+    func presentationCarriesOldestStartDate() throws {
+        let entries = [entry(1, daysAgo: 40), entry(2, daysAgo: 2)]
+        let presentation = shelves(entries)
+
+        let oldest = try #require(presentation.oldestStartDate)
+        let expected = try #require(MeetingBrowserLogic.parseDate(entry(2, daysAgo: 40).startTime))
+        #expect(oldest == expected)
+        #expect(
+            MeetingBrowserLogic.availableFilters(oldestStartDate: oldest, now: baseDate, calendar: calendar)
+                == [.all, .last2Days, .lastWeek, .last2Weeks, .lastMonth, .last3Months]
+        )
+    }
+}
+
+/// Store-level coverage for the browse index that keeps shelves complete
+/// without loading transcripts.
+@Suite("Meeting browser index", .serialized)
+struct MeetingBrowserIndexTests {
+    private func makeStore() throws -> DictationStore {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("meets-browser-index-\(UUID().uuidString).db")
+        let store = DictationStore(databaseURL: url)
+        try store.migrateIfNeeded()
+        return store
+    }
+
+    @discardableResult
+    private func insertMeeting(
+        in store: DictationStore,
+        title: String,
+        daysAgo: Double,
+        folderID: Int64? = nil,
+        followUpToID: Int64? = nil
+    ) throws -> Int64 {
+        // `createLiveMeeting` is the store entry point that carries the
+        // follow-up link and folder; `insertMeeting` accepts neither.
+        try store.createLiveMeeting(
+            title: title,
+            calendarEventID: nil,
+            startTime: Date(timeIntervalSince1970: 1_770_000_000 - daysAgo * 86_400),
+            folderID: folderID,
+            followUpToID: followUpToID
+        )
+    }
+
+    @Test("the browse index follows folder scope and names out-of-scope predecessors")
+    func browseIndexFollowsFolderScope() throws {
+        let store = try makeStore()
+        let parentFolder = try store.createFolder(name: "Parent")
+        let childFolder = try store.createFolder(name: "Child", parentID: parentFolder)
+        let otherFolder = try store.createFolder(name: "Other")
+
+        let rootID = try insertMeeting(in: store, title: "Root", daysAgo: 2, folderID: otherFolder)
+        let childID = try insertMeeting(in: store, title: "Child", daysAgo: 1, folderID: childFolder, followUpToID: rootID)
+
+        let parentScope = try store.meetingBrowserEntries(folderID: parentFolder)
+        #expect(parentScope.map(\.id) == [childID])
+        #expect(parentScope.first?.followUpToID == rootID)
+        #expect(parentScope.first?.predecessorTitle == "Root")
+        #expect(parentScope.first?.folderID == childFolder)
+
+        #expect(try store.meetingBrowserEntries(folderID: childFolder).map(\.id) == [childID])
+        #expect(Set(try store.meetingBrowserEntries(folderID: nil).map(\.id)) == Set([rootID, childID]))
+    }
+
+    @Test("the browse index stays complete beyond the recent-200 window")
+    func browseIndexIsCompleteBeyondRecentWindow() throws {
+        let store = try makeStore()
+        for index in 1...205 {
+            try insertMeeting(in: store, title: "Meeting \(index)", daysAgo: Double(206 - index))
+        }
+
+        let recent = try store.recentMeetings(limit: 200)
+        let entries = try store.meetingBrowserEntries()
+
+        #expect(recent.count == 200)
+        #expect(entries.count == 205)
+        #expect(Set(entries.map(\.id)).isSuperset(of: Set(recent.map(\.id))))
+        #expect(entries.map(\.title).contains("Meeting 1"))
+    }
+}

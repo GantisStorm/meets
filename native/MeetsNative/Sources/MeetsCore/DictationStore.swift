@@ -40,6 +40,13 @@ public final class DictationStore {
     id, title, start_time, duration_seconds, raw_transcript, formatted_notes, word_count, folder_id, calendar_event_id, mic_audio_path, system_audio_path, saved_recording_path, meeting_status, manual_notes, selected_template_id, selected_template_name, selected_template_kind, selected_template_prompt, source, follow_up_to_id, calendar_occurrence_key, calendar_source, calendar_id, calendar_series_id, calendar_occurrence_start, visual_context, include_notes_in_summary
     """
 
+    /// Column list for `meetingBrowserEntries(folderID:)`. Aliases `meetings`
+    /// as `m` and joins the predecessor as `p`, so `p.title` (the last column)
+    /// is NULL for root meetings.
+    private static let browserEntryColumns = """
+    m.id, m.title, m.start_time, m.duration_seconds, m.folder_id, m.meeting_status, m.source, m.saved_recording_path, m.follow_up_to_id, p.title
+    """
+
     public init() {
         self.databaseURL = MeetsPaths.defaultDatabaseURL()
     }
@@ -592,6 +599,70 @@ public final class DictationStore {
         var rows: [MeetingRecord] = []
         while sqlite3_step(statement) == SQLITE_ROW {
             rows.append(makeMeetingRecord(statement))
+        }
+        return rows
+    }
+
+    /// Lightweight browse index for one folder scope: the selected folder and
+    /// every descendant folder, or the whole library when `folderID` is nil.
+    /// One row per meeting, with no transcript or notes columns, so the
+    /// meetings browser can represent every meeting in scope — and therefore
+    /// every follow-up link — without loading the library's text.
+    ///
+    /// The predecessor title is joined in so a follow-up whose parent sits
+    /// outside the scope can still name it.
+    public func meetingBrowserEntries(folderID: Int64? = nil) throws -> [MeetingBrowserEntry] {
+        let db = try openDatabase()
+        defer { sqlite3_close(db) }
+
+        let select = """
+        SELECT \(Self.browserEntryColumns)
+        FROM meetings m
+        LEFT JOIN meetings p ON p.id = m.follow_up_to_id
+        """
+        var sql: String
+        if folderID != nil {
+            // Recursive CTE collects the selected folder and all descendants
+            // without needing one placeholder per folder.
+            sql = """
+            WITH RECURSIVE folder_tree(id) AS (
+                SELECT id FROM meeting_folders WHERE id = ?
+                UNION
+                SELECT mf.id FROM meeting_folders mf
+                JOIN folder_tree ft ON mf.parent_id = ft.id
+            )
+            """ + select + " WHERE m.folder_id IN (SELECT id FROM folder_tree) ORDER BY m.id DESC"
+        } else {
+            sql = select + " ORDER BY m.id DESC"
+        }
+
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
+            throw lastError(db)
+        }
+        defer { sqlite3_finalize(statement) }
+        if let folderID {
+            sqlite3_bind_int64(statement, 1, folderID)
+        }
+
+        var rows: [MeetingBrowserEntry] = []
+        while sqlite3_step(statement) == SQLITE_ROW {
+            let folderID: Int64? = sqlite3_column_type(statement, 4) == SQLITE_NULL
+                ? nil : sqlite3_column_int64(statement, 4)
+            let followUpToID: Int64? = sqlite3_column_type(statement, 8) == SQLITE_NULL
+                ? nil : sqlite3_column_int64(statement, 8)
+            rows.append(MeetingBrowserEntry(
+                id: sqlite3_column_int64(statement, 0),
+                title: stringColumn(statement, index: 1),
+                startTime: stringColumn(statement, index: 2),
+                durationSeconds: sqlite3_column_double(statement, 3),
+                folderID: folderID,
+                status: MeetingStatus(rawValue: stringColumn(statement, index: 5)) ?? .completed,
+                source: MeetingSource(rawValue: stringColumn(statement, index: 6)) ?? .meeting,
+                savedRecordingPath: optionalStringColumn(statement, index: 7),
+                followUpToID: followUpToID,
+                predecessorTitle: optionalStringColumn(statement, index: 9)
+            ))
         }
         return rows
     }
