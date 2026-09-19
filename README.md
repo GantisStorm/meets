@@ -4,23 +4,23 @@
 
 <h1 align="center">Meets</h1>
 <p align="center"><strong>A vibeslopped, meetings-focused fork of <a href="https://github.com/Muesli-HQ/muesli">Muesli</a>.</strong><br>
-I wanted fewer features. There is now a design system.</p>
+Apparently “just the meeting stuff” needed its own repository.</p>
 
 ## TL;DR
 
-Records your Mac's microphone and system audio, transcribes locally, optionally generates notes. Apple Silicon, macOS 14.2+. **AI-assisted personal fork. Expect rough edges.** No published binary or official Homebrew cask yet: [build instructions](#build-it).
+A native Mac app that records your microphone and system audio, transcribes locally, and optionally generates notes. Cloud summaries send text to your selected provider. Development involved a great deal of “no, not like that.”
 
-That's the useful part. Below is a README written by the same general class of machine responsible for the code. It has been asked to sound less like one. Enjoy the evidence.
+**Apple Silicon · macOS 14.2+ · Swift, SwiftUI, and AppKit.** This is a personal, AI-assisted fork with rough edges. No published binary or official Homebrew cask yet: [build from source](#build-it).
 
-## A brief incident report
+## How this happened
 
-[Muesli](https://github.com/Muesli-HQ/muesli) already existed and did useful things. I wanted the meeting parts. A reasonable person might have hidden a few buttons.
+[Muesli](https://github.com/Muesli-HQ/muesli) did the hard part: it was already a useful app. I wanted it focused on meetings, so I gave coding agents a modest request and access to the filesystem.
 
-Instead, I pointed coding agents at it. We removed features, renamed everything, redesigned Settings, redesigned the redesign, and produced documentation about the padding. The repo now contains `DESIGN.md`, `PRODUCT.md`, and instructions for the agents writing the instructions. The original goal was simplicity.
+Several rounds of “remove that,” “put that back,” and “why is there so much padding?” later, we had a fork. It has fewer features, more documentation, and a new name, which is the traditional way to declare a refactor successful.
 
-**This is vibeslopped crap with a real app underneath it.** Upstream deserves credit for the substantial engineering. I take responsibility for what I asked the robots to do to it. Calling it slop does not exempt me from fixing bugs; it does spare us the paragraph where I call myself a visionary.
+The original engineering deserves proper credit: **Pranav Hari and the Muesli contributors built the foundation.** The meeting-only direction, UI changes, and assorted AI-assisted renovations are mine to maintain. “Vibeslopped” describes how we got here; bugs still need fixing.
 
-The app is native Swift, SwiftUI, and AppKit. Even the questionable decisions are native.
+This README was also AI-assisted. Its job is to make the process sound intentional.
 
 ## Features
 
