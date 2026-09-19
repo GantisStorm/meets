@@ -309,6 +309,19 @@ enum MeetingSummaryClient {
             )
             return notesByRetainingManualNotes(generatedNotes: generatedNotes, manualNotes: manualNotesToRetain)
         }
+        if backend == MeetingSummaryBackendOption.appleIntelligence.backend {
+            generatedNotes = try await summarizeWithAppleIntelligence(
+                transcript: transcript,
+                meetingTitle: meetingTitle,
+                existingNotes: existingNotes,
+                manualNotes: manualNotesToRetain,
+                participantNames: participantNames,
+                template: template,
+                visualContext: visualContext,
+                previousMeetingNotes: previousMeetingNotes
+            )
+            return notesByRetainingManualNotes(generatedNotes: generatedNotes, manualNotes: manualNotesToRetain)
+        }
         generatedNotes = try await summarizeWithOpenAI(
             transcript: transcript,
             meetingTitle: meetingTitle,
@@ -898,6 +911,44 @@ enum MeetingSummaryClient {
         }
     }
 
+    /// On-device Apple Intelligence summaries. No account, key, or model: the
+    /// adapter handles context limits by chunking long prompts.
+    private static func summarizeWithAppleIntelligence(
+        transcript: String,
+        meetingTitle: String,
+        existingNotes: String?,
+        manualNotes: String?,
+        participantNames: [String],
+        template: MeetingTemplateSnapshot,
+        visualContext: String? = nil,
+        previousMeetingNotes: String? = nil
+    ) async throws -> String {
+        do {
+            return try await AppleIntelligenceBackend.generate(
+                instructions: summaryInstructions(
+                    for: template,
+                    existingNotes: existingNotes,
+                    manualNotes: manualNotes,
+                    previousMeetingNotes: previousMeetingNotes
+                ),
+                userPrompt: summaryUserPrompt(
+                    transcript: transcript,
+                    meetingTitle: meetingTitle,
+                    existingNotes: existingNotes,
+                    manualNotes: manualNotes,
+                    participantNames: participantNames,
+                    visualContext: visualContext,
+                    previousMeetingNotes: previousMeetingNotes
+                ),
+                mode: .meetingSummary,
+                logCategory: "summary"
+            )
+        } catch {
+            fputs("[summary] Apple Intelligence summarization failed: \(error.localizedDescription)\n", stderr)
+            throw summaryRequestError(backend: AppleIntelligenceBackend.label, error: error)
+        }
+    }
+
     private static func summarizeWithACPAgent(
         transcript: String,
         meetingTitle: String,
@@ -1149,6 +1200,9 @@ enum MeetingSummaryClient {
         if error is MeetingSummaryError {
             return error
         }
+        if let error = error as? AppleIntelligenceError {
+            return appleIntelligenceSummaryError(error, backend: backend)
+        }
         if let error = error as? ChatGPTResponsesError {
             switch error {
             case let .backendFailed(statusCode, message):
@@ -1156,6 +1210,20 @@ enum MeetingSummaryClient {
             }
         }
         return MeetingSummaryError.requestFailed(backend: backend, underlying: error)
+    }
+
+    /// Maps on-device adapter failures onto the summary error surface. Empty
+    /// responses stay retryable; availability and context failures do not.
+    static func appleIntelligenceSummaryError(
+        _ error: AppleIntelligenceError,
+        backend: String
+    ) -> MeetingSummaryError {
+        switch error {
+        case .emptyResponse:
+            return .emptyResponse(backend: backend)
+        case .unavailable, .contextOverflow, .generationFailed:
+            return .backendFailed(backend: backend, statusCode: nil, message: error.localizedDescription)
+        }
     }
 
     private static func extractOpenRouterText(from payload: [String: Any]) -> String? {
@@ -1311,6 +1379,10 @@ enum MeetingSummaryClient {
 
         if backend == MeetingSummaryBackendOption.acpAgent.backend {
             return nil // ACP is summary-only v1; title falls back to the meeting/calendar title
+        }
+
+        if backend == MeetingSummaryBackendOption.appleIntelligence.backend {
+            return await generateTitleWithAppleIntelligence(transcript: excerpt)
         }
 
         let apiKey = ProcessInfo.processInfo.environment["OPENAI_API_KEY"] ?? config.openAIAPIKey
@@ -1474,6 +1546,24 @@ enum MeetingSummaryClient {
                 .trimmingCharacters(in: .whitespacesAndNewlines.union(.init(charactersIn: "\"")))
         } catch {
             fputs("[summary] Anthropic title generation failed: \(error)\n", stderr)
+            return nil
+        }
+    }
+
+    private static func generateTitleWithAppleIntelligence(transcript: String) async -> String? {
+        do {
+            let result = try await AppleIntelligenceBackend.generate(
+                instructions: titleInstructions,
+                userPrompt: transcript,
+                mode: .meetingSummary,
+                logCategory: "summary"
+            )
+            let title = result.trimmingCharacters(in: .whitespacesAndNewlines.union(.init(charactersIn: "\"")))
+            guard !title.isEmpty else { return nil }
+            fputs("[summary] Apple Intelligence generated title: \(title)\n", stderr)
+            return title
+        } catch {
+            fputs("[summary] Apple Intelligence title generation failed: \(error.localizedDescription)\n", stderr)
             return nil
         }
     }

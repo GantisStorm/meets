@@ -47,7 +47,7 @@ enum TranscriptCleanupClient {
             return SummaryModelPreset.openRouterModels.first?.id ?? "openrouter/free"
         case .some(.ollama):
             return "qwen3.5"
-        case .some(.lmStudio), .some(.customLLM), .some(.acpAgent):
+        case .some(.lmStudio), .some(.customLLM), .some(.acpAgent), .some(.appleIntelligence):
             return ""
         case nil:
             return PostProcessorOption.defaultOption.id
@@ -75,6 +75,8 @@ enum TranscriptCleanupClient {
         case .some(.customLLM):
             raw = config.postProcessorCustomLLMModel
         case .some(.acpAgent):
+            raw = ""
+        case .some(.appleIntelligence):
             raw = ""
         case nil:
             raw = config.activePostProcessorId
@@ -113,6 +115,8 @@ enum TranscriptCleanupClient {
                 && (!MeetingSummaryClient.customLLMRequiresAPIKey(config: config) || !key.isEmpty)
         case .some(.acpAgent):
             return !config.acpAgentCommand.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        case .some(.appleIntelligence):
+            return AppleIntelligenceBackend.status.isAvailable
         case nil:
             return true
         default:
@@ -254,8 +258,32 @@ enum TranscriptCleanupClient {
                 thinking: thinking,
                 timeout: 300
             )
+        case .appleIntelligence:
+            do {
+                return try await AppleIntelligenceBackend.generate(
+                    instructions: systemPrompt,
+                    userPrompt: userPrompt,
+                    mode: .transcriptCleanup,
+                    logCategory: logCategory
+                )
+            } catch {
+                throw appleIntelligenceCleanupError(error)
+            }
         default:
             throw TranscriptCleanupError.missingConfiguration("Unsupported transcript cleanup backend: \(backend.label)")
+        }
+    }
+
+    /// Maps on-device adapter failures onto the cleanup error surface. An
+    /// unavailable model and an over-long transcript both fail before any
+    /// generation, rather than silently truncating the transcript.
+    static func appleIntelligenceCleanupError(_ error: Error) -> Error {
+        guard let error = error as? AppleIntelligenceError else { return error }
+        switch error {
+        case .emptyResponse:
+            return TranscriptCleanupError.emptyResponse(AppleIntelligenceBackend.label)
+        case .unavailable, .contextOverflow, .generationFailed:
+            return TranscriptCleanupError.backendFailed(error.localizedDescription)
         }
     }
 

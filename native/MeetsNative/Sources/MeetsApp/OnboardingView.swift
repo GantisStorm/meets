@@ -1145,7 +1145,7 @@ struct OnboardingView: View {
             RoundedRectangle(cornerRadius: MeetsTheme.cornerSmall)
                 .strokeBorder(MeetsTheme.surfaceBorder, lineWidth: 1)
         )
-        .frame(width: 640)
+        .frame(width: CGFloat(cleanupBackendOptions.count) * Self.providerTabWidth)
     }
 
     /// Per-backend config below the tabs — renders the same component views
@@ -1179,6 +1179,8 @@ struct OnboardingView: View {
                     cleanupCustomLLMConfig
                 case "acp_agent":
                     summaryACPAgentConfig
+                case AppleIntelligenceBackend.backend:
+                    appleIntelligenceConfig
                 default:
                     EmptyView()
                 }
@@ -1288,7 +1290,7 @@ struct OnboardingView: View {
             RoundedRectangle(cornerRadius: MeetsTheme.cornerSmall)
                 .strokeBorder(MeetsTheme.surfaceBorder, lineWidth: 1)
         )
-        .frame(width: 560)
+        .frame(width: CGFloat(MeetingSummaryBackendOption.all.count) * Self.providerTabWidth)
     }
 
     @ViewBuilder
@@ -1305,9 +1307,32 @@ struct OnboardingView: View {
             summaryLMStudioConfig
         } else if summaryBackend == .customLLM {
             summaryCustomLLMConfig
+        } else if summaryBackend == .appleIntelligence {
+            appleIntelligenceConfig
         } else {
             summaryACPAgentConfig
         }
+    }
+
+    /// Apple Intelligence needs no provider setup: live availability plus the
+    /// on-device privacy note instead of account, key, or model rows.
+    private var appleIntelligenceConfig: some View {
+        let status = AppleIntelligenceBackend.status
+        return VStack(alignment: .leading, spacing: MeetsTheme.spacing8) {
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(status.isAvailable ? MeetsTheme.success : MeetsTheme.textTertiary)
+                    .frame(width: 6, height: 6)
+                Text(status.summary)
+                    .font(MeetsTheme.body())
+                    .foregroundStyle(status.isAvailable ? MeetsTheme.textPrimary : MeetsTheme.textSecondary)
+            }
+            Text(AppleIntelligenceBackend.privacyDescription)
+                .font(MeetsTheme.caption())
+                .foregroundStyle(MeetsTheme.textTertiary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .multilineTextAlignment(.leading)
     }
 
     // MARK: Per-backend config
@@ -1795,13 +1820,17 @@ struct OnboardingView: View {
             Text(title)
                 .font(.system(size: 12, weight: selected ? .semibold : .regular))
                 .foregroundStyle(selected ? MeetsTheme.textPrimary : MeetsTheme.textSecondary)
-                .frame(width: 80)
+                .frame(width: Self.providerTabWidth)
                 .padding(.vertical, MeetsTheme.spacing8)
                 .background(selected ? MeetsTheme.surfacePrimary : Color.clear)
                 .clipShape(RoundedRectangle(cornerRadius: MeetsTheme.cornerSmall))
         }
         .buttonStyle(.plain)
     }
+
+    /// Width of one provider tab. Tab strips size themselves from the number of
+    /// backends they list.
+    private static let providerTabWidth: CGFloat = 80
 
     // MARK: - Actions
 

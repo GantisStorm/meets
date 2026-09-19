@@ -13,8 +13,12 @@ struct LLMBackendOption: Equatable, Identifiable {
     static let lmStudio = LLMBackendOption(backend: "lmstudio", label: "LM Studio")
     static let customLLM = LLMBackendOption(backend: "custom_llm", label: "Custom LLM")
     static let acpAgent = LLMBackendOption(backend: "acp_agent", label: "Agent (ACP)")
+    static let appleIntelligence = LLMBackendOption(
+        backend: AppleIntelligenceBackend.backend,
+        label: AppleIntelligenceBackend.label
+    )
 
-    static let all: [LLMBackendOption] = [.chatGPT, .openAI, .openRouter, .ollama, .lmStudio, .customLLM, .acpAgent]
+    static let all: [LLMBackendOption] = [.chatGPT, .appleIntelligence, .openAI, .openRouter, .ollama, .lmStudio, .customLLM, .acpAgent]
 
     static func resolved(_ backend: String?) -> LLMBackendOption? {
         guard let backend else { return nil }
@@ -30,7 +34,8 @@ struct TranscriptCleanupBackendOption: Equatable, Identifiable {
     var id: String { backend }
     var isLocal: Bool { self == .local }
     var isGemma4LiteRT: Bool { self == .gemma4LiteRT }
-    var isOnDevice: Bool { isLocal || isGemma4LiteRT }
+    var isAppleIntelligence: Bool { self == .appleIntelligence }
+    var isOnDevice: Bool { isLocal || isGemma4LiteRT || isAppleIntelligence }
 
     static let local = TranscriptCleanupBackendOption(
         backend: "local",
@@ -43,6 +48,10 @@ struct TranscriptCleanupBackendOption: Equatable, Identifiable {
         label: "Gemma 4",
         llmBackend: nil
     )
+
+    /// Apple Intelligence shares the LLM routing but needs no account, key, or
+    /// model: it always runs the system on-device model.
+    static var appleIntelligence: TranscriptCleanupBackendOption { .hosted(.appleIntelligence) }
 
     static func hosted(_ option: LLMBackendOption) -> TranscriptCleanupBackendOption {
         TranscriptCleanupBackendOption(

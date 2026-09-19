@@ -1040,6 +1040,8 @@ struct SettingsView: View {
                 acpModelMenuRow
                 Divider().background(MeetsTheme.surfaceBorder)
                 acpThinkingMenuRow
+            } else if appState.selectedMeetingSummaryBackend == .appleIntelligence {
+                appleIntelligenceStatusRow
             } else {
                 settingsRow(
                     "Account",
@@ -1239,6 +1241,9 @@ struct SettingsView: View {
                     }
                     acpModelMenuRow
                     acpThinkingMenuRow
+                } else if selectedCleanupBackend == .appleIntelligence {
+                    Divider().background(MeetsTheme.surfaceBorder)
+                    appleIntelligenceStatusRow
                 } else {
                     Divider().background(MeetsTheme.surfaceBorder)
                     settingsRow(
@@ -1281,7 +1286,30 @@ struct SettingsView: View {
         switch selectedCleanupBackend.backend {
         case "local": return "Runs on-device with a downloaded Qwen3 GGUF model."
         case "acp_agent": return "Runs your installed agent (omp, Claude Code, Codex…) over Agent Client Protocol. No API key needed."
+        case AppleIntelligenceBackend.backend: return "Runs on this Mac with Apple's on-device model. No account or API key needed."
         default: return "Uses the same account configured for meeting summaries."
+        }
+    }
+
+    /// Apple Intelligence has no provider settings. Its live status stays
+    /// visible here — including the reason it cannot be used — next to the
+    /// on-device privacy note.
+    private var appleIntelligenceStatusRow: some View {
+        let status = AppleIntelligenceBackend.status
+        return settingsRow(
+            "Availability",
+            description: AppleIntelligenceBackend.privacyDescription,
+            controlWidth: meetingControlWidth
+        ) {
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(status.isAvailable ? MeetsTheme.success : MeetsTheme.textTertiary)
+                    .frame(width: 6, height: 6)
+                Text(status.summary)
+                    .font(.system(size: 11))
+                    .foregroundStyle(status.isAvailable ? MeetsTheme.success : MeetsTheme.textTertiary)
+                    .multilineTextAlignment(.trailing)
+            }
         }
     }
 

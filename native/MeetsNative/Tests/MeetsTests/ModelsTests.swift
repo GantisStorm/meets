@@ -877,7 +877,7 @@ struct MeetingSummaryBackendTests {
 
     @Test("all options listed")
     func allOptions() {
-        #expect(MeetingSummaryBackendOption.all.count == 7)
+        #expect(MeetingSummaryBackendOption.all.count == 8)
         #expect(MeetingSummaryBackendOption.all.contains(.openAI))
         #expect(MeetingSummaryBackendOption.all.contains(.openRouter))
         #expect(MeetingSummaryBackendOption.all.contains(.chatGPT))
@@ -885,6 +885,7 @@ struct MeetingSummaryBackendTests {
         #expect(MeetingSummaryBackendOption.all.contains(.lmStudio))
         #expect(MeetingSummaryBackendOption.all.contains(.customLLM))
         #expect(MeetingSummaryBackendOption.all.contains(.acpAgent))
+        #expect(MeetingSummaryBackendOption.all.contains(.appleIntelligence))
     }
 
     @Test("backend strings are lowercase")
@@ -895,6 +896,7 @@ struct MeetingSummaryBackendTests {
         #expect(MeetingSummaryBackendOption.lmStudio.backend == "lmstudio")
         #expect(MeetingSummaryBackendOption.customLLM.backend == "custom_llm")
         #expect(MeetingSummaryBackendOption.acpAgent.backend == "acp_agent")
+        #expect(MeetingSummaryBackendOption.appleIntelligence.backend == "apple_intelligence")
     }
 
     @Test("configured values resolve with ChatGPT fallback")
@@ -905,6 +907,7 @@ struct MeetingSummaryBackendTests {
         #expect(MeetingSummaryBackendOption.resolved("lmstudio") == .lmStudio)
         #expect(MeetingSummaryBackendOption.resolved("custom_llm") == .customLLM)
         #expect(MeetingSummaryBackendOption.resolved("acp_agent") == .acpAgent)
+        #expect(MeetingSummaryBackendOption.resolved("apple_intelligence") == .appleIntelligence)
         #expect(MeetingSummaryBackendOption.resolved("unknown") == .chatGPT)
         #expect(MeetingSummaryBackendOption.resolved(nil) == .chatGPT)
     }

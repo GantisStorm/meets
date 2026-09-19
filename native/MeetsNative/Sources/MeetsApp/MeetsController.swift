@@ -2990,6 +2990,7 @@ public final class MeetsController: NSObject {
         case .lmStudio: return MeetingSummaryClient.lmStudioHasRequiredSettings(config: config)
         case .customLLM: return MeetingSummaryClient.customLLMHasRequiredSettings(config: config)
         case .acpAgent: return MeetingSummaryClient.acpAgentHasRequiredSettings(config: config)
+        case .appleIntelligence: return AppleIntelligenceBackend.status.isAvailable
         default: return false
         }
     }

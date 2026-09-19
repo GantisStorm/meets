@@ -1303,22 +1303,30 @@ struct MeetingDetailView: View {
                 Divider()
                 ForEach(MeetingSummaryBackendOption.all, id: \.backend) { provider in
                     if controller.canUseSummaryProvider(provider) {
-                        Menu(provider.label) {
-                            ForEach(provider.summaryModels(config: appState.config,
-                                openRouterModels: appState.openRouterSummaryModels
-                            ), id: \.id) { model in
-                                Button(model.label) {
-                                    beginSummary(for: meeting, summaryConfig: provider.summaryConfiguration(from: appState.config, model: model.id))
-                                }
+                        if provider == .appleIntelligence {
+                            // On-device provider with no model choice: a single
+                            // item, never an empty model submenu.
+                            Button(provider.label) {
+                                beginSummary(for: meeting, summaryConfig: provider.summaryConfiguration(from: appState.config, model: ""))
                             }
-                            if provider == .openRouter {
-                                if case .failed = appState.openRouterSummaryCatalogState {
-                                    Divider()
-                                    Button("Retry Loading Models") {
-                                        controller.loadOpenRouterModels(.text, force: true)
+                        } else {
+                            Menu(provider.label) {
+                                ForEach(provider.summaryModels(config: appState.config,
+                                    openRouterModels: appState.openRouterSummaryModels
+                                ), id: \.id) { model in
+                                    Button(model.label) {
+                                        beginSummary(for: meeting, summaryConfig: provider.summaryConfiguration(from: appState.config, model: model.id))
                                     }
-                                } else if appState.openRouterSummaryCatalogState == .loading {
-                                    Text("Loading models…")
+                                }
+                                if provider == .openRouter {
+                                    if case .failed = appState.openRouterSummaryCatalogState {
+                                        Divider()
+                                        Button("Retry Loading Models") {
+                                            controller.loadOpenRouterModels(.text, force: true)
+                                        }
+                                    } else if appState.openRouterSummaryCatalogState == .loading {
+                                        Text("Loading models…")
+                                    }
                                 }
                             }
                         }
@@ -2033,6 +2041,8 @@ struct MeetingDetailView: View {
             return MeetingSummaryClient.customLLMHasRequiredSettings(config: config)
         } else if appState.selectedMeetingSummaryBackend == .acpAgent {
             return MeetingSummaryClient.acpAgentHasRequiredSettings(config: config)
+        } else if appState.selectedMeetingSummaryBackend == .appleIntelligence {
+            return AppleIntelligenceBackend.status.isAvailable
         } else {
             return !OpenRouterCredentialResolver.resolvedAPIKey(
                 legacyAPIKey: config.openRouterAPIKey

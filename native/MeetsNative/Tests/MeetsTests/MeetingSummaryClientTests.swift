@@ -17,7 +17,17 @@ struct MeetingSummaryClientTests {
         var original = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(config)) as? [String: Any])
         let encoded = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(selected)) as? [String: Any])
         original["meeting_summary_backend"] = provider.backend
-        original[try #require(fields[provider.backend])] = "chosen/model"
+
+        guard let modelField = fields[provider.backend] else {
+            // Apple Intelligence stores no model: the one-request snapshot only
+            // switches the backend, and its model list stays empty.
+            #expect(provider == .appleIntelligence)
+            #expect(NSDictionary(dictionary: original).isEqual(to: encoded))
+            #expect(provider.summaryModels(config: selected, openRouterModels: []).isEmpty)
+            return
+        }
+
+        original[modelField] = "chosen/model"
         #expect(NSDictionary(dictionary: original).isEqual(to: encoded))
         #expect(provider.summaryModels(config: selected, openRouterModels: []).contains { $0.id == "chosen/model" })
     }

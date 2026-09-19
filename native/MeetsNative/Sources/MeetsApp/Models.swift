@@ -1042,15 +1042,18 @@ struct OpenRouterModelCatalogClient: Sendable {
 }
 
 extension MeetingSummaryBackendOption {
-    var modelKeyPath: WritableKeyPath<AppConfig, String> {
+    /// `nil` for providers with no user-selectable model. Apple Intelligence
+    /// always runs the system on-device model, so it stores no model setting.
+    var modelKeyPath: WritableKeyPath<AppConfig, String>? {
         switch self {
         case .chatGPT: return \.chatGPTModel
         case .openAI: return \.openAIModel
         case .openRouter: return \.openRouterModel
         case .ollama: return \.ollamaModel
         case .lmStudio: return \.lmStudioModel
+        case .customLLM: return \.customLLMModel
         case .acpAgent: return \.acpAgentModel
-        default: return \.customLLMModel
+        case .appleIntelligence: return nil
         }
     }
 
@@ -1058,11 +1061,14 @@ extension MeetingSummaryBackendOption {
     func summaryConfiguration(from config: AppConfig, model: String) -> AppConfig {
         var snapshot = config
         snapshot.meetingSummaryBackend = backend
-        snapshot[keyPath: modelKeyPath] = model
+        if let modelKeyPath {
+            snapshot[keyPath: modelKeyPath] = model
+        }
         return snapshot
     }
 
     func summaryModels(config: AppConfig, openRouterModels: [SummaryModelPreset]) -> [SummaryModelPreset] {
+        guard let modelKeyPath else { return [] }
         let presets: [SummaryModelPreset]
         switch self {
         case .chatGPT: presets = SummaryModelPreset.chatGPTModels
@@ -1116,7 +1122,12 @@ struct MeetingSummaryBackendOption: Equatable {
         label: "Agent (ACP)"
     )
 
-    static let all: [MeetingSummaryBackendOption] = [.chatGPT, .openAI, .openRouter, .ollama, .lmStudio, .customLLM, .acpAgent]
+    static let appleIntelligence = MeetingSummaryBackendOption(
+        backend: AppleIntelligenceBackend.backend,
+        label: AppleIntelligenceBackend.label
+    )
+
+    static let all: [MeetingSummaryBackendOption] = [.chatGPT, .appleIntelligence, .openAI, .openRouter, .ollama, .lmStudio, .customLLM, .acpAgent]
 
     static func resolved(_ backend: String?) -> MeetingSummaryBackendOption {
         guard let backend, let option = all.first(where: { $0.backend == backend }) else {
