@@ -4,25 +4,41 @@
 
 <h1 align="center">Meets</h1>
 <p align="center"><strong>A vibeslopped, meetings-focused fork of <a href="https://github.com/Muesli-HQ/muesli">Muesli</a>.</strong><br>
-For meetings that could have been an email, but now need a transcript.</p>
+Your meeting could have been an email. This fork could have been a settings change.</p>
 
-Meets is a native Mac app that records meetings, transcribes them locally, and helps turn “let’s circle back” into something searchable. Swift, SwiftUI, and AppKit. No bot joining your call to introduce itself as your new coworker.
+## TL;DR — you do not need to read all this
 
-This fork narrows Muesli into a meeting workspace: meeting history, calendar context, notes, models, and Insights. It adds a neutral visual identity, reorganized Settings, richer activity/share cards, and an Apple Intelligence backend. The Dictionary screen is gone; the recording indicator appears only during active meeting work. The CLI still has its independent dictionary option.
+- **What:** a Mac app that records meetings, transcribes them locally, and optionally asks an LLM what just happened.
+- **Why:** I wanted Muesli with fewer non-meeting features. Naturally, this required a fork, a rebrand, and several rounds of arguing with robots about padding.
+- **Quality:** lovingly vibeslopped crap. There is real engineering underneath, much of it from upstream. The AI-assisted renovations are mine to answer for.
+- **Privacy:** speech-to-text is local. Cloud summaries send text to your chosen provider. Packaging scripts configure telemetry. The word “local” is not a force field.
+- **Install:** Apple Silicon Mac. [Build it yourself](#build-it). No published DMG or official Homebrew cask yet. Apparently distribution is also a feature you have to implement.
 
-**Status: source available.** There is no published Meets binary release or official Homebrew cask yet. [Build from source](#build-it) to try it. The vibes are available immediately; the DMG is not.
+That's the pitch. The rest is documentation, which the slop has unfortunately made necessary.
 
-## What it does
+## How we got here
+
+**Meets is a vibeslopped, meetings-focused fork of [Muesli](https://github.com/Muesli-HQ/muesli).** I took a useful open-source app, pointed coding agents at it, removed things I didn't want, and kept asking them to make the settings less annoying. Then I gave it a logo, because that is how software becomes official in my head.
+
+It is a native Swift, SwiftUI, and AppKit app. It captures your mic and system audio without sending a bot into the call. It can turn “let's circle back” into a searchable record of nobody circling back.
+
+The fork concentrates on meeting history, calendar context, notes, models, and Insights. Changes include a neutral visual identity, reorganized Settings, activity heatmaps and share cards, and an Apple Intelligence backend. The Dictionary screen is gone. The recording indicator only appears during active meeting work. The CLI still has its own dictionary option, because removing a feature from a UI and eliminating every trace of its existence are different hobbies.
+
+This is a personal fork with public source, not a startup with a trust center and a customer-success department. The release department is also me. It has not released a binary.
+
+## What the crap actually does
 
 - **Capture both sides.** Record your microphone and system audio from meeting apps, with echo cancellation, timestamped transcripts, and remote-speaker diarization.
 - **Transcribe on your Mac.** Choose from local engines including Parakeet, Whisper, Qwen3 ASR, SenseVoice, Bodhan, Cohere Transcribe, and Nemotron. Model, language, memory, and OS requirements vary.
 - **Follow along live.** Optional Apple Speech on macOS 26+ and Nemotron streaming can produce live and final transcripts. Parakeet Realtime provides previews alongside a separately selected final transcription model. Live transcription is off by default.
 - **Remember what happened.** Generate summaries, titles, and transcript cleanup; keep manual notes; organize meetings into folders; export Markdown or PDF; import existing audio files.
 - **Use calendar context.** Connect to calendars already configured in macOS, see upcoming meetings, and join or record from meeting notifications.
-- **See where the week went.** Insights includes a meeting activity heatmap, workflow/model statistics, and share cards that respect the selected date range. Yes, that was a lot of meetings.
+- **Quantify the damage.** Insights includes a meeting activity heatmap, workflow/model statistics, and share cards that respect the selected date range. Finally, a contribution graph for time you will never get back.
 - **Automate it.** A bundled CLI, optional post-meeting executable hooks, and App Intents for starting/stopping recordings and retrieving the last meeting’s notes.
 
 ## Pick your AI
+
+An unreasonable number of ways to generate “Key Takeaways.”
 
 Speech recognition and text generation are separate choices. A cloud summary provider does not turn the local speech recognizer into cloud transcription.
 
@@ -38,9 +54,11 @@ Speech recognition and text generation are separate choices. A cloud summary pro
 
 Apple Intelligence handles summaries, titles, and cleanup, with chunking for long transcripts. It does **not** call Siri or use Private Cloud Compute. The current macOS 27 gate is a property of this adapter, not a claim that the rest of Meets needs macOS 27. Shortcuts/Siri actions are a separate integration.
 
-Models can mishear words, merge speakers, and confidently invent action items. Check important notes against the transcript. “The AI assigned it to you” is not a project-management methodology.
+Models can mishear words, merge speakers, and confidently invent action items. Check important notes against the transcript. The model was not in the meeting either, but unlike you it has no reservations about pretending it understood everything.
 
 ## Privacy, without the asterisk doing all the work
+
+“Private by design” fits on a landing page. Where the data actually goes takes a few more paragraphs.
 
 Meeting audio capture and speech-to-text run locally. Meetings, transcripts, notes, and recordings are stored under `~/Library/Application Support/Meets/`; model downloads use local caches. An isolated dev build uses its own support directory.
 
@@ -56,6 +74,8 @@ What can leave the Mac depends on what you enable:
 Grant microphone and system-audio/screen-recording permissions for capture, Calendar access for calendar features, and Accessibility/Input Monitoring where requested for context and global controls. Record people with their knowledge and appropriate consent.
 
 ## Build it
+
+You are now the release engineer. Congratulations on the unpaid promotion.
 
 **Runtime:** Apple Silicon Mac, macOS 14.2 or later. Individual features require newer macOS versions.
 
@@ -94,9 +114,11 @@ swift test --package-path native/MeetsNative \
   --scratch-path "$HOME/Library/Caches/meets-spm/test"
 ```
 
-The source-launch host passed the production build and packaged CLI checks before publication work. Its full Swift tests remain blocked by a Command Line Tools / Swift Testing deployment mismatch (`Testing` requires macOS 26 while this package targets 14.2). That is a validation limitation, not a claim that the suite passed.
+The source-launch host passed the production build and packaged CLI checks before publication work. Its full Swift tests remain blocked by a Command Line Tools / Swift Testing deployment mismatch (`Testing` requires macOS 26 while this package targets 14.2). The suite did not pass on that host. We have not yet advanced to the stage of vibe-testing where you just say it did.
 
 ## There’s a CLI, because of course there is
+
+So your coding agent can read notes produced by another model about a meeting nobody wanted. The machines have achieved middle management.
 
 The app bundles `meets-cli`. It exposes a machine-readable command contract, meeting data, and local file transcription. JSON output makes it useful to scripts and agents; `transcribe` prints plain text by default.
 
@@ -111,8 +133,8 @@ Read the [CLI contract](skills/meets-agent/references/cli-contract.md) and [agen
 
 ## Fork lineage and license
 
-Meets is maintained here by **[GantisStorm](https://github.com/GantisStorm)**. It is an independent fork of **[Muesli](https://github.com/Muesli-HQ/muesli)** by **Pranav Hari and contributors**. Upstream did the substantial original engineering; this fork brings a narrower meeting focus, product changes, and an irresponsible amount of enthusiasm for tweaking Settings.
+Meets is maintained here by **[GantisStorm](https://github.com/GantisStorm)**. It is an independent fork of **[Muesli](https://github.com/Muesli-HQ/muesli)** by **Pranav Hari and contributors**. They did the substantial original engineering that makes this possible. I brought the meeting obsession, the coding agents, and strong opinions about shades of gray. Credit the foundation to them; address complaints about my renovations to this repo.
 
 This repository retains its upstream git history and MIT copyright notice. It is not an official Muesli release. [MIT license](LICENSE); [NOTICE](NOTICE) covers attribution and vendored code. Dependencies and downloaded models have their own licenses.
 
-Contributions are welcome. Reproducible bug reports are especially welcome. “It feels haunted” is accepted if accompanied by logs with private meeting content and credentials removed.
+Contributions are welcome. Reproducible bug reports are especially welcome. “It feels haunted” is accepted if accompanied by logs with private meeting content and credentials removed. If you fix something by understanding it before editing it, please be patient with our existing culture.
