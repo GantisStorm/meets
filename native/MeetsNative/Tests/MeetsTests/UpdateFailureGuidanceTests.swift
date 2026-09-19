@@ -193,7 +193,7 @@ struct UpdateActionRoutingTests {
             .deletingLastPathComponent()
         let controllerURL = packageRoot
             .appendingPathComponent("Sources")
-            .appendingPathComponent("MeetsNativeApp")
+            .appendingPathComponent("MeetsApp")
             .appendingPathComponent("MeetsController.swift")
         return try String(contentsOf: controllerURL, encoding: .utf8)
     }
@@ -206,7 +206,7 @@ struct UpdateActionRoutingTests {
             .deletingLastPathComponent()
         let appDelegateURL = packageRoot
             .appendingPathComponent("Sources")
-            .appendingPathComponent("MeetsNativeApp")
+            .appendingPathComponent("MeetsApp")
             .appendingPathComponent("AppDelegate.swift")
         return try String(contentsOf: appDelegateURL, encoding: .utf8)
     }
@@ -219,7 +219,7 @@ struct UpdateActionRoutingTests {
             .deletingLastPathComponent()
         let aboutViewURL = packageRoot
             .appendingPathComponent("Sources")
-            .appendingPathComponent("MeetsNativeApp")
+            .appendingPathComponent("MeetsApp")
             .appendingPathComponent("AboutView.swift")
         return try String(contentsOf: aboutViewURL, encoding: .utf8)
     }
@@ -232,7 +232,7 @@ struct UpdateActionRoutingTests {
             .deletingLastPathComponent()
         let statusBarControllerURL = packageRoot
             .appendingPathComponent("Sources")
-            .appendingPathComponent("MeetsNativeApp")
+            .appendingPathComponent("MeetsApp")
             .appendingPathComponent("StatusBarController.swift")
         return try String(contentsOf: statusBarControllerURL, encoding: .utf8)
     }
@@ -245,7 +245,7 @@ struct UpdateActionRoutingTests {
             .deletingLastPathComponent()
         let sidebarViewURL = packageRoot
             .appendingPathComponent("Sources")
-            .appendingPathComponent("MeetsNativeApp")
+            .appendingPathComponent("MeetsApp")
             .appendingPathComponent("SidebarView.swift")
         return try String(contentsOf: sidebarViewURL, encoding: .utf8)
     }
@@ -300,7 +300,7 @@ struct SidebarHitAreaTests {
             .deletingLastPathComponent()
         let sidebarViewURL = packageRoot
             .appendingPathComponent("Sources")
-            .appendingPathComponent("MeetsNativeApp")
+            .appendingPathComponent("MeetsApp")
             .appendingPathComponent("SidebarView.swift")
         return try String(contentsOf: sidebarViewURL, encoding: .utf8)
     }

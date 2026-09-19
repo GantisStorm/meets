@@ -594,7 +594,7 @@ struct Qwen3PostProcessingOutputCleanerTests {
     func effectiveConfigurationPreservesTokenBudget() {
         let configuration = Qwen3PostProcessor.Configuration(
             modelURL: URL(fileURLWithPath: "/tmp/muesli-quill-budget-test.gguf"),
-            systemPrompt: QuilTransformationPrompt.system,
+            systemPrompt: "Configurable prompt",
             inputFormat: .configurable,
             maxTokenCount: Qwen3PostProcessorConfig.quilMaxContextTokens
         )

@@ -1049,6 +1049,7 @@ extension MeetingSummaryBackendOption {
         case .openRouter: return \.openRouterModel
         case .ollama: return \.ollamaModel
         case .lmStudio: return \.lmStudioModel
+        case .acpAgent: return \.acpAgentModel
         default: return \.customLLMModel
         }
     }
@@ -1942,10 +1943,18 @@ struct AppConfig: Codable {
         calendarHideCancelled = (try? c.decode(Bool.self, forKey: .calendarHideCancelled)) ?? defaults.calendarHideCancelled
         enablePostProcessor = (try? c.decode(Bool.self, forKey: .enablePostProcessor)) ?? defaults.enablePostProcessor
         postProcessorBackend = TranscriptCleanupBackendOption.resolved(try? c.decode(String.self, forKey: .postProcessorBackend)).backend ?? defaults.postProcessorBackend
-        postProcessorGemmaModel = (try? c.decode(String.self, forKey: .postProcessorGemmaModel)) ?? defaults.postProcessorGemmaModel
+        postProcessorGemmaModel = Gemma4LiteRTModel
+            .resolved(try? c.decode(String.self, forKey: .postProcessorGemmaModel))
+            .repoID
         activePostProcessorId = (try? c.decode(String.self, forKey: .activePostProcessorId)) ?? defaults.activePostProcessorId
-        postProcessorChatGPTModel = (try? c.decode(String.self, forKey: .postProcessorChatGPTModel)) ?? defaults.postProcessorChatGPTModel
-        postProcessorOpenAIModel = (try? c.decode(String.self, forKey: .postProcessorOpenAIModel)) ?? defaults.postProcessorOpenAIModel
+        postProcessorChatGPTModel = SummaryModelPreset.supportedChatGPTModel(
+            SummaryModelPreset.migratedFromGPT55(
+                (try? c.decode(String.self, forKey: .postProcessorChatGPTModel)) ?? defaults.postProcessorChatGPTModel
+            )
+        )
+        postProcessorOpenAIModel = SummaryModelPreset.migratedFromGPT55(
+            (try? c.decode(String.self, forKey: .postProcessorOpenAIModel)) ?? defaults.postProcessorOpenAIModel
+        )
         transcriptCleanupReasoningEffort = try? c.decode(
             ReasoningEffort.self,
             forKey: .transcriptCleanupReasoningEffort
@@ -1957,6 +1966,10 @@ struct AppConfig: Codable {
         activeTranscriptCleanupPromptId = (try? c.decode(String.self, forKey: .activeTranscriptCleanupPromptId)) ?? defaults.activeTranscriptCleanupPromptId
         customTranscriptCleanupPrompts = (try? c.decode([CustomTranscriptCleanupPrompt].self, forKey: .customTranscriptCleanupPrompts)) ?? defaults.customTranscriptCleanupPrompts
         postProcessorSystemPrompt = (try? c.decode(String.self, forKey: .postProcessorSystemPrompt)) ?? defaults.postProcessorSystemPrompt
+        if TranscriptCleanupPrompts.resolve(id: activeTranscriptCleanupPromptId, custom: customTranscriptCleanupPrompts).id != activeTranscriptCleanupPromptId {
+            activeTranscriptCleanupPromptId = defaults.activeTranscriptCleanupPromptId
+            postProcessorSystemPrompt = defaults.postProcessorSystemPrompt
+        }
         enableScreenContext = (try? c.decode(Bool.self, forKey: .enableScreenContext)) ?? defaults.enableScreenContext
         useCoreAudioTap = (try? c.decode(Bool.self, forKey: .useCoreAudioTap)) ?? defaults.useCoreAudioTap
         enableLiveStreamingPartials = (try? c.decode(Bool.self, forKey: .enableLiveStreamingPartials)) ?? defaults.enableLiveStreamingPartials

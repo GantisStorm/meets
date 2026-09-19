@@ -21,7 +21,7 @@ struct DiagnosticIncidentTests {
     @Test("nil underlying errors use app-state category and allowlisted signature")
     func nilErrorUsesAppStateCategory() {
         let incident = DiagnosticIncident(
-            kind: .streamingDictationStartFailed,
+            kind: .meetingStartFailed,
             stage: .nemotronStreamingStart,
             backendOption: .nemotron35Multilingual,
             error: nil,
@@ -29,8 +29,8 @@ struct DiagnosticIncidentTests {
         )
 
         #expect(incident.telemetryCategory == .appState)
-        #expect(incident.errorFingerprint.signature == "streaming_controller_start_failed")
-        #expect(incident.telemetryErrorID == "Muesli.Diagnostic.streaming_dictation_start_failed.streaming_controller_start_failed")
+        #expect(incident.errorFingerprint.signature == "app_state_failure")
+        #expect(incident.telemetryErrorID == "Muesli.Diagnostic.meeting_start_failed.app_state_failure")
         #expect(incident.telemetryParameters["diagnostic.error_known"] == "true")
         #expect(incident.telemetryParameters["diagnostic.error_domain"] == nil)
     }
@@ -47,7 +47,7 @@ struct DiagnosticIncidentTests {
         for (error, signature, code) in cases {
             let fingerprint = DiagnosticErrorCatalog.fingerprint(
                 for: error,
-                kind: .streamingDictationRuntimeFailed,
+                kind: .meetingProcessingFailed,
                 stage: .nemotronStreamingRuntime
             )
             #expect(fingerprint.signature == signature)

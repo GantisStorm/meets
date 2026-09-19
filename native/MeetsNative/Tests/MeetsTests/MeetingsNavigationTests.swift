@@ -8,89 +8,6 @@ private enum OpenRouterDisconnectTestError: Error {
     case expected
 }
 
-private final class DisconnectHostedDictationSessionSpy: HostedDictationSession {
-    let acceptsLiveAudio = false
-    private(set) var cancelCount = 0
-    private(set) var finishCount = 0
-
-    func append(_: [Float]) {}
-
-    func finish(recordedWAVURL _: URL) async throws -> HostedDictationResult {
-        finishCount += 1
-        return HostedDictationResult(text: "unexpected", backend: "test")
-    }
-
-    func cancel() {
-        cancelCount += 1
-    }
-}
-
-private actor OpenRouterCatalogVisibilityProbe {
-    private(set) var requestCount = 0
-
-    func recordRequest() {
-        requestCount += 1
-    }
-
-    func waitForRequest() async {
-        for _ in 0..<100 where requestCount == 0 {
-            try? await Task.sleep(for: .milliseconds(10))
-        }
-    }
-}
-
-private actor OpenRouterCatalogRaceProbe {
-    private struct PendingResponse {
-        let url: URL
-        let continuation: CheckedContinuation<(Data, URLResponse), Never>
-    }
-
-    private var nextRequestID = 0
-    private var pendingResponses: [Int: PendingResponse] = [:]
-    private var returnedRequestIDs = Set<Int>()
-
-    func load(_ request: URLRequest) async -> (id: Int, data: Data, response: URLResponse) {
-        nextRequestID += 1
-        let requestID = nextRequestID
-        let result = await withCheckedContinuation { continuation in
-            pendingResponses[requestID] = PendingResponse(
-                url: request.url!,
-                continuation: continuation
-            )
-        }
-        returnedRequestIDs.insert(requestID)
-        return (requestID, result.0, result.1)
-    }
-
-    func waitForRequestCount(_ count: Int) async {
-        for _ in 0..<100 where nextRequestID < count {
-            try? await Task.sleep(for: .milliseconds(10))
-        }
-    }
-
-    func waitForReturn(_ requestID: Int) async {
-        for _ in 0..<100 where !returnedRequestIDs.contains(requestID) {
-            try? await Task.sleep(for: .milliseconds(10))
-        }
-    }
-
-    func complete(_ requestID: Int, modelID: String, name: String) {
-        guard let pending = pendingResponses.removeValue(forKey: requestID) else { return }
-        let data = Data("""
-        {"data":[
-          {"id":"\(modelID)","name":"\(name)","pricing":{},"architecture":{"output_modalities":["transcription"]}}
-        ]}
-        """.utf8)
-        let response = HTTPURLResponse(
-            url: pending.url,
-            statusCode: 200,
-            httpVersion: nil,
-            headerFields: nil
-        )!
-        pending.continuation.resume(returning: (data, response))
-    }
-}
-
 @MainActor
 @Suite("Meetings navigation")
 struct MeetingsNavigationTests {
@@ -102,7 +19,6 @@ struct MeetingsNavigationTests {
         MeetsController(
             runtime: RuntimePaths(
                 repoRoot: FileManager.default.temporaryDirectory,
-                menuIcon: nil,
                 appIcon: nil,
                 bundlePath: nil
             ),
@@ -148,7 +64,7 @@ struct MeetingsNavigationTests {
     func meetingsDefaultToBrowser() {
         let appState = AppState()
 
-        #expect(appState.selectedTab == .timeline)
+        #expect(appState.selectedTab == .meetings)
         #expect(appState.meetingsNavigationState == .browser)
         #expect(appState.selectedMeeting == nil)
     }
@@ -180,22 +96,19 @@ struct MeetingsNavigationTests {
         }
     }
 
-    @Test("closing insights returns to the originating history view")
-    func closingInsightsReturnsToOrigin() {
+    @Test("closing insights returns to meetings")
+    func closingInsightsReturnsToMeetings() {
         let controller = makeController()
-        controller.openInsights(section: .meetings)
-        #expect(controller.appState.insightsBackLabel == "Back to Timeline")
-
-        controller.closeInsights()
-
-        #expect(controller.appState.selectedTab == .timeline)
-        #expect(controller.appState.insightsInitialSection == .meetings)
-
-        controller.appState.selectedTab = .dictations
+        controller.appState.selectedTab = .calendar
         controller.openInsights(section: .words)
-        #expect(controller.appState.insightsBackLabel == "Back to Dictations")
+        #expect(controller.appState.selectedTab == .insights)
+        #expect(controller.appState.insightsInitialSection == .words)
+        #expect(controller.appState.insightsBackLabel == "Back to Meetings")
+
         controller.closeInsights()
-        #expect(controller.appState.selectedTab == .dictations)
+
+        #expect(controller.appState.selectedTab == .meetings)
+        #expect(controller.appState.insightsInitialSection == .words)
     }
 
     @Test("discard confirmation maps checkbox selections to meeting discard resolutions")
@@ -257,8 +170,9 @@ struct MeetingsNavigationTests {
     func showMeetingDocumentRoutesToDocument() {
         let controller = makeController()
 
-        controller.appState.selectedTab = .dictations
+        controller.appState.selectedTab = .calendar
         controller.appState.selectedFolderID = 55
+        controller.appState.meetingRows = [makeMeeting(id: 202, title: "Selected Meeting")]
 
         controller.showMeetingDocument(id: 202)
 
@@ -566,7 +480,6 @@ struct MeetingsNavigationTests {
         let controller = MeetsController(
             runtime: RuntimePaths(
                 repoRoot: FileManager.default.temporaryDirectory,
-                menuIcon: nil,
                 appIcon: nil,
                 bundlePath: nil
             ),
@@ -601,7 +514,6 @@ struct MeetingsNavigationTests {
         let controller = MeetsController(
             runtime: RuntimePaths(
                 repoRoot: FileManager.default.temporaryDirectory,
-                menuIcon: nil,
                 appIcon: nil,
                 bundlePath: nil
             ),
@@ -680,7 +592,6 @@ struct MeetingsNavigationTests {
         let controller = MeetsController(
             runtime: RuntimePaths(
                 repoRoot: FileManager.default.temporaryDirectory,
-                menuIcon: nil,
                 appIcon: nil,
                 bundlePath: nil
             ),
@@ -699,7 +610,6 @@ struct MeetingsNavigationTests {
         let controller = MeetsController(
             runtime: RuntimePaths(
                 repoRoot: FileManager.default.temporaryDirectory,
-                menuIcon: nil,
                 appIcon: nil,
                 bundlePath: nil
             ),
@@ -731,7 +641,6 @@ struct MeetingsNavigationTests {
         let controller = MeetsController(
             runtime: RuntimePaths(
                 repoRoot: FileManager.default.temporaryDirectory,
-                menuIcon: nil,
                 appIcon: nil,
                 bundlePath: nil
             ),
@@ -759,7 +668,6 @@ struct MeetingsNavigationTests {
         let controller = MeetsController(
             runtime: RuntimePaths(
                 repoRoot: FileManager.default.temporaryDirectory,
-                menuIcon: nil,
                 appIcon: nil,
                 bundlePath: nil
             ),
@@ -804,7 +712,6 @@ struct MeetingsNavigationTests {
         let controller = MeetsController(
             runtime: RuntimePaths(
                 repoRoot: FileManager.default.temporaryDirectory,
-                menuIcon: nil,
                 appIcon: nil,
                 bundlePath: nil
             ),
@@ -903,7 +810,6 @@ struct MeetingsNavigationTests {
         let controller = MeetsController(
             runtime: RuntimePaths(
                 repoRoot: FileManager.default.temporaryDirectory,
-                menuIcon: nil,
                 appIcon: nil,
                 bundlePath: nil
             ),
@@ -943,7 +849,6 @@ struct MeetingsNavigationTests {
         let controller = MeetsController(
             runtime: RuntimePaths(
                 repoRoot: FileManager.default.temporaryDirectory,
-                menuIcon: nil,
                 appIcon: nil,
                 bundlePath: nil
             ),
@@ -986,7 +891,6 @@ struct MeetingsNavigationTests {
         let controller = MeetsController(
             runtime: RuntimePaths(
                 repoRoot: FileManager.default.temporaryDirectory,
-                menuIcon: nil,
                 appIcon: nil,
                 bundlePath: nil
             ),
@@ -1028,7 +932,6 @@ struct MeetingsNavigationTests {
         let controller = MeetsController(
             runtime: RuntimePaths(
                 repoRoot: FileManager.default.temporaryDirectory,
-                menuIcon: nil,
                 appIcon: nil,
                 bundlePath: nil
             ),
@@ -1067,7 +970,6 @@ struct MeetingsNavigationTests {
         let controller = MeetsController(
             runtime: RuntimePaths(
                 repoRoot: FileManager.default.temporaryDirectory,
-                menuIcon: nil,
                 appIcon: nil,
                 bundlePath: nil
             ),
@@ -1109,7 +1011,6 @@ struct MeetingsNavigationTests {
         let controller = MeetsController(
             runtime: RuntimePaths(
                 repoRoot: FileManager.default.temporaryDirectory,
-                menuIcon: nil,
                 appIcon: nil,
                 bundlePath: nil
             ),
@@ -1171,7 +1072,6 @@ struct MeetingsNavigationTests {
         let controller = MeetsController(
             runtime: RuntimePaths(
                 repoRoot: FileManager.default.temporaryDirectory,
-                menuIcon: nil,
                 appIcon: nil,
                 bundlePath: nil
             ),
@@ -1192,7 +1092,6 @@ struct MeetingsNavigationTests {
         let controller = MeetsController(
             runtime: RuntimePaths(
                 repoRoot: FileManager.default.temporaryDirectory,
-                menuIcon: nil,
                 appIcon: nil,
                 bundlePath: nil
             ),
@@ -1215,7 +1114,6 @@ struct MeetingsNavigationTests {
         let controller = MeetsController(
             runtime: RuntimePaths(
                 repoRoot: FileManager.default.temporaryDirectory,
-                menuIcon: nil,
                 appIcon: nil,
                 bundlePath: nil
             ),
@@ -1241,7 +1139,9 @@ struct MeetingsNavigationTests {
 
         controller.showMeetingTemplatesManager()
 
-        #expect(controller.appState.selectedTab == .meetings)
+        // The manager sheet is hosted at the dashboard root, so presenting it
+        // never detours through the Meetings tab.
+        #expect(controller.appState.selectedTab == .settings)
         #expect(controller.appState.meetingsNavigationState == .document(404))
         #expect(controller.appState.isMeetingTemplatesManagerPresented == true)
     }
@@ -1281,115 +1181,6 @@ struct MeetingsNavigationTests {
         #expect(controller.appState.config.meetingTranscriptionModel == BackendOption.whisperLargeTurbo.model)
     }
 
-    @Test("selecting Gemma dictation replaces conflicting Gemma cleanup")
-    func selectingGemmaDictationReplacesGemmaCleanup() {
-        let controller = makeController()
-        controller.selectPostProcessorBackend(.gemma4LiteRT)
-
-        #expect(controller.appState.selectedPostProcessorBackend == .gemma4LiteRT)
-
-        controller.selectBackend(.gemma4E2BLiteRT)
-
-        #expect(controller.appState.selectedBackend == .gemma4E2BLiteRT)
-        #expect(controller.appState.selectedPostProcessorBackend == .local)
-        #expect(controller.appState.config.postProcessorBackend == TranscriptCleanupBackendOption.local.backend)
-    }
-
-    @Test("switching to Bodhan disables S1-mini cleanup")
-    func switchingToBodhanDisablesS1MiniCleanup() {
-        let controller = makeController()
-        controller.updateConfig {
-            $0.sttBackend = BackendOption.parakeetMultilingual.backend
-            $0.sttModel = BackendOption.parakeetMultilingual.model
-            $0.activePostProcessorId = PostProcessorOption.s1Mini.id
-            $0.enablePostProcessor = true
-        }
-
-        controller.selectBackend(.bodhanFlex)
-
-        #expect(controller.appState.config.activePostProcessorId == PostProcessorOption.s1Mini.id)
-        #expect(!controller.appState.config.enablePostProcessor)
-    }
-
-    @Test("switching from hosted cleanup to local disables incompatible S1-mini cleanup")
-    func switchingFromHostedCleanupToLocalDisablesIncompatibleS1MiniCleanup() {
-        let controller = makeController()
-        controller.updateConfig {
-            $0.sttBackend = BackendOption.bodhanFlex.backend
-            $0.sttModel = BackendOption.bodhanFlex.model
-            $0.postProcessorBackend = LLMBackendOption.chatGPT.backend
-            $0.activePostProcessorId = PostProcessorOption.s1Mini.id
-            $0.enablePostProcessor = true
-        }
-
-        controller.selectPostProcessorBackend(.local)
-
-        #expect(controller.selectedPostProcessorBackend == .local)
-        #expect(!controller.appState.config.enablePostProcessor)
-    }
-
-    @Test("OpenRouter transcription catalog stays hidden until authentication")
-    func openRouterCatalogRequiresAuthentication() async throws {
-        let supportDirectory = makeSupportDirectory()
-        let openRouterAuth = OpenRouterAuthManager(
-            credentialStore: OpenRouterCredentialStore(supportDirectory: supportDirectory),
-            loadData: { _ in throw URLError(.unsupportedURL) },
-            openURL: { _ in false },
-            environment: { [:] }
-        )
-        let probe = OpenRouterCatalogVisibilityProbe()
-        let catalogClient = OpenRouterModelCatalogClient { request in
-            await probe.recordRequest()
-            let response = HTTPURLResponse(
-                url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil
-            )!
-            let data = Data("""
-            {"data":[
-              {"id":"provider/asr","name":"Provider ASR","pricing":{},"architecture":{"output_modalities":["transcription"]}}
-            ]}
-            """.utf8)
-            return (data, response)
-        }
-        let controller = MeetsController(
-            runtime: RuntimePaths(
-                repoRoot: FileManager.default.temporaryDirectory,
-                menuIcon: nil,
-                appIcon: nil,
-                bundlePath: nil
-            ),
-            configStore: ConfigStore(supportDirectory: supportDirectory),
-            openRouterAuth: openRouterAuth,
-            openRouterModelCatalogClient: catalogClient
-        )
-        controller.appState.openRouterTranscriptionModels = [
-            SummaryModelPreset(id: "stale/model", label: "Stale")
-        ]
-        controller.appState.openRouterTranscriptionCatalogState = .loaded
-
-        controller.loadOpenRouterModels(.transcription, force: true)
-        await Task.yield()
-
-        let unauthenticatedRequestCount = await probe.requestCount
-        #expect(unauthenticatedRequestCount == 0)
-        #expect(!controller.canUseSummaryProvider(.openRouter))
-        #expect(controller.appState.openRouterTranscriptionModels.isEmpty)
-        #expect(controller.appState.openRouterTranscriptionCatalogState == .idle)
-
-        try openRouterAuth.storeManualAPIKey("sk-or-v1-test")
-        controller.updateConfig { _ in }
-        #expect(controller.canUseSummaryProvider(.openRouter))
-        controller.loadOpenRouterModels(.transcription, force: true)
-        await probe.waitForRequest()
-        for _ in 0..<100 where controller.appState.openRouterTranscriptionCatalogState != .loaded {
-            try? await Task.sleep(for: .milliseconds(10))
-        }
-
-        let authenticatedRequestCount = await probe.requestCount
-        #expect(authenticatedRequestCount == 1)
-        #expect(controller.appState.openRouterTranscriptionModels.map(\.id) == ["provider/asr"])
-        #expect(controller.appState.openRouterTranscriptionCatalogState == .loaded)
-    }
-
     @Test("legacy OpenRouter credentials expose the same model controls as stored credentials")
     func legacyOpenRouterCredentialShowsModels() {
         let configDirectory = makeSupportDirectory()
@@ -1403,7 +1194,6 @@ struct MeetingsNavigationTests {
         let controller = MeetsController(
             runtime: RuntimePaths(
                 repoRoot: FileManager.default.temporaryDirectory,
-                menuIcon: nil,
                 appIcon: nil,
                 bundlePath: nil
             ),
@@ -1413,56 +1203,7 @@ struct MeetingsNavigationTests {
         controller.updateConfig { $0.openRouterAPIKey = " sk-or-v1-legacy " }
 
         #expect(!openRouterAuth.isAuthenticated)
-        #expect(controller.hostedDictationModelVisibility.shows(.openRouter))
         #expect(controller.canUseSummaryProvider(.openRouter))
-    }
-
-    @Test("an older cancelled catalog request cannot overwrite a newer reload")
-    func staleOpenRouterCatalogLoadCannotReplaceNewerModels() async throws {
-        let supportDirectory = makeSupportDirectory()
-        let openRouterAuth = OpenRouterAuthManager(
-            credentialStore: OpenRouterCredentialStore(supportDirectory: supportDirectory),
-            loadData: { _ in throw URLError(.unsupportedURL) },
-            openURL: { _ in false },
-            environment: { [:] }
-        )
-        try openRouterAuth.storeManualAPIKey("sk-or-v1-first")
-        let probe = OpenRouterCatalogRaceProbe()
-        let catalogClient = OpenRouterModelCatalogClient { request in
-            let result = await probe.load(request)
-            return (result.data, result.response)
-        }
-        let controller = MeetsController(
-            runtime: RuntimePaths(
-                repoRoot: FileManager.default.temporaryDirectory,
-                menuIcon: nil,
-                appIcon: nil,
-                bundlePath: nil
-            ),
-            configStore: ConfigStore(supportDirectory: supportDirectory),
-            openRouterAuth: openRouterAuth,
-            openRouterModelCatalogClient: catalogClient
-        )
-
-        controller.loadOpenRouterModels(.transcription, force: true)
-        await probe.waitForRequestCount(1)
-        #expect(controller.signOutOpenRouter() == nil)
-
-        try openRouterAuth.storeManualAPIKey("sk-or-v1-second")
-        controller.loadOpenRouterModels(.transcription, force: true)
-        await probe.waitForRequestCount(2)
-        await probe.complete(2, modelID: "new/model", name: "New Model")
-        for _ in 0..<100 where controller.appState.openRouterTranscriptionCatalogState != .loaded {
-            try? await Task.sleep(for: .milliseconds(10))
-        }
-        #expect(controller.appState.openRouterTranscriptionModels.map(\.id) == ["new/model"])
-
-        await probe.complete(1, modelID: "stale/model", name: "Stale Model")
-        await probe.waitForReturn(1)
-        for _ in 0..<20 { await Task.yield() }
-
-        #expect(controller.appState.openRouterTranscriptionModels.map(\.id) == ["new/model"])
-        #expect(controller.appState.openRouterTranscriptionCatalogState == .loaded)
     }
 
     @Test("failed OpenRouter credential deletion preserves provider selections")
@@ -1481,7 +1222,6 @@ struct MeetingsNavigationTests {
         let controller = MeetsController(
             runtime: RuntimePaths(
                 repoRoot: FileManager.default.temporaryDirectory,
-                menuIcon: nil,
                 appIcon: nil,
                 bundlePath: nil
             ),
@@ -1491,7 +1231,6 @@ struct MeetingsNavigationTests {
         controller.updateConfig {
             $0.meetingSummaryBackend = MeetingSummaryBackendOption.openRouter.backend
             $0.postProcessorBackend = LLMBackendOption.openRouter.backend
-            $0.quilBackend = LLMBackendOption.openRouter.backend
         }
 
         let error = controller.signOutOpenRouter()
@@ -1499,8 +1238,7 @@ struct MeetingsNavigationTests {
         #expect(error == OpenRouterAuthError.credentialDeletionFailed.errorDescription)
         #expect(openRouterAuth.isAuthenticated)
         #expect(controller.selectedMeetingSummaryBackend == .openRouter)
-        #expect(controller.selectedPostProcessorBackend == .hosted(.openRouter))
-        #expect(controller.config.quilBackend == LLMBackendOption.openRouter.backend)
+        #expect(controller.config.postProcessorBackend == LLMBackendOption.openRouter.backend)
     }
 
     @Test("environment OpenRouter credential survives local disconnect without resetting providers")
@@ -1518,7 +1256,6 @@ struct MeetingsNavigationTests {
         let controller = MeetsController(
             runtime: RuntimePaths(
                 repoRoot: FileManager.default.temporaryDirectory,
-                menuIcon: nil,
                 appIcon: nil,
                 bundlePath: nil
             ),
@@ -1528,7 +1265,6 @@ struct MeetingsNavigationTests {
         controller.updateConfig {
             $0.meetingSummaryBackend = MeetingSummaryBackendOption.openRouter.backend
             $0.postProcessorBackend = LLMBackendOption.openRouter.backend
-            $0.quilBackend = LLMBackendOption.openRouter.backend
         }
 
         #expect(controller.signOutOpenRouter() == nil)
@@ -1538,29 +1274,7 @@ struct MeetingsNavigationTests {
         #expect(!openRouterAuth.hasStoredCredential)
         #expect(controller.appState.isOpenRouterEnvironmentManaged)
         #expect(controller.selectedMeetingSummaryBackend == .openRouter)
-        #expect(controller.selectedPostProcessorBackend == .hosted(.openRouter))
-        #expect(controller.config.quilBackend == LLMBackendOption.openRouter.backend)
-    }
-
-    @Test("startup repairs a persisted Gemma dictation and cleanup conflict")
-    func startupRepairsPersistedGemmaConflict() {
-        let configStore = ConfigStore(supportDirectory: makeSupportDirectory())
-        var config = AppConfig()
-        config.sttBackend = BackendOption.gemma4E2BLiteRT.backend
-        config.sttModel = BackendOption.gemma4E2BLiteRT.model
-        config.postProcessorBackend = TranscriptCleanupBackendOption.gemma4LiteRT.backend
-        config.enablePostProcessor = true
-        configStore.save(config)
-        let persistedConfig = configStore.load()
-        #expect(persistedConfig.sttBackend == BackendOption.gemma4E2BLiteRT.backend)
-        #expect(persistedConfig.sttModel == BackendOption.gemma4E2BLiteRT.model)
-
-        let controller = makeController(configStore: configStore)
-
-        #expect(controller.selectedPostProcessorBackend == .local)
-        #expect(controller.config.postProcessorBackend == TranscriptCleanupBackendOption.local.backend)
-        #expect(!controller.config.enablePostProcessor)
-        #expect(controller.selectedBackend == .gemma4E2BLiteRT)
+        #expect(controller.config.postProcessorBackend == LLMBackendOption.openRouter.backend)
     }
 
     @Test("updateConfig persists normalized meeting transcription backend")

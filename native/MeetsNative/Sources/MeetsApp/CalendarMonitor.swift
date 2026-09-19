@@ -92,14 +92,6 @@ final class CalendarMonitor {
         guard canConfirmMissingEvents else { return }
         guard case .stopped = state else { return }
 
-        // Never prompt from a monitor start (startup, background refresh).
-        // The permissions step and Settings grant buttons own the dialog;
-        // the next syncCalendarMonitor after a grant starts us for real.
-        guard EKEventStore.authorizationStatus(for: .event) != .notDetermined else {
-            state = .stopped
-            return
-        }
-
         generation += 1
         let token = generation
         state = .requesting(token)

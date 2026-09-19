@@ -45,8 +45,8 @@ struct OnboardingProgressTests {
         #expect(progress.selectedCohereLanguageCode == CohereTranscribeLanguage.english.rawValue)
     }
 
-    @Test("missing onboarding use case defaults to dictation")
-    func missingOnboardingUseCaseDefaultsToDictation() throws {
+    @Test("missing onboarding use case defaults to meetings")
+    func missingOnboardingUseCaseDefaultsToMeetings() throws {
         let json = """
         {
           "schemaVersion": 3,
@@ -61,7 +61,7 @@ struct OnboardingProgressTests {
 
         let progress = try JSONDecoder().decode(OnboardingProgress.self, from: Data(json.utf8))
 
-        #expect(progress.onboardingUseCaseRawValue == OnboardingUseCase.dictation.rawValue)
+        #expect(progress.onboardingUseCaseRawValue == OnboardingUseCase.meetings.rawValue)
     }
 
     @Test("model download display progress round-trips")

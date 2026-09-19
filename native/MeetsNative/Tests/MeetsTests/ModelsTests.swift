@@ -248,7 +248,7 @@ struct BackendOptionTests {
         #expect(Qwen3AsrModelStore.isModelDownloaded(in: root, fileManager: fm))
 
         let completionMarker = managedDirectory
-            .appendingPathComponent(".muesli-managed-model-complete.json")
+            .appendingPathComponent(".meets-managed-model-complete.json")
         try Data("not-json".utf8).write(to: completionMarker)
         #expect(!Qwen3AsrModelStore.isModelDownloaded(in: root, fileManager: fm))
 
@@ -377,35 +377,8 @@ struct BackendOptionTests {
         }
     }
 
-    @Test("only Nemotron backends use streaming dictation")
-    func streamingDictationBackends() {
-        let streaming = BackendOption.all.filter(\.isStreamingDictationBackend)
-        #expect(streaming == [.nemotron35Multilingual])
-    }
-
-    @Test("Hosted dictation fallback excludes streaming backends")
-    func openAIFallbackResolution() {
-        let available: [BackendOption] = [
-            .nemotron35Multilingual,
-            .parakeetUnified,
-            .whisperSmall,
-        ]
-        #expect(BackendOption.resolveHostedDictationFallback(
-            selected: .nemotron35Multilingual,
-            available: available
-        ) == .parakeetUnified)
-        #expect(BackendOption.resolveHostedDictationFallback(
-            selected: .whisperSmall,
-            available: available
-        ) == .whisperSmall)
-        #expect(BackendOption.resolveHostedDictationFallback(
-            selected: .nemotron35Multilingual,
-            available: [.nemotron35Multilingual]
-        ) == nil)
-    }
-
-    @Test("streaming dictation models are excluded from meeting transcription")
-    func streamingDictationModelsAreExcludedFromMeetingTranscription() {
+    @Test("streaming backends are excluded from meeting transcription")
+    func streamingModelsAreExcludedFromMeetingTranscription() {
         #expect(!BackendOption.nemotron35Multilingual.supportsMeetingTranscription)
         #expect(BackendOption.parakeetMultilingual.supportsMeetingTranscription)
         #expect(BackendOption.whisperLargeTurbo.supportsMeetingTranscription)
@@ -997,7 +970,7 @@ struct AppConfigTests {
         #expect(config.showFloatingIndicator == true)
         #expect(config.indicatorAnchor == .midTrailing)
         #expect(config.hasCompletedOnboarding == false)
-        #expect(config.resolvedOnboardingUseCase == .dictation)
+        #expect(config.resolvedOnboardingUseCase == .meetings)
         #expect(config.userName.isEmpty)
         #expect(config.customMeetingTemplates.isEmpty)
         #expect(config.meetingHookEnabled == false)
@@ -1223,7 +1196,7 @@ struct AppConfigTests {
         #expect(decoded.openAIAPIKey == "sk-test-key-123")
         #expect(decoded.userName == "Test User")
         #expect(decoded.hasCompletedOnboarding == true)
-        #expect(decoded.resolvedOnboardingUseCase == .dictationAndMeetings)
+        #expect(decoded.resolvedOnboardingUseCase == .meetings)
         #expect(decoded.cohereLanguage == CohereTranscribeLanguage.german.rawValue)
         #expect(decoded.bodhanLanguage == BodhanLanguage.tamil.rawValue)
         #expect(decoded.appleSpeechLanguage == "en-GB")
@@ -1297,7 +1270,6 @@ struct AppConfigTests {
             AppConfig.self,
             from: Data("""
             {
-              "computer_use_reasoning_effort": "unsupported",
               "meeting_summary_reasoning_effort": "unsupported",
               "transcript_cleanup_reasoning_effort": "unsupported"
             }
@@ -1321,15 +1293,6 @@ struct AppConfigTests {
 
         #expect(json["stt_backend"] != nil)
         #expect(json["stt_model"] != nil)
-        #expect(json["computer_use_hotkey"] != nil)
-        #expect(json["enable_computer_use_hotkey"] != nil)
-        #expect(json["computer_use_hotkey_default_disabled_migration_applied"] != nil)
-        #expect(json["enable_computer_use_planner"] != nil)
-        #expect(json["computer_use_planner_model"] != nil)
-        #expect(json["computer_use_reasoning_effort"] != nil)
-        #expect(json["computer_use_timeout_seconds"] != nil)
-        #expect(json["hotkey_trigger_threshold_ms"] != nil)
-        #expect(json["computer_use_hotkey_trigger_threshold_ms"] != nil)
         #expect(json["meeting_recording_hotkey_trigger_threshold_ms"] != nil)
         #expect(json["meeting_summary_reasoning_effort"] != nil)
         #expect(json["transcript_cleanup_reasoning_effort"] != nil)
@@ -1341,7 +1304,6 @@ struct AppConfigTests {
         #expect(json["indicator_anchor"] != nil)
         #expect(json["has_completed_onboarding"] != nil)
         #expect(json["onboarding_use_case"] != nil)
-        #expect(json["enable_push_to_talk"] != nil)
         #expect(json["user_name"] != nil)
         #expect(json["default_meeting_template_id"] != nil)
         #expect(json["meeting_recording_save_policy"] != nil)
@@ -1357,12 +1319,9 @@ struct AppConfigTests {
         #expect(json["auto_export_markdown_folder_path"] != nil)
         #expect(json["auto_export_markdown_content"] != nil)
         #expect(json["auto_export_file_format"] != nil)
-        #expect(json["contribution_prompt_next_word_count"] != nil)
         #expect(json["contribution_prompt_next_meeting_count"] != nil)
         #expect(json["contribution_github_star_clicked"] != nil)
         #expect(json["contribution_buy_me_coffee_clicked"] != nil)
-        #expect(json["contribution_tweet_clicked"] != nil)
-        #expect(json["contribution_linkedin_clicked"] != nil)
         #expect(json["lmstudio_url"] != nil)
         #expect(json["lmstudio_model"] != nil)
         #expect(json["custom_llm_url"] != nil)
@@ -1380,17 +1339,15 @@ struct AppConfigTests {
         #expect(json["active_transcript_cleanup_prompt_id"] != nil)
         #expect(json["custom_transcript_cleanup_prompts"] != nil)
         #expect(json["enable_screen_context"] != nil)
-        #expect(json["enable_dictation_ocr_context"] != nil)
         #expect(json["enable_live_streaming_partials"] != nil)
         #expect(json["show_meeting_transcript_on_indicator_hover"] != nil)
     }
 
-    @Test("decodes screen context flags from snake_case")
+    @Test("decodes the screen context flag from snake_case")
     func decodesScreenContextFlagsFromSnakeCase() throws {
         let json = """
         {
-            "enable_screen_context": true,
-            "enable_dictation_ocr_context": true
+            "enable_screen_context": true
         }
         """
         let data = json.data(using: .utf8)!
@@ -1412,7 +1369,7 @@ struct AppConfigTests {
         #expect(config.resolvedWhisperLanguage == .auto)
         #expect(config.resolvedAppleSpeechLanguage == AppleSpeechLanguageOption.systemIdentifier)
         #expect(config.hasCompletedOnboarding == false)
-        #expect(config.resolvedOnboardingUseCase == .dictation)
+        #expect(config.resolvedOnboardingUseCase == .meetings)
         #expect(config.defaultMeetingTemplateID == MeetingTemplates.autoID)
         #expect(config.upcomingMeetingsDayCount == UpcomingMeetingsWindow.threeDays.dayCount)
         #expect(config.hiddenCalendarEventSourceHints.isEmpty)
@@ -1520,27 +1477,6 @@ struct AppConfigTests {
         #expect(PostProcessorOption.defaultSystemPrompt.contains("<APP-CONTEXT>"))
         #expect(PostProcessorOption.defaultSystemPrompt.contains("OCR screen text"))
         #expect(PostProcessorOption.defaultSystemPrompt.contains("Never copy app context into the output"))
-    }
-
-    @Test("dictation app context prompt includes OCR text")
-    func dictationAppContextPromptIncludesOCRText() {
-        let ocrText = String(repeating: "a", count: 3_200) + "tail"
-        let context = DictationContext(
-            appName: "Notes",
-            bundleID: "com.apple.Notes",
-            documentContext: "Project Apollo",
-            selectedText: "Mercury",
-            url: "https://example.com",
-            documentIdentifier: "Project Apollo",
-            ocrText: ocrText
-        )
-        let prompt = DictationContextCapture.formatForPrompt(context)
-
-        #expect(prompt.contains("App: Notes (https://example.com)"))
-        #expect(prompt.contains("Document context: Project Apollo"))
-        #expect(prompt.contains("Selected text: Mercury"))
-        #expect(prompt.contains("OCR screen text: "))
-        #expect(prompt.contains("tail"))
     }
 
     @Test("screen OCR binds to the focused accessibility window")
@@ -1705,7 +1641,7 @@ struct AppConfigTests {
         let config = try JSONDecoder().decode(AppConfig.self, from: Data(json.utf8))
 
         #expect(config.hasCompletedOnboarding)
-        #expect(config.resolvedOnboardingUseCase == .dictationAndMeetings)
+        #expect(config.resolvedOnboardingUseCase == .meetings)
         #expect(config.resolvedOnboardingUseCase.includesMeetings)
     }
 
@@ -1736,13 +1672,13 @@ struct AppConfigTests {
             let config = try JSONDecoder().decode(AppConfig.self, from: Data(json.utf8))
 
             #expect(config.hasCompletedOnboarding)
-            #expect(config.resolvedOnboardingUseCase == .dictationAndMeetings)
+            #expect(config.resolvedOnboardingUseCase == .meetings)
             #expect(config.resolvedOnboardingUseCase.includesMeetings)
         }
     }
 
-    @Test("incomplete onboarding defaults malformed use case to dictation")
-    func incompleteOnboardingDefaultsMalformedUseCaseToDictation() throws {
+    @Test("incomplete onboarding defaults malformed use case to meetings")
+    func incompleteOnboardingDefaultsMalformedUseCaseToMeetings() throws {
         let jsonCases = [
             """
             {
@@ -1767,13 +1703,13 @@ struct AppConfigTests {
             let config = try JSONDecoder().decode(AppConfig.self, from: Data(json.utf8))
 
             #expect(!config.hasCompletedOnboarding)
-            #expect(config.resolvedOnboardingUseCase == .dictation)
-            #expect(!config.resolvedOnboardingUseCase.includesMeetings)
+            #expect(config.resolvedOnboardingUseCase == .meetings)
+            #expect(config.resolvedOnboardingUseCase.includesMeetings)
         }
     }
 
-    @Test("explicit completed dictation-only onboarding remains dictation-only")
-    func explicitCompletedDictationOnlyOnboardingRemainsDictationOnly() throws {
+    @Test("explicit completed dictation use case resolves to meetings")
+    func explicitCompletedDictationOnboardingResolvesToMeetings() throws {
         let json = """
         {
           "has_completed_onboarding": true,
@@ -1784,12 +1720,12 @@ struct AppConfigTests {
         let config = try JSONDecoder().decode(AppConfig.self, from: Data(json.utf8))
 
         #expect(config.hasCompletedOnboarding)
-        #expect(config.resolvedOnboardingUseCase == .dictation)
-        #expect(!config.resolvedOnboardingUseCase.includesMeetings)
+        #expect(config.resolvedOnboardingUseCase == .meetings)
+        #expect(config.resolvedOnboardingUseCase.includesMeetings)
     }
 
-    @Test("unsupported onboarding use case falls back to dictation")
-    func unsupportedOnboardingUseCaseFallsBackToDictation() throws {
+    @Test("unsupported onboarding use case falls back to meetings")
+    func unsupportedOnboardingUseCaseFallsBackToMeetings() throws {
         let json = """
         {
           "onboarding_use_case": "unknown"
@@ -1798,7 +1734,7 @@ struct AppConfigTests {
 
         let config = try JSONDecoder().decode(AppConfig.self, from: Data(json.utf8))
 
-        #expect(config.resolvedOnboardingUseCase == .dictation)
+        #expect(config.resolvedOnboardingUseCase == .meetings)
     }
 
     @Test("voice notes use push-to-talk without paste dictation")

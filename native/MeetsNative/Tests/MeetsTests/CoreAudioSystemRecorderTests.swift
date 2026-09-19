@@ -27,7 +27,7 @@ struct CoreAudioSystemRecorderTests {
             aggregateUID: "aggregate-uid"
         )
 
-        #expect(description[kAudioAggregateDeviceNameKey] as? String == "Muesli System Audio")
+        #expect(description[kAudioAggregateDeviceNameKey] as? String == "Meets System Audio")
         #expect(description[kAudioAggregateDeviceUIDKey] as? String == "aggregate-uid")
         #expect(description[kAudioAggregateDeviceIsPrivateKey] as? Bool == true)
         #expect(description[kAudioAggregateDeviceTapAutoStartKey] as? Bool == true)

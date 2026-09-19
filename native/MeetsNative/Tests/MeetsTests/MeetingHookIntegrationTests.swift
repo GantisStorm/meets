@@ -147,7 +147,6 @@ struct MeetingHookIntegrationTests {
         MeetsController(
             runtime: RuntimePaths(
                 repoRoot: FileManager.default.temporaryDirectory,
-                menuIcon: nil,
                 appIcon: nil,
                 bundlePath: nil
             ),

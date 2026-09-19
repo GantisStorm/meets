@@ -54,14 +54,9 @@ struct StandardMenuShortcutTests {
     func viewMenuExposesDashboardNavigationShortcuts() throws {
         let viewMenu = try requiredMenu(standardMainMenu().item(withTitle: "View")?.submenu, message: "Missing View menu")
 
-        let dictations = try requiredItem(viewMenu.item(withTitle: "Dictations"), message: "Missing Dictations command")
-        #expect(dictations.action == #selector(AppDelegate.showDictations(_:)))
-        #expect(dictations.keyEquivalent == "1")
-        #expect(dictations.keyEquivalentModifierMask == NSEvent.ModifierFlags.command)
-
         let meetings = try requiredItem(viewMenu.item(withTitle: "Meetings"), message: "Missing Meetings command")
         #expect(meetings.action == #selector(AppDelegate.showMeetings(_:)))
-        #expect(meetings.keyEquivalent == "2")
+        #expect(meetings.keyEquivalent == "1")
         #expect(meetings.keyEquivalentModifierMask == NSEvent.ModifierFlags.command)
     }
 

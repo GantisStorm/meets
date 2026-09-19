@@ -2832,15 +2832,15 @@ public final class MeetsController: NSObject {
         presentHistoryWindow()
     }
 
-    /// Opens the templates manager as a sheet over whatever is showing
-    /// (Settings, Meetings, an open meeting). Previously this forced the
-    /// Meetings tab first because the sheet was hosted there.
     /// Requests Apple notification authorization if never asked. Called when
     /// either notification toggle flips on; show() backstops it anyway.
     func ensureMeetingNotificationAuth() {
         meetingNotification.ensureNotificationAuthorization()
     }
 
+    /// Opens the templates manager as a sheet over whatever is showing
+    /// (Settings, Meetings, an open meeting). Previously this forced the
+    /// Meetings tab first because the sheet was hosted there.
     func showMeetingTemplatesManager() {
         appState.isMeetingTemplatesManagerPresented = true
     }
@@ -2989,6 +2989,7 @@ public final class MeetsController: NSObject {
         case .ollama: return true
         case .lmStudio: return MeetingSummaryClient.lmStudioHasRequiredSettings(config: config)
         case .customLLM: return MeetingSummaryClient.customLLMHasRequiredSettings(config: config)
+        case .acpAgent: return MeetingSummaryClient.acpAgentHasRequiredSettings(config: config)
         default: return false
         }
     }

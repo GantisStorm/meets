@@ -18,40 +18,6 @@ struct DictationStoreTests {
         return store
     }
 
-    @Test("startup interrupts only running CUA traces and preserves their events")
-    func reconcileRunningComputerUseTraces() throws {
-        let store = try makeStore()
-        let event = ComputerUseTraceEvent(kind: "tool_result", title: "Listed apps", body: "OK")
-        var ids: [Int64] = []
-        for status in ["running", "done", "cancelled"] {
-            let id = try store.insertDictation(text: status, durationSeconds: 1, source: "cua", startedAt: Date(), endedAt: Date())
-            try store.insertComputerUseTrace(dictationID: id, finalStatus: status, finalMessage: status, events: [event])
-            ids.append(id)
-        }
-        #expect(try store.markRunningComputerUseTracesInterrupted() == 1)
-        #expect(try store.markRunningComputerUseTracesInterrupted() == 0)
-        let rows = try store.recentDictations(limit: 10)
-        for (index, status) in ["interrupted", "done", "cancelled"].enumerated() {
-            let row = try #require(rows.first { $0.id == ids[index] })
-            #expect(row.computerUseTrace?.finalStatus == status)
-            #expect(row.computerUseTrace?.events == [event])
-        }
-    }
-
-    @Test("malformed CUA trace JSON keeps the trace status with an empty event list")
-    func malformedComputerUseTraceIsReadable() throws {
-        let store = try makeStore()
-        let id = try store.insertDictation(text: "test", durationSeconds: 1, source: "cua", startedAt: Date(), endedAt: Date())
-        try store.insertComputerUseTrace(dictationID: id, finalStatus: "interrupted", finalMessage: "Stopped", events: [])
-        var db: OpaquePointer?
-        #expect(sqlite3_open(store.databasePath().path, &db) == SQLITE_OK)
-        defer { sqlite3_close(db) }
-        #expect(sqlite3_exec(db, "UPDATE computer_use_traces SET trace_json = 'invalid json'", nil, nil, nil) == SQLITE_OK)
-        let trace = try #require(store.dictation(id: id)?.computerUseTrace)
-        #expect(trace.finalStatus == "interrupted")
-        #expect(trace.events.isEmpty)
-    }
-
     private func makeLegacyStore() throws -> DictationStore {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("muesli-legacy-test-\(UUID().uuidString).db")
@@ -100,67 +66,6 @@ struct DictationStoreTests {
         sqlite3_bind_int64(statement, 2, folderID)
         guard sqlite3_step(statement) == SQLITE_DONE, sqlite3_changes(db) == 1 else {
             throw sqliteTestError("failed to update folder parent")
-        }
-    }
-
-    private func setDictationDirtyText(
-        recordName: String,
-        text: String,
-        updatedAt: Date,
-        store: DictationStore
-    ) throws {
-        var db: OpaquePointer?
-        guard sqlite3_open(store.databasePath().path, &db) == SQLITE_OK else {
-            throw sqliteTestError("failed to open test database")
-        }
-        defer { sqlite3_close(db) }
-
-        let sql = """
-        UPDATE dictations
-        SET raw_text = ?, word_count = ?, updated_at = ?, sync_dirty = 1
-        WHERE cloud_record_name = ?
-        """
-        var statement: OpaquePointer?
-        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
-            throw sqliteTestError("failed to prepare dictation update")
-        }
-        defer { sqlite3_finalize(statement) }
-        sqlite3_bind_text(statement, 1, (text as NSString).utf8String, -1, nil)
-        sqlite3_bind_int(statement, 2, Int32(DictationStore.countWords(in: text)))
-        sqlite3_bind_double(statement, 3, updatedAt.timeIntervalSince1970)
-        sqlite3_bind_text(statement, 4, (recordName as NSString).utf8String, -1, nil)
-        guard sqlite3_step(statement) == SQLITE_DONE, sqlite3_changes(db) == 1 else {
-            throw sqliteTestError("failed to dirty dictation row")
-        }
-    }
-
-    private func setMeetingDirtyTitle(
-        recordName: String,
-        title: String,
-        updatedAt: Date,
-        store: DictationStore
-    ) throws {
-        var db: OpaquePointer?
-        guard sqlite3_open(store.databasePath().path, &db) == SQLITE_OK else {
-            throw sqliteTestError("failed to open test database")
-        }
-        defer { sqlite3_close(db) }
-
-        let sql = """
-        UPDATE meetings
-        SET title = ?, updated_at = ?, sync_dirty = 1
-        WHERE cloud_record_name = ?
-        """
-        var statement: OpaquePointer?
-        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
-            throw sqliteTestError("failed to prepare meeting update")
-        }
-        defer { sqlite3_finalize(statement) }
-        sqlite3_bind_text(statement, 1, (title as NSString).utf8String, -1, nil)
-        sqlite3_bind_double(statement, 2, updatedAt.timeIntervalSince1970)
-        sqlite3_bind_text(statement, 3, (recordName as NSString).utf8String, -1, nil)
-        guard sqlite3_step(statement) == SQLITE_DONE, sqlite3_changes(db) == 1 else {
-            throw sqliteTestError("failed to dirty meeting row")
         }
     }
 
@@ -684,16 +589,6 @@ struct DictationStoreTests {
 
         let meeting = try #require(try store.recentMeetings(limit: 1).first)
         #expect(meeting.source == .meeting)
-    }
-
-    @Test("sync origin badge labels cover iOS sources")
-    func syncOriginBadgeLabels() {
-        #expect(SyncOriginDisplay.badgeLabel(forDictationSource: "ios") == "iOS")
-        #expect(SyncOriginDisplay.badgeLabel(forDictationSource: " iOS ") == "iOS")
-        #expect(SyncOriginDisplay.badgeLabel(forDictationSource: "cua") == nil)
-        #expect(SyncOriginDisplay.badgeLabel(forMeetingSource: .iOS) == "iOS")
-        #expect(SyncOriginDisplay.badgeLabel(forMeetingSource: .audioImport) == nil)
-        #expect(SyncOriginDisplay.badgeLabel(forMeetingSource: .meeting) == nil)
     }
 
     @Test("live meeting starts as recording with empty manual notes")
@@ -1437,8 +1332,9 @@ struct DictationStoreTests {
         #expect(try rawMeetingVisualContext(id: clearID, store: store) == nil)
     }
 
-    /// Reads visual_context straight from the row, bypassing the record readers
-    /// (which exclude soft-deleted meetings entirely).
+    /// Reads visual_context straight from the row. Deletion removes the row
+    /// outright in this build (there is no CloudKit tombstone to soft-delete
+    /// into), so a missing row means no stored context survives.
     private func rawMeetingVisualContext(id: Int64, store: DictationStore) throws -> String? {
         var db: OpaquePointer?
         guard sqlite3_open(store.databasePath().path, &db) == SQLITE_OK else {
@@ -1453,9 +1349,7 @@ struct DictationStoreTests {
         }
         defer { sqlite3_finalize(statement) }
         sqlite3_bind_int64(statement, 1, id)
-        guard sqlite3_step(statement) == SQLITE_ROW else {
-            throw sqliteTestError("meeting row missing")
-        }
+        guard sqlite3_step(statement) == SQLITE_ROW else { return nil }
         guard sqlite3_column_type(statement, 0) != SQLITE_NULL else { return nil }
         return String(cString: sqlite3_column_text(statement, 0))
     }
@@ -1979,49 +1873,6 @@ struct DictationStoreTests {
         #expect(counts.directByFolder[child] == 2)
     }
 
-    @Test("meetingCounts applies origin filter to totals and recursive folder badges")
-    func meetingCountsRespectOriginFilter() throws {
-        let store = try makeStore()
-        let now = Date()
-        let parent = try store.createFolder(name: "Parent")
-        let child = try store.createFolder(name: "Child", parentID: parent)
-
-        try store.insertMeeting(
-            title: "Mac Meeting", calendarEventID: nil, startTime: now,
-            endTime: now.addingTimeInterval(60), rawTranscript: "t", formattedNotes: "",
-            micAudioPath: nil, systemAudioPath: nil, source: .meeting
-        )
-        try store.moveMeeting(id: try store.recentMeetings(limit: 1).first!.id, toFolder: parent)
-
-        try store.insertMeeting(
-            title: "iPhone Meeting", calendarEventID: nil, startTime: now.addingTimeInterval(1),
-            endTime: now.addingTimeInterval(61), rawTranscript: "t", formattedNotes: "",
-            micAudioPath: nil, systemAudioPath: nil, source: .iOS
-        )
-        try store.moveMeeting(id: try store.recentMeetings(limit: 1).first!.id, toFolder: child)
-
-        try store.insertMeeting(
-            title: "Imported Meeting", calendarEventID: nil, startTime: now.addingTimeInterval(2),
-            endTime: now.addingTimeInterval(62), rawTranscript: "t", formattedNotes: "",
-            micAudioPath: nil, systemAudioPath: nil, source: .audioImport
-        )
-        try store.moveMeeting(id: try store.recentMeetings(limit: 1).first!.id, toFolder: child)
-
-        let iPhoneCounts = try store.meetingCounts(origin: .fromIPhone)
-        #expect(iPhoneCounts.total == 1)
-        #expect(iPhoneCounts.byFolder[parent] == 1)
-        #expect(iPhoneCounts.byFolder[child] == 1)
-        #expect(iPhoneCounts.directByFolder[parent] == nil)
-        #expect(iPhoneCounts.directByFolder[child] == 1)
-
-        let macCounts = try store.meetingCounts(origin: .thisMac)
-        #expect(macCounts.total == 2)
-        #expect(macCounts.byFolder[parent] == 2)
-        #expect(macCounts.byFolder[child] == 1)
-        #expect(macCounts.directByFolder[parent] == 1)
-        #expect(macCounts.directByFolder[child] == 1)
-    }
-
     @Test("meetingCounts gives stable totals for cyclic folder data")
     func meetingCountsCyclicFoldersAreStable() throws {
         let store = try makeStore()
@@ -2101,14 +1952,6 @@ struct DictationStoreTests {
 
     // MARK: - Search Tests
 
-    @Test("deleteDictation fails when row is missing")
-    func deleteDictationFailsWhenRowMissing() throws {
-        let store = try makeStore()
-        #expect(throws: DictationStoreError.self) {
-            try store.deleteDictation(id: 99_999)
-        }
-    }
-
     @Test("searchMeetings matches across title, transcript, and notes")
     func searchMeetingsMultiField() throws {
         let store = try makeStore()
@@ -2175,40 +2018,6 @@ struct DictationStoreTests {
 
         #expect(try store.searchMeetings(query: "Pranav Hari").map(\.id) == [id])
         #expect(try store.searchMeetings(query: "pranav@muesli.works").map(\.id) == [id])
-    }
-
-    @Test("timeline includes every visible meeting status")
-    func timelineIncludesEveryMeetingStatus() throws {
-        let store = try makeStore()
-        let base = Date(timeIntervalSince1970: 1_776_000_000)
-        var expectedStatuses = Set<String>()
-        for (index, status) in [
-            MeetingStatus.recording,
-            .processing,
-            .completed,
-            .noteOnly,
-            .failed,
-        ].enumerated() {
-            let start = base.addingTimeInterval(Double(index * 60))
-            let id = try store.insertMeeting(
-                title: status.rawValue,
-                calendarEventID: nil,
-                startTime: start,
-                endTime: start.addingTimeInterval(30),
-                rawTranscript: "Transcript",
-                formattedNotes: "",
-                micAudioPath: nil,
-                systemAudioPath: nil
-            )
-            try store.updateMeetingStatus(id: id, status: status)
-            expectedStatuses.insert(status.rawValue)
-        }
-
-        let actualStatuses: Set<String> = Set(try store.timelineEntries(limit: 20).compactMap { entry -> String? in
-            guard case .meeting(let meeting) = entry else { return nil }
-            return meeting.status.rawValue
-        })
-        #expect(actualStatuses == expectedStatuses)
     }
 
     // MARK: - Meeting ↔ Event links

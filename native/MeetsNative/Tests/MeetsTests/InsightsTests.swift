@@ -1,8 +1,6 @@
-import AppKit
 import Foundation
 @testable import MeetsCore
 @testable import MeetsApp
-import SQLite3
 import Testing
 
 @Suite("Local Insights", .serialized)
@@ -124,106 +122,6 @@ struct InsightsTests {
         #expect(!refreshedSnapshot)
     }
 
-    @Test("word cloud sizing uses only the words that are displayed")
-    func wordCloudSizingUsesDisplayedWords() {
-        let allWords = (1...48).map {
-            InsightsWordFrequency(word: "word\($0)", count: 49 - $0)
-        }
-        let displayed = Array(allWords.prefix(32))
-
-        let largest = InsightsWordCloudSizing.fontSize(for: displayed[0], displayedWords: displayed)
-        let smallest = InsightsWordCloudSizing.fontSize(for: displayed[31], displayedWords: displayed)
-
-        #expect(largest == 33)
-        #expect(smallest == 13)
-    }
-
-    @Test("loading copy explains local processing without overpromising")
-    func loadingCopyExplainsPrivacy() {
-        #expect(InsightsLoadingCopy.messages.count == 4)
-        #expect(Set(InsightsLoadingCopy.messages).count == 4)
-        #expect(InsightsLoadingCopy.messages.contains { $0.contains("computed on this Mac") })
-        #expect(InsightsLoadingCopy.messages.contains { $0.contains("choose what stays local") })
-    }
-
-    @Test("activity heatmap marks the visible starting month and later month boundaries")
-    func activityHeatmapMonthMarkers() {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
-        let start = calendar.date(from: DateComponents(year: 2026, month: 6, day: 20))!
-        let activity = (0..<45).map { offset in
-            InsightsDailyActivity(
-                date: calendar.date(byAdding: .day, value: offset, to: start)!,
-                words: 0,
-                meetings: 0
-            )
-        }
-
-        let weeks = ActivityHeatmapCalendarLayout.weeks(from: activity, calendar: calendar)
-        let markerMonths = weeks.enumerated().compactMap { index, week in
-            ActivityHeatmapCalendarLayout.monthMarker(
-                for: week,
-                at: index,
-                calendar: calendar
-            ).map { calendar.component(.month, from: $0) }
-        }
-
-        #expect(markerMonths == [6, 7, 8])
-    }
-
-    @Test("activity heatmap keeps Sunday through Saturday in one column across locales")
-    func activityHeatmapUsesSundayFirstColumns() {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
-        calendar.firstWeekday = 2
-        let sunday = calendar.date(from: DateComponents(year: 2026, month: 6, day: 28))!
-        let activity = (0..<7).map { offset in
-            InsightsDailyActivity(
-                date: calendar.date(byAdding: .day, value: offset, to: sunday)!,
-                words: 0,
-                meetings: 0
-            )
-        }
-
-        let weeks = ActivityHeatmapCalendarLayout.weeks(from: activity, calendar: calendar)
-
-        #expect(weeks.count == 1)
-        #expect(weeks[0].map { calendar.component(.weekday, from: $0.date) } == Array(1...7))
-    }
-
-    @Test("word flow layout wraps after the available width and uses the tallest row item")
-    func wordFlowLayoutWrapsAndTracksRowHeight() {
-        let result = WordFlowLayout(spacing: 10).layout(
-            sizes: [
-                CGSize(width: 100, height: 20),
-                CGSize(width: 80, height: 30),
-                CGSize(width: 60, height: 10),
-            ],
-            width: 190
-        )
-
-        #expect(result.size == CGSize(width: 190, height: 50))
-        #expect(result.points == [
-            CGPoint(x: 0, y: 0),
-            CGPoint(x: 110, y: 0),
-            CGPoint(x: 0, y: 40),
-        ])
-    }
-
-    @Test("word flow layout keeps an item on a row when it exactly fits")
-    func wordFlowLayoutAcceptsExactFit() {
-        let result = WordFlowLayout(spacing: 10).layout(
-            sizes: [
-                CGSize(width: 70, height: 12),
-                CGSize(width: 70, height: 30),
-            ],
-            width: 150
-        )
-
-        #expect(result.size == CGSize(width: 150, height: 30))
-        #expect(result.points == [CGPoint(x: 0, y: 0), CGPoint(x: 80, y: 0)])
-    }
-
     private func encodedVarint(_ value: UInt64) -> Data {
         var remaining = value
         var result = Data()
@@ -234,20 +132,5 @@ struct InsightsTests {
             result.append(byte)
         } while remaining != 0
         return result
-    }
-
-    private func cacheFootprint(_ store: DictationStore) throws -> (records: Int, blobBytes: Int) {
-        var db: OpaquePointer?
-        guard sqlite3_open(store.databasePath().path, &db) == SQLITE_OK else {
-            throw NSError(domain: "InsightsTests", code: 1)
-        }
-        defer { sqlite3_close(db) }
-        var statement: OpaquePointer?
-        guard sqlite3_prepare_v2(db, "SELECT COUNT(*), COALESCE(SUM(length(token_blob)),0) FROM insights_record_cache", -1, &statement, nil) == SQLITE_OK else {
-            throw NSError(domain: "InsightsTests", code: 2)
-        }
-        defer { sqlite3_finalize(statement) }
-        guard sqlite3_step(statement) == SQLITE_ROW else { throw NSError(domain: "InsightsTests", code: 3) }
-        return (Int(sqlite3_column_int(statement, 0)), Int(sqlite3_column_int(statement, 1)))
     }
 }

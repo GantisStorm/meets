@@ -19,14 +19,17 @@ struct ACPClientTests {
 
     @Test("model override is sent as set_config_option before the prompt")
     func modelOverrideSendsConfigOption() async throws {
+        // Requests one of the two models the fake advertises, and one that is
+        // not its current value: ACPClient only sends values the agent
+        // currently offers and only when they differ from `currentValue`.
         let scriptURL = try makeFakeAgent(mode: "config", expectedConfig: [
-            ["model", "command-code/deepseek/deepseek-v4-flash"],
+            ["model", "anthropic/claude-fable-5"],
         ])
         let text = try await ACPClient.summarize(
             instructions: "You are a notes assistant.",
             userPrompt: "Summarize this.",
             command: scriptURL.path,
-            model: "command-code/deepseek/deepseek-v4-flash",
+            model: "anthropic/claude-fable-5",
             timeout: 20
         )
         #expect(text == "Hello world")
@@ -34,15 +37,18 @@ struct ACPClientTests {
 
     @Test("model and thinking overrides apply in order")
     func modelAndThinkingOverridesApplyInOrder() async throws {
+        // The model must differ from the fake's `currentValue`
+        // ("anthropic/claude-sonnet-5"); a value equal to currentValue is
+        // deliberately not sent, so requesting it would prove nothing here.
         let scriptURL = try makeFakeAgent(mode: "config", expectedConfig: [
-            ["model", "anthropic/claude-sonnet-5"],
+            ["model", "anthropic/claude-fable-5"],
             ["thinking", "xhigh"],
         ])
         let text = try await ACPClient.summarize(
             instructions: "You are a notes assistant.",
             userPrompt: "Summarize this.",
             command: scriptURL.path,
-            model: "anthropic/claude-sonnet-5",
+            model: "anthropic/claude-fable-5",
             thinking: "xhigh",
             timeout: 20
         )

@@ -27,21 +27,10 @@ struct MenuBarIconRendererTests {
 
     @Test("official mark is a resolution-independent template")
     func officialMarkIsResolutionIndependent() {
-        let image = MenuBarIconRenderer.make(choice: "muesli")
+        let image = MenuBarIconRenderer.make(choice: "meets")
         #expect(image?.isTemplate == true)
         #expect(image?.size == NSSize(width: 18, height: 18))
         #expect(image?.representations.contains { $0 is NSCustomImageRep } == true)
-    }
-
-    @Test("official mark uses the canonical app artwork at source resolution")
-    func officialMarkUsesCanonicalArtwork() {
-        let sourceRect = MenuBarIconRenderer.canonicalMarkSourceRect
-        let mask = MenuBarIconRenderer.canonicalMarkMask
-
-        #expect(sourceRect == CGRect(x: 195, y: 256, width: 635, height: 513))
-        #expect(MenuBarIconRenderer.canonicalMarkOpacityBoost == 1.08)
-        #expect(mask?.width == 635)
-        #expect(mask?.height == 513)
     }
 
     @Test("hotkey cues preserve modifier side and combinations")

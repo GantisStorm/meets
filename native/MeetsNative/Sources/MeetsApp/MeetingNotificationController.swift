@@ -32,6 +32,15 @@ final class MeetingNotificationController: NSObject, UNUserNotificationCenterDel
 
     private static let dismissDuration: TimeInterval = 15
 
+    /// `UNUserNotificationCenter.current()` is only valid inside a real app
+    /// bundle: outside one (SwiftPM test runners, CLI hosts) it raises an
+    /// Objective-C exception instead of returning nil, so every call site
+    /// goes through this accessor and no-ops when unavailable.
+    private static var notificationCenter: UNUserNotificationCenter? {
+        guard Bundle.main.bundleIdentifier != nil else { return nil }
+        return UNUserNotificationCenter.current()
+    }
+
     static func suppressesCloseCallbackDuringAutoDismiss(hasAutoDismissHandler: Bool) -> Bool {
         hasAutoDismissHandler
     }
@@ -42,7 +51,7 @@ final class MeetingNotificationController: NSObject, UNUserNotificationCenterDel
 
     override init() {
         super.init()
-        UNUserNotificationCenter.current().delegate = self
+        Self.notificationCenter?.delegate = self
     }
 
     /// Requests notification authorization if never asked. Called when the
@@ -50,7 +59,7 @@ final class MeetingNotificationController: NSObject, UNUserNotificationCenterDel
     func ensureNotificationAuthorization() {
         guard !Self.didRequestAuthorization else { return }
         Self.didRequestAuthorization = true
-        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { granted, error in
+        Self.notificationCenter?.requestAuthorization(options: [.alert, .sound]) { granted, error in
             if let error {
                 Self.logger.error("notification authorization failed: \(error.localizedDescription, privacy: .public)")
             } else {
@@ -130,7 +139,7 @@ final class MeetingNotificationController: NSObject, UNUserNotificationCenterDel
         addAction(id: "dismiss", title: "Dismiss") { [weak self] in self?.handleDismissAction() }
         // Only one prompt is ever live (show() closes the previous first),
         // so the category set is replaced wholesale: no accumulation.
-        UNUserNotificationCenter.current().setNotificationCategories([
+        Self.notificationCenter?.setNotificationCategories([
             UNNotificationCategory(identifier: categoryID, actions: actions, intentIdentifiers: [], options: [])
         ])
         self.actionHandlers = handlers
@@ -142,7 +151,7 @@ final class MeetingNotificationController: NSObject, UNUserNotificationCenterDel
         content.categoryIdentifier = categoryID
         content.sound = .default
         let request = UNNotificationRequest(identifier: deliveredID, content: content, trigger: nil)
-        UNUserNotificationCenter.current().add(request) { [weak self] error in
+        Self.notificationCenter?.add(request) { [weak self] error in
             guard let self else { return }
             if let error {
                 Task { @MainActor [weak self] in
@@ -172,7 +181,7 @@ final class MeetingNotificationController: NSObject, UNUserNotificationCenterDel
         removalTask?.cancel()
         removalTask = nil
         if let deliveredID {
-            UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: [deliveredID])
+            Self.notificationCenter?.removeDeliveredNotifications(withIdentifiers: [deliveredID])
         }
         deliveredID = nil
         actionHandlers = [:]

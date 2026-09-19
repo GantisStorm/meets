@@ -48,7 +48,7 @@ struct MeetsCLITests {
         )
 
         #expect(context.supportDirectory.path == "/tmp/muesli-support")
-        #expect(context.databaseURL.path == "/tmp/muesli-support/muesli.db")
+        #expect(context.databaseURL.path == "/tmp/muesli-support/meets.db")
     }
 
     @Test("summary config reads the app's persisted OpenRouter selection and protected credential")

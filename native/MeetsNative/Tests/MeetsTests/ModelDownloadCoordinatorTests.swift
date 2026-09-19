@@ -828,7 +828,7 @@ struct ModelDownloadCoordinatorTests {
             mirror: MeetsModelMirror(manifestURL: try #require(URL(string: "https://assets.muesli.works/models/acme/asr/mirror-v1/manifest.json")))
         )
         let interruptedFallback = root.appendingPathComponent(
-            ".model.muesli-mirror-fallback-interrupted",
+            ".model.meets-mirror-fallback-interrupted",
             isDirectory: true
         )
         try FileManager.default.createDirectory(at: interruptedFallback, withIntermediateDirectories: true)

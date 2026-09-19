@@ -142,7 +142,7 @@ struct MeetingNeuralAecTests {
     @Test("LocalVQE bridge rejects empty model path")
     func localVQEBridgeRejectsEmptyModelPath() {
         var error = [CChar](repeating: 0, count: 512)
-        let context = muesli_localvqe_create("", "", 2, &error, Int32(error.count))
+        let context = meets_localvqe_create("", "", 2, &error, Int32(error.count))
         #expect(context == nil)
         #expect(String(cString: error).contains("model path"))
     }
@@ -153,7 +153,7 @@ struct MeetingNeuralAecTests {
             .appendingPathComponent("missing-\(UUID().uuidString).gguf")
         try Data().write(to: modelURL)
         var error = [CChar](repeating: 0, count: 512)
-        let context = muesli_localvqe_create(
+        let context = meets_localvqe_create(
             modelURL.path,
             "/tmp/muesli-missing-localvqe-\(UUID().uuidString).dylib",
             2,

@@ -30,7 +30,9 @@ struct OpenRouterAuthTests {
         let second = auth.generateCallbackPath()
 
         #expect(first.hasPrefix("/meets/openrouter/oauth/"))
-        #expect(first.count >= 68)
+        // 24-character "/meets/openrouter/oauth/" prefix plus 32 random bytes
+        // encoded as 43 unpadded base64url characters.
+        #expect(first.count == 67)
         #expect(first != second)
     }
 

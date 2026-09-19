@@ -197,6 +197,45 @@ public final class DictationStore {
         if sqlite3_exec(db, "ALTER TABLE meetings ADD COLUMN include_notes_in_summary INTEGER NOT NULL DEFAULT 0", nil, nil, nil) != SQLITE_OK {
             // Column may already exist.
         }
+        // Columns added upstream after the original meetings schema shipped.
+        // Databases created before them (including pre-fork libraries) need the
+        // ALTER path or later queries fail with "no such column".
+        for sql in [
+            "ALTER TABLE meetings ADD COLUMN updated_at REAL NOT NULL DEFAULT 0",
+            "ALTER TABLE meetings ADD COLUMN calendar_occurrence_key TEXT",
+            "ALTER TABLE meetings ADD COLUMN calendar_source TEXT",
+            "ALTER TABLE meetings ADD COLUMN calendar_id TEXT",
+            "ALTER TABLE meetings ADD COLUMN calendar_series_id TEXT",
+            "ALTER TABLE meetings ADD COLUMN calendar_occurrence_start REAL",
+            "ALTER TABLE meetings ADD COLUMN follow_up_to_id INTEGER REFERENCES meetings(id) ON DELETE SET NULL",
+            "ALTER TABLE meeting_participants ADD COLUMN source TEXT NOT NULL DEFAULT 'manual'",
+            "ALTER TABLE meeting_participants ADD COLUMN is_suppressed INTEGER NOT NULL DEFAULT 0",
+        ] {
+            if sqlite3_exec(db, sql, nil, nil, nil) != SQLITE_OK {
+                // ADD COLUMN has no IF NOT EXISTS, so a duplicate column is the
+                // normal result on an up-to-date database. Anything else means
+                // the column is genuinely missing and callers need to hear
+                // about it rather than fail later on "no such column".
+                guard String(cString: sqlite3_errmsg(db)).contains("duplicate column name") else {
+                    throw lastError(db)
+                }
+            }
+        }
+        // Calendar metadata is not a meeting identity: one occurrence may be
+        // recorded more than once, and recurring providers may reuse ids.
+        // Replace the legacy uniqueness constraint with lookup-only indexes.
+        try exec(
+            """
+            DROP INDEX IF EXISTS idx_meetings_calendar_event_id;
+            CREATE INDEX IF NOT EXISTS idx_meetings_calendar_event_lookup
+                ON meetings(calendar_event_id)
+                WHERE calendar_event_id IS NOT NULL;
+            CREATE INDEX IF NOT EXISTS idx_meetings_calendar_occurrence_key
+                ON meetings(calendar_occurrence_key)
+                WHERE calendar_occurrence_key IS NOT NULL;
+            """,
+            db: db
+        )
         // Clean up legacy pre-meeting tables and sync columns from databases
         // created by earlier Muesli versions.
         for table in ["dictations", "computer_use_traces", "cloud_sync_state", "local_migrations"] {
@@ -216,6 +255,7 @@ public final class DictationStore {
         // with "no such table: insights_cache_meta".
         try migrateInsightsCache(db: db)
         try migrateMeetingEventLinks(db: db)
+        try deduplicateMeetingEventLinks(db: db)
     }
 
     /// Widens meeting_event_links to PRIMARY KEY (meeting_id, event_id,
@@ -253,6 +293,25 @@ public final class DictationStore {
         DROP TABLE meeting_event_links_legacy;
         CREATE INDEX IF NOT EXISTS idx_meeting_event_links_event
             ON meeting_event_links(event_id);
+        """, db: db)
+    }
+
+    /// Collapses duplicate "Add to Event" rows and keeps them from coming back.
+    /// SQLite treats NULLs as distinct inside a PRIMARY KEY, so the widened
+    /// `(meeting_id, event_id, occurrence_key)` key does not dedupe links
+    /// without an occurrence (the common case for one-off events). The
+    /// COALESCE-based unique index closes that hole: `INSERT OR IGNORE` now
+    /// ignores a repeat attach of the same pair.
+    private func deduplicateMeetingEventLinks(db: OpaquePointer?) throws {
+        try exec("""
+        DELETE FROM meeting_event_links
+        WHERE rowid NOT IN (
+            SELECT MIN(rowid)
+            FROM meeting_event_links
+            GROUP BY meeting_id, event_id, COALESCE(occurrence_key, '')
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_meeting_event_links_identity
+            ON meeting_event_links(meeting_id, event_id, COALESCE(occurrence_key, ''));
         """, db: db)
     }
 

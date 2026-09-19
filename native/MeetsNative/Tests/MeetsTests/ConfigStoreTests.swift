@@ -12,7 +12,7 @@ struct ConfigStoreTests {
         defer { try? FileManager.default.removeItem(at: supportDirectory) }
         let store = ConfigStore(supportDirectory: supportDirectory)
         let config = store.load()
-        #expect(HotkeyConfig.label(for: config.dictationHotkey.keyCode) != nil)
+        #expect(!config.meetingRecordingHotkey.displayLabel.isEmpty)
         #expect(!config.sttBackend.isEmpty)
     }
 
