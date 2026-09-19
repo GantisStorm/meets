@@ -568,14 +568,11 @@ extension AppleIntelligenceBackend {
                 options: GenerationOptions(maximumResponseTokens: mode.outputReserveTokens)
             )
             return response.content
-        } catch let error as LanguageModelError {
-            switch error {
-            case .contextSizeExceeded:
-                throw AppleIntelligenceError.contextOverflow(contextSize: SystemLanguageModel.default.contextSize)
-            default:
-                throw AppleIntelligenceError.generationFailed(error.localizedDescription)
-            }
         } catch {
+            // `LanguageModelError` ships in the macOS 27 SDK only, and this
+            // adapter must also build against the macOS 26.5 SDK, so framework
+            // failures map generically here. Proactive token budgeting keeps
+            // each request inside the context window.
             throw AppleIntelligenceError.generationFailed(error.localizedDescription)
         }
     }

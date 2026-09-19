@@ -1054,6 +1054,10 @@ extension MeetingSummaryBackendOption {
         case .customLLM: return \.customLLMModel
         case .acpAgent: return \.acpAgentModel
         case .appleIntelligence: return nil
+        // `MeetingSummaryBackendOption` is a string-backed value type, so the
+        // compiler cannot prove this switch exhaustive. Unknown providers store
+        // no model, matching the on-device provider above.
+        default: return nil
         }
     }
 
