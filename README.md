@@ -22,25 +22,25 @@ Instead, I pointed coding agents at it. We removed features, renamed everything,
 
 The app is native Swift, SwiftUI, and AppKit. Even the questionable decisions are native.
 
-## What survived the simplification
+## Features
 
-| Thing | What it actually does |
+| Feature | Description |
 | --- | --- |
 | Meeting capture | Records mic + system audio, with echo cancellation, timestamps, and remote-speaker diarization. No bot joins the call. |
 | Local transcription | Parakeet, Whisper, Qwen3 ASR, SenseVoice, Bodhan, Cohere Transcribe, and Nemotron options. Requirements and language coverage vary. |
 | Live transcripts | Optional Apple Speech on macOS 26+ or Nemotron for live/final transcripts; Parakeet Realtime previews alongside a separate final model. Off by default. |
 | Notes | Summaries, titles, optional cleanup, manual notes, templates, folders, audio import, and Markdown/PDF export. |
 | Calendar | Reads calendars configured in macOS, shows upcoming meetings, and offers join/record actions. |
-| Insights | Activity heatmaps, usage statistics, and share cards. We removed features and added a dashboard about the remaining features. |
+| Insights | Activity heatmaps, usage statistics, and share cards for the selected date range. |
 | Automation | A bundled CLI, optional post-meeting executable hooks, and Shortcuts actions in Xcode-built apps. |
 
-The Dictionary screen was removed. Dictionary support remains in the CLI. The recording indicator now appears only while preparing, recording/paused, or transcribing. It has been relieved of its previous duty of simply being there.
+The app does not include a Dictionary screen; dictionary support remains available through the CLI. The recording indicator appears during preparation, recording, pause, and transcription, and is hidden while idle.
 
-## Naturally, there are several AI options
+## Summary and cleanup providers
 
-One model hears the meeting. Another can summarize or clean up the text. Choosing a cloud summary provider does not move speech recognition to the cloud.
+Speech recognition and text generation are configured separately. Speech-to-text runs locally; summaries and transcript cleanup use the selected text provider.
 
-| Text provider | Where the text goes | Setup |
+| Text provider | Processing location | Requirements |
 | --- | --- | --- |
 | **Apple Intelligence** | On-device, through Foundation Models | This adapter requires **macOS 27+**, an eligible Mac, Apple Intelligence enabled, and a ready system model. No API key. |
 | **ChatGPT** | OpenAI's service | Sign-in and compatible account access. Provider limits apply. |
@@ -52,25 +52,25 @@ One model hears the meeting. Another can summarize or clean up the text. Choosin
 
 Apple Intelligence handles summaries, titles, and cleanup, with chunking for long transcripts. It does not call Siri or use Private Cloud Compute. The macOS 27 requirement belongs to this adapter; the base app still targets 14.2. Shortcuts/Siri actions are a separate integration.
 
-Read important summaries against the transcript. A model can invent an action item with exactly the same confidence it uses to announce that it has fixed a bug.
+Generated summaries and action items may contain errors. Verify important details against the transcript or recording.
 
-## Privacy: the paragraph the word “local” was hoping to skip
+## Privacy and data handling
 
 Audio capture and speech-to-text run on your Mac. Meetings, notes, transcripts, and recordings live under `~/Library/Application Support/Meets/`; models use local caches. Dev builds have separate support directories.
 
-The rest depends on your settings:
+Network use and data transfers depend on the configured features:
 
 - **Cloud summaries and cleanup send text to the selected provider**, including any context you include. Optional screen/window context can become part of that request.
-- **Ollama, LM Studio, custom endpoints, ACP agents, and hooks** process data wherever you configure them to. A server does not become local because the dropdown has a friendly name.
+- **Ollama, LM Studio, custom endpoints, ACP agents, and hooks** process data through the configured endpoint or executable. Remote endpoints and external agents may transfer meeting text off-device.
 - **iCloud support** syncs text and metadata, not audio. It needs a provisioned CloudKit build. This repo does not supply a hosted sync service or a companion iPhone release.
-- **Downloads and update checks** use the network. Models do not materialize through commitment to open source.
-- **TelemetryDeck is in the code.** Packaging scripts configure public routing IDs inherited from upstream; unconfigured direct builds disable it. See [development telemetry](CONTRIBUTING.md#telemetry-in-development). “Zero telemetry” would be a lovely badge and an inaccurate one.
+- **Model downloads and update checks** require network access.
+- **Telemetry:** the app includes TelemetryDeck. Packaging scripts configure public routing IDs inherited from upstream; unconfigured direct builds disable telemetry. See [development telemetry](CONTRIBUTING.md#telemetry-in-development).
 
 Grant microphone and system-audio/screen-recording permissions for capture, Calendar access for calendar features, and Accessibility/Input Monitoring where requested for context and global controls. Record people with their knowledge and appropriate consent.
 
 ## Build it
 
-There is a logo at the top and no download button. You have correctly identified the development stage.
+No binary release or official Homebrew cask is currently available. Build from source using the requirements below.
 
 **Runtime:** Apple Silicon, macOS 14.2+. Some features need newer macOS.
 
@@ -91,11 +91,11 @@ The LocalVQE model alone is insufficient: packaging needs `liblocalvqe` and its 
 
 Build caches use `~/Library/Caches/meets-spm`. Give concurrent worktrees separate scratch paths. More in [CONTRIBUTING.md](CONTRIBUTING.md) and [AGENTS.md](AGENTS.md).
 
-Release signing, feeds, model mirrors, and cloud services need maintainer setup before a public binary release. A URL in a shell script is not deployed infrastructure. This distinction has been added to the documentation for reasons you are welcome to infer.
+Release signing, update feeds, model mirrors, and cloud services require maintainer configuration before a public binary release. Endpoint references in the release scripts do not indicate that those services are deployed.
 
-## “Done” is not a test result
+## Validation
 
-Cheap checks:
+Repository and release-metadata checks:
 
 ```bash
 ./scripts/test_classify_changed_files.sh
@@ -110,9 +110,9 @@ swift test --package-path native/MeetsNative \
   --scratch-path "$HOME/Library/Caches/meets-spm/test"
 ```
 
-At source launch, the production build and packaged CLI checks passed. The full Swift suite was blocked on that host by a CLT/Swift Testing deployment mismatch: `Testing` required macOS 26 while the package targeted 14.2. **That is not a passing test suite.** Please retain this distinction even if a coding agent ends its response with a green checkmark.
+At source launch, the production build and packaged CLI checks passed. The full Swift suite was blocked on that host by a CLT/Swift Testing deployment mismatch: `Testing` required macOS 26 while the package targeted 14.2. The full suite has therefore not been verified on that host.
 
-## For agents investigating their own work
+## CLI
 
 The bundled `meets-cli` exposes meeting data, local file transcription, and a machine-readable command contract. Data commands use JSON; `transcribe` prints plain text by default.
 
@@ -123,14 +123,12 @@ The bundled `meets-cli` exposes meeting data, local file transcription, and a ma
 /Applications/Meets.app/Contents/MacOS/meets-cli transcribe recording.m4a
 ```
 
-See the [CLI contract](skills/meets-agent/references/cli-contract.md) and [agent skill](skills/meets-agent/SKILL.md). The CLI runs locally. Whatever agent you hand the transcript to has its own data handling. We cannot make that private by adding another adjective to this README.
+See the [CLI contract](skills/meets-agent/references/cli-contract.md) and [agent skill](skills/meets-agent/SKILL.md). The CLI runs locally. External agents receiving its output are subject to their own data-handling policies.
 
-## Credit where the code came from
+## Attribution and license
 
 **[Muesli](https://github.com/Muesli-HQ/muesli), by Pranav Hari and contributors**, is the upstream project. Its history and MIT copyright notice are retained. This is an independent fork maintained by **[GantisStorm](https://github.com/GantisStorm)**, not an official Muesli release.
 
-The self-roasting here is directed at this fork and its process. Upstream did not ask to be cast in my experiment in managing software development through increasingly specific complaints.
-
 [MIT license](LICENSE) · [NOTICE](NOTICE) · [Contributing](CONTRIBUTING.md). Dependencies and downloaded models have their own licenses.
 
-Bug reports welcome. Include reproduction steps and sanitized logs. The agent saying “fixed” is not a reproduction step, although it may be how you got here.
+Report issues with reproduction steps, expected and actual behavior, app and macOS versions, and sanitized logs. Remove meeting content and credentials before sharing diagnostics.
