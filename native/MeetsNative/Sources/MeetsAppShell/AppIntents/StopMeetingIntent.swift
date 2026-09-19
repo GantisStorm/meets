@@ -5,7 +5,7 @@ import MeetsApp
 struct StopMeetingIntent: AppIntent {
     static var title: LocalizedStringResource = "Stop Meeting Recording"
     static var description = IntentDescription("Stops the in-progress Meets meeting recording.")
-    // Ask the system to launch Muesli before performing so the in-process
+    // Ask the system to launch Meets before performing so the in-process
     // controller exists; without this a closed app makes the wait time out.
     static var openAppWhenRun: Bool { true }
 

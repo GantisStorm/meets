@@ -80,7 +80,7 @@ struct MeetingFollowUpThreadTests {
     /// Creates a DictationStore backed by a temporary database file.
     private func makeStore() throws -> DictationStore {
         let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("muesli-followup-test-\(UUID().uuidString).db")
+            .appendingPathComponent("meets-followup-test-\(UUID().uuidString).db")
         let store = DictationStore(databaseURL: url)
         try store.migrateIfNeeded()
         return store
@@ -88,7 +88,7 @@ struct MeetingFollowUpThreadTests {
 
     private func makeLegacyStoreWithMeeting() throws -> DictationStore {
         let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("muesli-followup-legacy-test-\(UUID().uuidString).db")
+            .appendingPathComponent("meets-followup-legacy-test-\(UUID().uuidString).db")
         var db: OpaquePointer?
         guard sqlite3_open(url.path, &db) == SQLITE_OK else {
             throw NSError(domain: "MeetingFollowUpTests", code: 1)

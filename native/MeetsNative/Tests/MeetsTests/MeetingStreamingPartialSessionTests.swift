@@ -120,7 +120,7 @@ struct MeetingStreamingPartialSessionTests {
             }
         }
 
-        let partialState = directory.appendingPathComponent(".muesli-download-state.json")
+        let partialState = directory.appendingPathComponent(".meets-download-state.json")
         try Data("{}".utf8).write(to: partialState)
         #expect(!MeetingLiveCaptionModelStore.isDownloaded(in: root))
         try FileManager.default.removeItem(at: partialState)

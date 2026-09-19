@@ -4,7 +4,7 @@ import Testing
 
 @Suite("ChatGPT Responses transport")
 struct ChatGPTResponsesTransportTests {
-    @Test("builds Codex Responses requests with honest Muesli identity")
+    @Test("builds Codex Responses requests with honest Meets identity")
     func buildsCodexRequest() throws {
         let sessionID = UUID(uuidString: "8AF070D8-956D-4706-9FF8-8140CE7F6B2D")!
         let request = try ChatGPTResponsesTransport.makeRequest(
@@ -23,7 +23,7 @@ struct ChatGPTResponsesTransportTests {
         #expect(request.value(forHTTPHeaderField: "Accept") == "text/event-stream")
         #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer access-token")
         #expect(request.value(forHTTPHeaderField: "ChatGPT-Account-Id") == "account-123")
-        #expect(request.value(forHTTPHeaderField: "originator") == "muesli")
+        #expect(request.value(forHTTPHeaderField: "originator") == "meets")
         #expect(request.value(forHTTPHeaderField: "version") == nil)
         #expect(request.value(forHTTPHeaderField: "User-Agent") == "Meets/1.2.3")
         #expect(request.value(forHTTPHeaderField: "session_id") == sessionID.uuidString.lowercased())
@@ -47,7 +47,7 @@ struct ChatGPTResponsesTransportTests {
         )
 
         #expect(request.value(forHTTPHeaderField: "ChatGPT-Account-Id") == nil)
-        #expect(request.value(forHTTPHeaderField: "originator") == "muesli")
+        #expect(request.value(forHTTPHeaderField: "originator") == "meets")
         #expect(request.value(forHTTPHeaderField: "version") == nil)
     }
 

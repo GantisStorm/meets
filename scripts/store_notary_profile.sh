@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-PROFILE_NAME="${1:-${MUESLI_NOTARY_PROFILE:-MuesliNotary}}"
-APPLE_ID="${APPLE_ID:-${MUESLI_APPLE_ID:-}}"
-TEAM_ID="${APPLE_TEAM_ID:-${MUESLI_TEAM_ID:-58W55QJ567}}"
-APP_PASSWORD="${APPLE_APP_SPECIFIC_PASSWORD:-${MUESLI_APP_SPECIFIC_PASSWORD:-}}"
+PROFILE_NAME="${1:-${MEETS_NOTARY_PROFILE:-MeetsNotary}}"
+APPLE_ID="${APPLE_ID:-${MEETS_APPLE_ID:-}}"
+TEAM_ID="${APPLE_TEAM_ID:-${MEETS_TEAM_ID:-58W55QJ567}}"
+APP_PASSWORD="${APPLE_APP_SPECIFIC_PASSWORD:-${MEETS_APP_SPECIFIC_PASSWORD:-}}"
 
 if [[ -z "$APPLE_ID" ]]; then
-  echo "Set APPLE_ID or MUESLI_APPLE_ID before storing a notary profile." >&2
+  echo "Set APPLE_ID or MEETS_APPLE_ID before storing a notary profile." >&2
   exit 1
 fi
 

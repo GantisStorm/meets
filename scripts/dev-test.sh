@@ -3,36 +3,36 @@ set -euo pipefail
 
 # Builds and launches an isolated dev app for end-to-end testing.
 #
-# - Separate bundle ID (com.muesli.dev*) — won't interfere with production Muesli
-# - Separate data directory (~/Library/Application Support/MuesliDev*/)
+# - Separate bundle ID (com.meets.dev*) — won't interfere with production Meets
+# - Separate data directory (~/Library/Application Support/MeetsDev*/)
 # - Preserves existing dev config and database by default
 # - Dev builds default to local-only entitlements to preserve existing TCC
 #   permissions and avoid requiring Apple Developer profiles
 # - CloudKit/APNs dev signing is opt-in with --cloud-entitlements
-# - External contributors can set MUESLI_SKIP_SIGN=1 to build without the
+# - External contributors can set MEETS_SKIP_SIGN=1 to build without the
 #   maintainer signing certificate
 # - Uses a shared, worktree-isolated SwiftPM scratch path by default; set
-#   MUESLI_DISABLE_SWIFTPM_SCRATCH_PATH=1 to use package-local .build instead
-# - Installs to /Applications/MuesliDev*.app
+#   MEETS_DISABLE_SWIFTPM_SCRATCH_PATH=1 to use package-local .build instead
+# - Installs to /Applications/MeetsDev*.app
 #
 # Usage:
-#   ./scripts/dev-test.sh                         # Build and launch MuesliDev
-#   ./scripts/dev-test.sh --lane A                # Build and launch MuesliDevA
+#   ./scripts/dev-test.sh                         # Build and launch MeetsDev
+#   ./scripts/dev-test.sh --lane A                # Build and launch MeetsDevA
 #   ./scripts/dev-test.sh --lane A --local-only   # Omit iCloud/APNs entitlements
 #   ./scripts/dev-test.sh --reset                 # Reset onboarding only (keeps data)
-#   MUESLI_PROVISIONING_PROFILE=/path/to/profile.provisionprofile \
-#   MUESLI_SIGN_IDENTITY="Apple Development: Name (TEAMID)" \
-#   MUESLI_CODESIGN_TIMESTAMP=none ./scripts/dev-test.sh --cloud-entitlements
+#   MEETS_PROVISIONING_PROFILE=/path/to/profile.provisionprofile \
+#   MEETS_SIGN_IDENTITY="Apple Development: Name (TEAMID)" \
+#   MEETS_CODESIGN_TIMESTAMP=none ./scripts/dev-test.sh --cloud-entitlements
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-source "$ROOT/scripts/muesli_telemetry_channels.sh"
+source "$ROOT/scripts/meets_telemetry_channels.sh"
 
 usage() {
   cat <<'EOF'
-Build and launch a local Muesli dev app.
+Build and launch a local Meets dev app.
 
 Options:
-  --lane A|B|C            Build a fixed reusable dev lane: MuesliDevA/B/C.
+  --lane A|B|C            Build a fixed reusable dev lane: MeetsDevA/B/C.
   --local-only            Sign without iCloud/APNs entitlements.
                           Alias: --without-cloud-entitlements.
   --cloud-entitlements    Sign with the default cloud entitlements file.
@@ -40,17 +40,17 @@ Options:
   --reset                 Reset onboarding only for the selected lane.
   --help                  Show this help text.
 
-Default behavior without --lane is unchanged for the app identity: MuesliDev,
-com.muesli.dev, ~/Library/Application Support/MuesliDev, and
-/Applications/MuesliDev.app. Dev builds use local-only entitlements unless
+Default behavior without --lane is unchanged for the app identity: MeetsDev,
+com.meets.dev, ~/Library/Application Support/MeetsDev, and
+/Applications/MeetsDev.app. Dev builds use local-only entitlements unless
 --cloud-entitlements is provided.
 
 Cloud-entitled dev builds require a provisioning profile whose app identifier
 matches the selected bundle ID and a signing identity included by that profile.
-Cloud-entitled MuesliDev builds always use the CloudKit Development environment;
+Cloud-entitled MeetsDev builds always use the CloudKit Development environment;
 only production/preproduction release builds may use CloudKit Production.
-For the maintainer's plain MuesliDev lane, this script auto-selects the local
-com.muesli.dev CloudKit profile from ../muesli-ios/secrets when
+For the maintainer's plain MeetsDev lane, this script auto-selects the local
+com.meets.dev CloudKit profile from ../meets-ios/secrets when
 --cloud-entitlements is provided and the profile exists.
 EOF
 }
@@ -63,7 +63,7 @@ ENTITLEMENTS_MODE_EXPLICIT=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --clean)
-      echo "Error: --clean has been removed because it deletes MuesliDev data." >&2
+      echo "Error: --clean has been removed because it deletes MeetsDev data." >&2
       echo "To test a fresh profile, create a named backup first and use a separate support directory." >&2
       exit 2
       ;;
@@ -104,14 +104,14 @@ done
 
 case "$LANE" in
   "")
-    DEV_APP_NAME="MuesliDev"
-    DEV_BUNDLE_ID="com.muesli.dev"
+    DEV_APP_NAME="MeetsDev"
+    DEV_BUNDLE_ID="com.meets.dev"
     ;;
   A|a|B|b|C|c)
     LANE_UPPER="$(printf '%s' "$LANE" | tr '[:lower:]' '[:upper:]')"
     LANE_LOWER="$(printf '%s' "$LANE" | tr '[:upper:]' '[:lower:]')"
-    DEV_APP_NAME="MuesliDev${LANE_UPPER}"
-    DEV_BUNDLE_ID="com.muesli.dev.${LANE_LOWER}"
+    DEV_APP_NAME="MeetsDev${LANE_UPPER}"
+    DEV_BUNDLE_ID="com.meets.dev.${LANE_LOWER}"
     ;;
   *)
     echo "Error: unsupported lane '$LANE'. Allowed lanes: A, B, C." >&2
@@ -126,30 +126,30 @@ fi
 DEV_SUPPORT_DIR="$HOME/Library/Application Support/$DEV_APP_NAME"
 DEV_APP="/Applications/$DEV_APP_NAME.app"
 ONBOARDING_PROGRESS_FILE="$DEV_SUPPORT_DIR/onboarding-progress.json"
-DEFAULT_DEV_CLOUD_PROFILE="$ROOT/../muesli-ios/secrets/mueslimacosdevcloudkitcommueslidev.provisionprofile"
+DEFAULT_DEV_CLOUD_PROFILE="$ROOT/../meets-ios/secrets/meetsmacosdevcloudkitcommeetsdev.provisionprofile"
 DEFAULT_DEV_CLOUD_SIGN_IDENTITY="Apple Development: Pranav Hari Guruvayurappan (59WTZW55XG)"
-RESOLVED_PROVISIONING_PROFILE="${MUESLI_PROVISIONING_PROFILE:-}"
-RESOLVED_SIGN_IDENTITY="${MUESLI_SIGN_IDENTITY:-}"
-RESOLVED_CODESIGN_TIMESTAMP="${MUESLI_CODESIGN_TIMESTAMP:-}"
-# Build the app via xcodebuild (native/MuesliXcode) by default so App Intents
+RESOLVED_PROVISIONING_PROFILE="${MEETS_PROVISIONING_PROFILE:-}"
+RESOLVED_SIGN_IDENTITY="${MEETS_SIGN_IDENTITY:-}"
+RESOLVED_CODESIGN_TIMESTAMP="${MEETS_CODESIGN_TIMESTAMP:-}"
+# Build the app via xcodebuild (native/MeetsXcode) by default so App Intents
 # metadata is generated and Shortcuts/Siri actions are actually discoverable
 # in dev builds. Requires xcodegen (brew install xcodegen). Set
-# MUESLI_USE_XCODE_BUILD=0 to fall back to the plain `swift build` path if
+# MEETS_USE_XCODE_BUILD=0 to fall back to the plain `swift build` path if
 # xcodegen/xcodebuild aren't available or something regresses.
-RESOLVED_USE_XCODE_BUILD="${MUESLI_USE_XCODE_BUILD:-1}"
+RESOLVED_USE_XCODE_BUILD="${MEETS_USE_XCODE_BUILD:-1}"
 
 BUILD_ENV=(
-  MUESLI_APP_NAME="$DEV_APP_NAME"
-  MUESLI_BUNDLE_ID="$DEV_BUNDLE_ID"
-  MUESLI_SUPPORT_DIR_NAME="$DEV_APP_NAME"
-  MUESLI_DISPLAY_NAME="$DEV_APP_NAME"
-  MUESLI_SPARKLE_FEED_URL=""
-  MUESLI_TELEMETRYDECK_APP_ID="$MUESLI_TELEMETRYDECK_DEV_APP_ID"
-  MUESLI_TELEMETRY_CHANNEL="dev"
-  MUESLI_USE_XCODE_BUILD="$RESOLVED_USE_XCODE_BUILD"
+  MEETS_APP_NAME="$DEV_APP_NAME"
+  MEETS_BUNDLE_ID="$DEV_BUNDLE_ID"
+  MEETS_SUPPORT_DIR_NAME="$DEV_APP_NAME"
+  MEETS_DISPLAY_NAME="$DEV_APP_NAME"
+  MEETS_SPARKLE_FEED_URL=""
+  MEETS_TELEMETRYDECK_APP_ID="$MEETS_TELEMETRYDECK_DEV_APP_ID"
+  MEETS_TELEMETRY_CHANNEL="dev"
+  MEETS_USE_XCODE_BUILD="$RESOLVED_USE_XCODE_BUILD"
 )
 if [[ -n "$LANE" ]]; then
-  BUILD_ENV+=(MUESLI_EXECUTABLE_NAME="$DEV_APP_NAME")
+  BUILD_ENV+=(MEETS_EXECUTABLE_NAME="$DEV_APP_NAME")
 fi
 
 use_local_only_entitlements() {
@@ -157,9 +157,9 @@ use_local_only_entitlements() {
   RESOLVED_SIGN_IDENTITY=""
   RESOLVED_CODESIGN_TIMESTAMP=""
   BUILD_ENV+=(
-    MUESLI_ENTITLEMENTS="$ROOT/scripts/MeetsLocalOnly.entitlements"
-    MUESLI_PROVISIONING_PROFILE=""
-    MUESLI_APS_ENVIRONMENT=""
+    MEETS_ENTITLEMENTS="$ROOT/scripts/MeetsLocalOnly.entitlements"
+    MEETS_PROVISIONING_PROFILE=""
+    MEETS_APS_ENVIRONMENT=""
   )
 }
 
@@ -168,14 +168,14 @@ case "$ENTITLEMENTS_MODE" in
     use_local_only_entitlements
     ;;
   cloud)
-    REQUESTED_CLOUDKIT_ENVIRONMENT="${MUESLI_ICLOUD_CONTAINER_ENVIRONMENT:-Development}"
+    REQUESTED_CLOUDKIT_ENVIRONMENT="${MEETS_ICLOUD_CONTAINER_ENVIRONMENT:-Development}"
     if [[ "$(printf '%s' "$REQUESTED_CLOUDKIT_ENVIRONMENT" | tr '[:upper:]' '[:lower:]')" != "development" ]]; then
-      echo "Error: MuesliDev builds must use the CloudKit Development environment." >&2
-      echo "Use the production Muesli release workflow for CloudKit Production." >&2
+      echo "Error: MeetsDev builds must use the CloudKit Development environment." >&2
+      echo "Use the production Meets release workflow for CloudKit Production." >&2
       exit 2
     fi
-    BUILD_ENV+=(MUESLI_ICLOUD_CONTAINER_ENVIRONMENT="Development")
-    if [[ -z "$RESOLVED_PROVISIONING_PROFILE" && "$DEV_BUNDLE_ID" == "com.muesli.dev" && -f "$DEFAULT_DEV_CLOUD_PROFILE" ]]; then
+    BUILD_ENV+=(MEETS_ICLOUD_CONTAINER_ENVIRONMENT="Development")
+    if [[ -z "$RESOLVED_PROVISIONING_PROFILE" && "$DEV_BUNDLE_ID" == "com.meets.dev" && -f "$DEFAULT_DEV_CLOUD_PROFILE" ]]; then
       RESOLVED_PROVISIONING_PROFILE="$DEFAULT_DEV_CLOUD_PROFILE"
       if [[ -z "$RESOLVED_SIGN_IDENTITY" ]]; then
         RESOLVED_SIGN_IDENTITY="$DEFAULT_DEV_CLOUD_SIGN_IDENTITY"
@@ -186,7 +186,7 @@ case "$ENTITLEMENTS_MODE" in
     fi
     if [[ -z "$RESOLVED_PROVISIONING_PROFILE" ]]; then
       if [[ "$ENTITLEMENTS_MODE_EXPLICIT" -eq 1 ]]; then
-        echo "Error: cloud-entitled dev builds require MUESLI_PROVISIONING_PROFILE." >&2
+        echo "Error: cloud-entitled dev builds require MEETS_PROVISIONING_PROFILE." >&2
         echo "The profile must match bundle ID '$DEV_BUNDLE_ID' and include the signing identity." >&2
         echo "Use --local-only for a dev build that does not need iCloud/APNs entitlements." >&2
         exit 2
@@ -196,16 +196,16 @@ case "$ENTITLEMENTS_MODE" in
       use_local_only_entitlements
     else
       if [[ -z "$RESOLVED_SIGN_IDENTITY" ]]; then
-        echo "Error: cloud-entitled dev builds require MUESLI_SIGN_IDENTITY." >&2
+        echo "Error: cloud-entitled dev builds require MEETS_SIGN_IDENTITY." >&2
         echo "Use the Apple Development identity included by the selected provisioning profile." >&2
         exit 2
       fi
       BUILD_ENV+=(
-        MUESLI_PROVISIONING_PROFILE="$RESOLVED_PROVISIONING_PROFILE"
-        MUESLI_SIGN_IDENTITY="$RESOLVED_SIGN_IDENTITY"
+        MEETS_PROVISIONING_PROFILE="$RESOLVED_PROVISIONING_PROFILE"
+        MEETS_SIGN_IDENTITY="$RESOLVED_SIGN_IDENTITY"
       )
       if [[ -n "$RESOLVED_CODESIGN_TIMESTAMP" ]]; then
-        BUILD_ENV+=(MUESLI_CODESIGN_TIMESTAMP="$RESOLVED_CODESIGN_TIMESTAMP")
+        BUILD_ENV+=(MEETS_CODESIGN_TIMESTAMP="$RESOLVED_CODESIGN_TIMESTAMP")
       fi
     fi
     ;;
@@ -259,7 +259,7 @@ echo ""
 echo "=== Dev Test Ready ==="
 echo "  App: $DEV_APP"
 echo "  Data: $DEV_SUPPORT_DIR"
-echo "  DB: $DEV_SUPPORT_DIR/muesli.db"
+echo "  DB: $DEV_SUPPORT_DIR/meets.db"
 echo ""
 echo "Tips:"
 if [[ -n "$LANE" ]]; then

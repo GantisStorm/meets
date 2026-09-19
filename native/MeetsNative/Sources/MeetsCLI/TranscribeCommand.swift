@@ -215,7 +215,7 @@ struct MeetsAudioTranscriptionRequest {
     let saveMeeting: Bool
     /// Path to a JSON array of `CustomWord`-shaped entries. When set, applied to the
     /// transcript via `CustomWordMatcher.apply` after transcription — the same dictionary
-    /// correction step Muesli applies to dictations, so this measures "what if the
+    /// correction step Meets applies to dictations, so this measures "what if the
     /// dictionary were enabled" against exactly the shipped implementation.
     var dictionaryURL: URL? = nil
 }
@@ -1266,7 +1266,7 @@ enum CLISummaryClient {
         case "acp_agent":
             throw CLISummaryError.unavailable("The ACP agent summary backend is app-only; select OpenAI, OpenRouter, Ollama, LM Studio, or Custom LLM in Meets settings for meets-cli transcribe --summarize.")
         default:
-            throw CLISummaryError.unavailable("The configured ChatGPT session summary backend is app-only in headless CLI mode. Select OpenAI, OpenRouter, Ollama, LM Studio, or Custom LLM in Muesli settings for `meets-cli transcribe --summarize`.")
+            throw CLISummaryError.unavailable("The configured ChatGPT session summary backend is app-only in headless CLI mode. Select OpenAI, OpenRouter, Ollama, LM Studio, or Custom LLM in Meets settings for `meets-cli transcribe --summarize`.")
         }
     }
 

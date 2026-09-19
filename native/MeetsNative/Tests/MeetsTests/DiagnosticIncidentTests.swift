@@ -7,7 +7,7 @@ struct DiagnosticIncidentTests {
     private let metadata = DiagnosticAppMetadata(
         appVersion: "1.2.3",
         buildNumber: "456",
-        bundleID: "com.muesli.dev",
+        bundleID: "com.meets.dev",
         displayName: "MeetsDev",
         macOSVersion: "15.5.0",
         architecture: "arm64"
@@ -30,7 +30,7 @@ struct DiagnosticIncidentTests {
 
         #expect(incident.telemetryCategory == .appState)
         #expect(incident.errorFingerprint.signature == "app_state_failure")
-        #expect(incident.telemetryErrorID == "Muesli.Diagnostic.meeting_start_failed.app_state_failure")
+        #expect(incident.telemetryErrorID == "Meets.Diagnostic.meeting_start_failed.app_state_failure")
         #expect(incident.telemetryParameters["diagnostic.error_known"] == "true")
         #expect(incident.telemetryParameters["diagnostic.error_domain"] == nil)
     }
@@ -138,10 +138,10 @@ struct DiagnosticIncidentTests {
         )
 
         let url = try #require(incident.githubIssueURL)
-        #expect(url.absoluteString.hasPrefix("https://github.com/Muesli-HQ/muesli/issues/new?"))
+        #expect(url.absoluteString.hasPrefix("https://github.com/GantisStorm/meets/issues/new?"))
         #expect(url.absoluteString.contains("title="))
         #expect(url.absoluteString.contains("body="))
-        #expect(DiagnosticIncident.githubIssueFallbackURL.absoluteString == "https://github.com/Muesli-HQ/muesli/issues/new")
+        #expect(DiagnosticIncident.githubIssueFallbackURL.absoluteString == "https://github.com/GantisStorm/meets/issues/new")
     }
 }
 

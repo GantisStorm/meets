@@ -148,7 +148,6 @@ struct SidebarView: View {
             collapsedItem(tab: .meetings, icon: "person.2", label: "Meetings")
             collapsedItem(tab: .calendar, icon: "calendar", label: "Calendar")
             collapsedItem(tab: .insights, icon: "chart.bar.xaxis", label: "Insights")
-            collapsedItem(tab: .dictionary, icon: "character.book.closed", label: "Dictionary")
 
             Spacer()
 
@@ -198,7 +197,6 @@ struct SidebarView: View {
             meetingsSection
             sidebarItem(tab: .calendar, icon: "calendar", label: "Calendar")
             sidebarItem(tab: .insights, icon: "chart.bar.xaxis", label: "Insights")
-            sidebarItem(tab: .dictionary, icon: "character.book.closed", label: "Dictionary")
 
             Spacer()
 

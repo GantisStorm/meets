@@ -2,13 +2,13 @@
 title: March 19, 2026 Audit Hardening Report
 description: >
   Verified audit findings, shipped fixes, and validation notes for the
-  March 19, 2026 Muesli hardening pass.
+  March 19, 2026 Meets hardening pass.
 ---
 
 # March 19, 2026 Audit Hardening Report
 
 This report covers the hardening work done after auditing the repository
-hosted at `https://github.com/Muesli-HQ/muesli`.
+hosted at `https://github.com/GantisStorm/meets`.
 
 The review focused on the parts of the app where a bug would matter most:
 the SQLite query layer, live meeting transcription, system-audio startup,
@@ -26,8 +26,8 @@ API and worth fixing immediately.
 
 Files:
 
-- `native/MuesliNative/Sources/MuesliCore/DictationStore.swift`
-- `native/MuesliNative/Tests/MuesliTests/DictationStoreTests.swift`
+- `native/MeetsNative/Sources/MeetsCore/DictationStore.swift`
+- `native/MeetsNative/Tests/MeetsTests/DictationStoreTests.swift`
 
 ### 2. Meeting chunk tasks could finish after final transcript merge
 
@@ -38,8 +38,8 @@ chunks or merging them out of order in longer meetings.
 
 Files:
 
-- `native/MuesliNative/Sources/MuesliNativeApp/MeetingSession.swift`
-- `native/MuesliNative/Tests/MuesliTests/QoLTests.swift`
+- `native/MeetsNative/Sources/MeetsNativeApp/MeetingSession.swift`
+- `native/MeetsNative/Tests/MeetsTests/QoLTests.swift`
 
 ### 3. System audio startup could fail after success had already been reported
 
@@ -50,7 +50,7 @@ false-success path and possible temp-file leakage.
 
 File:
 
-- `native/MuesliNative/Sources/MuesliNativeApp/SystemAudioRecorder.swift`
+- `native/MeetsNative/Sources/MeetsNativeApp/SystemAudioRecorder.swift`
 
 ### 4. Documentation drift around ChatGPT token storage
 
@@ -62,7 +62,7 @@ needed to be corrected.
 Files:
 
 - `README.md`
-- `native/MuesliNative/Sources/MuesliNativeApp/ChatGPTAuthManager.swift`
+- `native/MeetsNative/Sources/MeetsNativeApp/ChatGPTAuthManager.swift`
 
 ### 5. API key config file lacked explicit permission hardening
 
@@ -74,8 +74,8 @@ handling API secrets.
 
 Files:
 
-- `native/MuesliNative/Sources/MuesliNativeApp/ConfigStore.swift`
-- `native/MuesliNative/Tests/MuesliTests/ConfigStoreTests.swift`
+- `native/MeetsNative/Sources/MeetsNativeApp/ConfigStore.swift`
+- `native/MeetsNative/Tests/MeetsTests/ConfigStoreTests.swift`
 
 ## What changed
 
@@ -107,11 +107,11 @@ works.
 
 What ran successfully in this environment:
 
-- `swift build --package-path native/MuesliNative`
+- `swift build --package-path native/MeetsNative`
 
 What did not run cleanly here:
 
-- `swift test --package-path native/MuesliNative --filter ...`
+- `swift test --package-path native/MeetsNative --filter ...`
 
 The package test run failed before it reached the new regression tests
 because the active machine setup only has Command Line Tools and not a full

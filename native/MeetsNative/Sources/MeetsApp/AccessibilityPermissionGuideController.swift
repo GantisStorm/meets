@@ -181,7 +181,7 @@ enum AccessibilityPermissionGuideSuppressionPolicy {
         isRequested: Bool,
         isGranted: Bool,
         frontmostBundleID: String?,
-        muesliBundleID: String?,
+        meetsBundleID: String?,
         hasUsableGuide: Bool
     ) -> AccessibilityPermissionGuideOnboardingPresentation {
         if shouldSuppressOnboarding(
@@ -192,7 +192,7 @@ enum AccessibilityPermissionGuideSuppressionPolicy {
         ) {
             return .suppressed
         }
-        if !isRequested || isGranted || frontmostBundleID == muesliBundleID {
+        if !isRequested || isGranted || frontmostBundleID == meetsBundleID {
             return .restoredAndActive
         }
         return .restoredWithoutActivation
@@ -364,7 +364,7 @@ final class AccessibilityPermissionGuideController {
             isRequested: true,
             isGranted: false,
             frontmostBundleID: frontmostBundleID,
-            muesliBundleID: Bundle.main.bundleIdentifier,
+            meetsBundleID: Bundle.main.bundleIdentifier,
             hasUsableGuide: frames != nil
         ))
         guard AccessibilityPermissionGuidePresentationPolicy.shouldShow(
@@ -427,7 +427,7 @@ final class AccessibilityPermissionGuideController {
                 }
                 // AppKit tells a dragging source that some destination accepted
                 // the URL, but not which System Settings view accepted it. Treat
-                // this as an attempted drop, never as proof that Muesli was added.
+                // this as an attempted drop, never as proof that Meets was added.
                 self.model.didAttemptDrop = true
                 self.attemptedDropRetryDeadline = AccessibilityPermissionGuideRetryPolicy
                     .retryDeadline(startingAt: Date())

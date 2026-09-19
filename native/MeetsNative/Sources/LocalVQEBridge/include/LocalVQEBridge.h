@@ -1,5 +1,5 @@
-#ifndef MUESLI_LOCALVQE_BRIDGE_H
-#define MUESLI_LOCALVQE_BRIDGE_H
+#ifndef MEETS_LOCALVQE_BRIDGE_H
+#define MEETS_LOCALVQE_BRIDGE_H
 
 #include <stdint.h>
 

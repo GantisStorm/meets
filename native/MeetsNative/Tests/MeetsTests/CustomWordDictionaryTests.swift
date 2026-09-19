@@ -7,14 +7,14 @@ struct CustomWordDictionaryTests {
     @Test("decodes a portable dictionary array")
     func decodesPortableArray() throws {
         let data = Data(
-            #"[{"word":"museli","replacement":"muesli","matching_threshold":0.9}]"#.utf8
+            #"[{"word":"meetss","replacement":"Meets","matching_threshold":0.9}]"#.utf8
         )
 
         let words = try CustomWordDictionaryCodec.decode(data)
 
         #expect(words.count == 1)
-        #expect(words[0].word == "museli")
-        #expect(words[0].targetWord == "muesli")
+        #expect(words[0].word == "meetss")
+        #expect(words[0].targetWord == "Meets")
         #expect(words[0].matchingThreshold == 0.9)
     }
 
@@ -32,7 +32,7 @@ struct CustomWordDictionaryTests {
     @Test("exports portable entries without app-specific IDs")
     func exportsPortableEntries() throws {
         let words = [
-            CustomWord(word: "museli", replacement: "muesli", matchingThreshold: 0.9),
+            CustomWord(word: "meetss", replacement: "Meets", matchingThreshold: 0.9),
         ]
 
         let data = try CustomWordDictionaryCodec.encode(words)
@@ -52,12 +52,12 @@ struct CustomWordDictionaryTests {
         let existingID = UUID()
         let existing = CustomWord(
             id: existingID,
-            word: "Muesli",
-            replacement: "Muesli",
+            word: "Meets",
+            replacement: "Meets",
             matchingThreshold: 0.85
         )
         let imported = [
-            CustomWord(word: " muesli ", replacement: "Muesli", matchingThreshold: 0.9),
+            CustomWord(word: " meets ", replacement: "Meets", matchingThreshold: 0.9),
             CustomWord(word: "kubernete", replacement: "Kubernetes"),
             CustomWord(word: "   ", replacement: "ignored"),
         ]
@@ -69,7 +69,7 @@ struct CustomWordDictionaryTests {
         #expect(result.skippedCount == 1)
         #expect(result.words.count == 2)
         #expect(result.words[0].id == existingID)
-        #expect(result.words[0].word == "muesli")
+        #expect(result.words[0].word == "meets")
         #expect(result.words[0].matchingThreshold == 0.9)
         #expect(result.words[1].targetWord == "Kubernetes")
     }

@@ -291,7 +291,7 @@ final class CoreAudioSystemRecorder: SystemAudioCapturing, SystemAudioDiagnostic
     private func createTapAndAggregateDevice() throws {
         // Use the global stereo process mix. This is the closest CoreAudio tap
         // equivalent to ScreenCaptureKit's "system audio" stream: all process
-        // output mixed to stereo, excluding Muesli itself. The previous
+        // output mixed to stereo, excluding Meets itself. The previous
         // device-stream tap could be valid but zero-filled on some routes.
         guard let ownProcessID = Self.currentProcessAudioObjectID() else {
             throw RecorderError.coreAudioSetupFailed("resolve own process for tap exclusion", kAudioHardwareBadObjectError)
@@ -316,7 +316,7 @@ final class CoreAudioSystemRecorder: SystemAudioCapturing, SystemAudioDiagnostic
         // Stable aggregate UID: one identity across all sessions, so an
         // unclean stop can never accumulate fresh HAL settings entries.
         // The daemon enforces UID uniqueness globally, so if a phantom from a
-        // crashed session still holds the stable UID (or another Muesli
+        // crashed session still holds the stable UID (or another Meets
         // instance is recording), creation fails with 'nope' — in that case we
         // retry once with a single deterministic fallback UID. The fallback is
         // deliberately NOT a fresh UUID: private aggregate devices are

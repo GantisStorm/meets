@@ -389,12 +389,12 @@ final class SparkleUpdateDelegate: NSObject, SPUUpdaterDelegate, SPUStandardUser
 enum UpdateFailureGuidance {
     private static let noUpdateErrorCode = 1001
 
-    static let downloadPageURLString = "https://muesli-hq.github.io/muesli/"
+    static let downloadPageURLString = "https://gantisstorm.github.io/meets/"
 
     static let message = """
     Please quit Meets, reopen it from Applications, and try the update once more.
 
-    If this keeps happening, download the latest DMG and replace Muesli manually. This can happen when the local updater cannot finish preparing or replacing the app.
+    If this keeps happening, download the latest DMG and replace Meets manually. This can happen when the local updater cannot finish preparing or replacing the app.
     """
 
     static func isNoUpdateError(_ error: NSError) -> Bool {

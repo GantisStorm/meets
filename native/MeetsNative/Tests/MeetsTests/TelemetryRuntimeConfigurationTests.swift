@@ -17,8 +17,8 @@ struct TelemetryRuntimeConfigurationTests {
         #expect(configuration.appID == validAppID)
         #expect(configuration.sdkAppID == validAppID)
         #expect(configuration.channel.rawValue == channel)
-        #expect(configuration.defaultParameters["muesli.channel"] == channel)
-        #expect(configuration.defaultParameters["muesli.bundle_id"] == "com.muesli.test")
+        #expect(configuration.defaultParameters["meets.channel"] == channel)
+        #expect(configuration.defaultParameters["meets.bundle_id"] == "com.meets.test")
     }
 
     @Test("disables telemetry when app ID is missing")
@@ -72,7 +72,7 @@ struct TelemetryRuntimeConfigurationTests {
         dictionary[TelemetryRuntimeConfiguration.channelInfoKey] = channel
         return TelemetryRuntimeConfiguration.resolve(
             infoDictionary: dictionary,
-            bundleIdentifier: "com.muesli.test"
+            bundleIdentifier: "com.meets.test"
         )
     }
 }

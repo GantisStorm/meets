@@ -269,7 +269,7 @@ enum MeetingMediaSignalFilter {
             !isSelfBundleID($0, selfBundleID: selfBundleID)
         }
 
-        // When Muesli is the only mic/camera attribution, treat the signal as self-owned.
+        // When Meets is the only mic/camera attribution, treat the signal as self-owned.
         // External attribution can lag, so this intentionally favors avoiding self-triggered detections.
         return MeetingMediaSignals(
             micActive: hasExternalMicAttribution || (deviceMicActive && !selfMicAttributed),
@@ -1000,7 +1000,7 @@ struct AudioAttributionResult {
 actor AudioAttributionService {
     typealias Collect = ([AudioProcessActivity]?) -> [AudioProcessActivity]
     private let collect: Collect
-    private let queue = DispatchQueue(label: "com.muesli.meeting-process-observation")
+    private let queue = DispatchQueue(label: "com.meets.meeting-process-observation")
     private var trackedProcesses: [AudioProcessActivity] = []
     private var cachedOutputProcesses: [AudioProcessActivity] = []
     private var cachedEpisode: MeetingAudioAttributionEpisode?

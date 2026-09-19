@@ -35,7 +35,7 @@ struct JaroWinklerTests {
         #expect(score >= 0 && score <= 1)
         let score2 = CustomWordMatcher.jaroWinklerSimilarity("a", "a")
         #expect(score2 == 1.0)
-        let score3 = CustomWordMatcher.jaroWinklerSimilarity("I", "muesli")
+        let score3 = CustomWordMatcher.jaroWinklerSimilarity("I", "meets")
         #expect(score3 >= 0 && score3 <= 1)
     }
 
@@ -47,8 +47,8 @@ struct JaroWinklerTests {
 
     @Test("common prefix boosts score")
     func prefixBoost() {
-        let withPrefix = CustomWordMatcher.jaroWinklerSimilarity("muesli", "muesly")
-        let noPrefix = CustomWordMatcher.jaroWinklerSimilarity("xuesli", "muesly")
+        let withPrefix = CustomWordMatcher.jaroWinklerSimilarity("meeting", "meetings")
+        let noPrefix = CustomWordMatcher.jaroWinklerSimilarity("seating", "meetings")
         #expect(withPrefix > noPrefix)
     }
 }
@@ -58,9 +58,9 @@ struct CustomWordMatcherApplyTests {
 
     @Test("exact match replaces word")
     func exactMatch() {
-        let words = [CustomWord(word: "museli", replacement: "muesli")]
-        let result = CustomWordMatcher.apply(text: "I love museli", customWords: words)
-        #expect(result == "I love muesli")
+        let words = [CustomWord(word: "meetss", replacement: "Meets")]
+        let result = CustomWordMatcher.apply(text: "Open meetss", customWords: words)
+        #expect(result == "Open Meets")
     }
 
     @Test("case-insensitive exact match")
@@ -72,9 +72,9 @@ struct CustomWordMatcherApplyTests {
 
     @Test("preserves punctuation")
     func preservesPunctuation() {
-        let words = [CustomWord(word: "museli", replacement: "muesli")]
-        let result = CustomWordMatcher.apply(text: "I love museli!", customWords: words)
-        #expect(result == "I love muesli!")
+        let words = [CustomWord(word: "meetss", replacement: "Meets")]
+        let result = CustomWordMatcher.apply(text: "Open meetss!", customWords: words)
+        #expect(result == "Open Meets!")
     }
 
     @Test("fuzzy match replaces similar word")
@@ -87,7 +87,7 @@ struct CustomWordMatcherApplyTests {
 
     @Test("no match leaves word unchanged")
     func noMatch() {
-        let words = [CustomWord(word: "muesli", replacement: "Muesli")]
+        let words = [CustomWord(word: "meets", replacement: "Meets")]
         let result = CustomWordMatcher.apply(text: "hello world", customWords: words)
         #expect(result == "hello world")
     }
@@ -105,10 +105,10 @@ struct CustomWordMatcherApplyTests {
 
     @Test("word with no replacement uses word itself")
     func noReplacement() {
-        let words = [CustomWord(word: "muesli", replacement: nil)]
-        let result = CustomWordMatcher.apply(text: "I love museli", customWords: words)
-        // "museli" fuzzy matches "muesli", replacement is nil so uses word "muesli"
-        #expect(result == "I love muesli")
+        let words = [CustomWord(word: "meets", replacement: nil)]
+        let result = CustomWordMatcher.apply(text: "Open meetss", customWords: words)
+        // "meetss" fuzzy matches "meets", replacement is nil so uses word "meets"
+        #expect(result == "Open meets")
     }
 
     @Test("per-word lower threshold allows aggressive fuzzy correction")

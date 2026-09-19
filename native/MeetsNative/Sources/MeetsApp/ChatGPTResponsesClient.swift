@@ -13,10 +13,10 @@ enum ChatGPTResponsesError: LocalizedError {
 
 /// Shared request construction for ChatGPT-authenticated Responses calls.
 ///
-/// Muesli routes its existing ChatGPT OAuth credentials to the Codex inference
+/// Meets routes its existing ChatGPT OAuth credentials to the Codex inference
 /// lane. That direct third-party contract is compatibility-sensitive, so keep
 /// request metadata centralized and the client identity honest: these headers
-/// describe Muesli and never impersonate an official Codex client. WHAM remains
+/// describe Meets and never impersonate an official Codex client. WHAM remains
 /// available only as an explicit, process-level emergency rollback.
 enum ChatGPTResponsesTransport {
     enum Backend: Equatable {
@@ -33,9 +33,9 @@ enum ChatGPTResponsesTransport {
         }
     }
 
-    static let environmentKey = "MUESLI_CHATGPT_TRANSPORT"
+    static let environmentKey = "MEETS_CHATGPT_TRANSPORT"
     static let requestTimeout: TimeInterval = 120
-    static let originator = "muesli"
+    static let originator = "meets"
 
     static func selectedBackend(
         environment: [String: String] = ProcessInfo.processInfo.environment

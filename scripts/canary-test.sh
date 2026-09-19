@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Builds and launches an isolated "MuesliCanary" app for Canary CoreML testing.
+# Builds and launches an isolated "MeetsCanary" app for Canary CoreML testing.
 #
-# - Separate bundle ID (com.muesli.canary)
-# - Separate support directory (~/Library/Application Support/MuesliCanary/)
+# - Separate bundle ID (com.meets.canary)
+# - Separate support directory (~/Library/Application Support/MeetsCanary/)
 # - Optional onboarding reset / clean wipe
 # - Optional local model seeding from the sibling stt-quantize-coreml repo
 #
@@ -15,13 +15,13 @@ set -euo pipefail
 #   ./scripts/canary-test.sh --no-seed
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-source "$ROOT/scripts/muesli_telemetry_channels.sh"
-CANARY_SUPPORT_DIR="${MUESLI_CANARY_SUPPORT_DIR:-$HOME/Library/Application Support/MuesliCanary}"
-CANARY_APP="${MUESLI_CANARY_APP_PATH:-/Applications/MuesliCanary.app}"
-CANARY_MODEL_CACHE="${MUESLI_CANARY_CACHE_DIR:-$HOME/.cache/muesli/models/canary-qwen-2.5b-coreml-int8}"
+source "$ROOT/scripts/meets_telemetry_channels.sh"
+CANARY_SUPPORT_DIR="${MEETS_CANARY_SUPPORT_DIR:-$HOME/Library/Application Support/MeetsCanary}"
+CANARY_APP="${MEETS_CANARY_APP_PATH:-/Applications/MeetsCanary.app}"
+CANARY_MODEL_CACHE="${MEETS_CANARY_CACHE_DIR:-$HOME/.cache/meets/models/canary-qwen-2.5b-coreml-int8}"
 STT_ROOT_DEFAULT="$(cd "$ROOT/.." && pwd)/stt-quantize-coreml"
-STT_ROOT="${MUESLI_CANARY_STT_ROOT:-$STT_ROOT_DEFAULT}"
-POSTPROC_ROOT="${MUESLI_CANARY_POSTPROC_ROOT:-}"
+STT_ROOT="${MEETS_CANARY_STT_ROOT:-$STT_ROOT_DEFAULT}"
+POSTPROC_ROOT="${MEETS_CANARY_POSTPROC_ROOT:-}"
 
 CLEAN=0
 RESET=0
@@ -29,7 +29,7 @@ SEED=1
 
 usage() {
   cat <<'EOF'
-Build and launch an isolated MuesliCanary app.
+Build and launch an isolated MeetsCanary app.
 
 Options:
   --clean     Wipe Canary support data before launch.
@@ -106,9 +106,9 @@ seed_local_models() {
 configure_postproc_override() {
   local resolved="$POSTPROC_ROOT"
   if [[ -z "$resolved" ]]; then
-    launchctl unsetenv MUESLI_QWEN3_POSTPROC_GGUF 2>/dev/null || true
-    launchctl unsetenv MUESLI_QWEN3_POSTPROC_DIR 2>/dev/null || true
-    log "Skipping Qwen3 GGUF post-processor override; set MUESLI_CANARY_POSTPROC_ROOT to a local .gguf file or directory"
+    launchctl unsetenv MEETS_QWEN3_POSTPROC_GGUF 2>/dev/null || true
+    launchctl unsetenv MEETS_QWEN3_POSTPROC_DIR 2>/dev/null || true
+    log "Skipping Qwen3 GGUF post-processor override; set MEETS_CANARY_POSTPROC_ROOT to a local .gguf file or directory"
     return
   fi
 
@@ -121,17 +121,17 @@ configure_postproc_override() {
   fi
 
   if [[ -f "$resolved" && "$resolved" == *.gguf ]]; then
-    launchctl setenv MUESLI_QWEN3_POSTPROC_GGUF "$resolved"
-    launchctl unsetenv MUESLI_QWEN3_POSTPROC_DIR 2>/dev/null || true
+    launchctl setenv MEETS_QWEN3_POSTPROC_GGUF "$resolved"
+    launchctl unsetenv MEETS_QWEN3_POSTPROC_DIR 2>/dev/null || true
     log "Set Qwen3 GGUF post-processor override: $resolved"
   else
-    launchctl unsetenv MUESLI_QWEN3_POSTPROC_GGUF 2>/dev/null || true
-    launchctl unsetenv MUESLI_QWEN3_POSTPROC_DIR 2>/dev/null || true
+    launchctl unsetenv MEETS_QWEN3_POSTPROC_GGUF 2>/dev/null || true
+    launchctl unsetenv MEETS_QWEN3_POSTPROC_DIR 2>/dev/null || true
     log "Qwen3 GGUF post-processor asset not found at: $resolved"
   fi
 }
 
-pkill -f "MuesliCanary.app" 2>/dev/null || true
+pkill -f "MeetsCanary.app" 2>/dev/null || true
 sleep 0.5
 
 if [[ "$CLEAN" -eq 1 ]]; then
@@ -157,18 +157,18 @@ fi
 
 configure_postproc_override
 
-log "Building MuesliCanary (debug, signed)..."
-MUESLI_APP_NAME=MuesliCanary \
-MUESLI_BUNDLE_ID=com.muesli.canary \
-MUESLI_SUPPORT_DIR_NAME=MuesliCanary \
-MUESLI_DISPLAY_NAME="MuesliCanary" \
-MUESLI_SPARKLE_FEED_URL="" \
-MUESLI_TELEMETRYDECK_APP_ID="$MUESLI_TELEMETRYDECK_DEV_APP_ID" \
-MUESLI_TELEMETRY_CHANNEL="canary" \
+log "Building MeetsCanary (debug, signed)..."
+MEETS_APP_NAME=MeetsCanary \
+MEETS_BUNDLE_ID=com.meets.canary \
+MEETS_SUPPORT_DIR_NAME=MeetsCanary \
+MEETS_DISPLAY_NAME="MeetsCanary" \
+MEETS_SPARKLE_FEED_URL="" \
+MEETS_TELEMETRYDECK_APP_ID="$MEETS_TELEMETRYDECK_DEV_APP_ID" \
+MEETS_TELEMETRY_CHANNEL="canary" \
 "$ROOT/scripts/build_native_app.sh" debug
 
 log ""
-log "Launching MuesliCanary..."
+log "Launching MeetsCanary..."
 open "$CANARY_APP"
 
 log ""

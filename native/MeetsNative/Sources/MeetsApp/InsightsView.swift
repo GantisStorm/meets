@@ -69,16 +69,7 @@ struct InsightsView: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 24) {
                     header
-                    Picker("Insights", selection: $segment) {
-                        ForEach(Segment.allCases, id: \.self) { value in
-                            Text(value.title).tag(value)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                    .labelsHidden()
-                    .accessibilityLabel("Insights")
-                    .frame(width: 360)
-                    .id(Segment.controlsAnchor)
+                    segmentNavigation
 
                     Group {
                         if let snapshot {
@@ -205,6 +196,35 @@ struct InsightsView: View {
             .help("Share an anonymous activity image")
             .accessibilityLabel("Share your activity")
         }
+    }
+
+    private var segmentNavigation: some View {
+        HStack(spacing: MeetsTheme.spacing20) {
+            Spacer(minLength: 0)
+            ForEach(Segment.allCases, id: \.self) { value in
+                Button {
+                    segment = value
+                } label: {
+                    Text(value.title)
+                        .font(.system(size: 13, weight: segment == value ? .semibold : .medium))
+                        .foregroundStyle(
+                            segment == value
+                                ? MeetsTheme.textPrimary
+                                : InsightsPalette.tertiaryText
+                        )
+                        .underline(segment == value, color: MeetsTheme.textPrimary)
+                        .padding(.vertical, MeetsTheme.spacing4)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(value.title)
+                .accessibilityValue(segment == value ? "Selected" : "")
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .trailing)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Insights sections")
+        .id(Segment.controlsAnchor)
     }
 
     @ViewBuilder
@@ -350,20 +370,20 @@ struct InsightsView: View {
 
     private func meetingActivityChart(_ data: InsightsSnapshot) -> some View {
         let buckets = data.meetingBuckets
+        let hasActivity = buckets.contains { $0.meetings > 0 }
         return VStack(alignment: .leading, spacing: 18) {
             HStack(alignment: .firstTextBaseline) {
-                panelTitle("MEETING ACTIVITY", subtitle: "Meetings per day")
+                panelTitle("MEETING ACTIVITY", subtitle: "Your recording rhythm over time")
                 Spacer()
             }
-            if buckets.isEmpty {
+            if !hasActivity {
                 emptyState(
-                    icon: "chart.bar",
+                    icon: "calendar",
                     message: "No meeting activity for this time period."
                 )
                 .frame(height: 200)
             } else {
-                MeetingBarChart(buckets: buckets)
-                    .frame(height: 200)
+                MeetingActivityHeatmap(buckets: buckets)
             }
         }
         .insightsPanel()
@@ -864,12 +884,18 @@ private enum InsightsPalette {
     }
 }
 
-private struct MeetingBarChart: View {
+private struct MeetingActivityHeatmap: View {
     let buckets: [MeetingActivityBucket]
 
-    private let barWidth: CGFloat = 7
-    private let barSpacing: CGFloat = 3
-    private let chartHeight: CGFloat = 128
+    private let cellSize: CGFloat = 13
+    private let cellSpacing: CGFloat = 4
+    private let monthLabelHeight: CGFloat = 16
+
+    private var calendar: Calendar {
+        var value = Calendar.autoupdatingCurrent
+        value.locale = .autoupdatingCurrent
+        return value
+    }
 
     private var maximum: Int {
         max(1, buckets.map(\.meetings).max() ?? 1)
@@ -879,44 +905,135 @@ private struct MeetingBarChart: View {
         buckets.reduce(0) { $0 + $1.meetings }
     }
 
+    private var activeDays: Int {
+        buckets.filter { $0.meetings > 0 }.count
+    }
+
+    private var orderedBuckets: [MeetingActivityBucket] {
+        buckets.sorted { $0.bucketStart < $1.bucketStart }
+    }
+
+    private var bucketByDay: [Date: MeetingActivityBucket] {
+        Dictionary(uniqueKeysWithValues: orderedBuckets.map {
+            (calendar.startOfDay(for: $0.bucketStart), $0)
+        })
+    }
+
+    private var weekStarts: [Date] {
+        guard
+            let first = orderedBuckets.first?.bucketStart,
+            let last = orderedBuckets.last?.bucketStart,
+            let firstWeek = calendar.dateInterval(of: .weekOfYear, for: first)?.start,
+            let lastWeek = calendar.dateInterval(of: .weekOfYear, for: last)?.start
+        else { return [] }
+
+        var result: [Date] = []
+        var cursor = firstWeek
+        while cursor <= lastWeek {
+            result.append(cursor)
+            guard let next = calendar.date(byAdding: .weekOfYear, value: 1, to: cursor) else { break }
+            cursor = next
+        }
+        return result
+    }
+
+    private var weekdaySymbols: [String] {
+        let symbols = calendar.veryShortStandaloneWeekdaySymbols
+        guard symbols.count == 7 else { return symbols }
+        let offset = max(0, min(6, calendar.firstWeekday - 1))
+        return Array(symbols[offset...] + symbols[..<offset])
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(alignment: .bottom, spacing: barSpacing) {
-                    ForEach(buckets) { bucket in
-                        VStack(spacing: 6) {
-                            RoundedRectangle(cornerRadius: 2)
-                                .fill(MeetsTheme.accent.opacity(0.78))
-                                .frame(
-                                    width: barWidth,
-                                    height: barHeight(for: bucket.meetings)
-                                )
-                                .help(barHelp(bucket))
-                                .accessibilityLabel(barHelp(bucket))
-                            Text(bucket.bucketStart.formatted(.dateTime.day()))
-                                .font(.system(size: 8, weight: .medium))
-                                .foregroundStyle(InsightsPalette.tertiaryText)
-                                .monospacedDigit()
+        VStack(alignment: .leading, spacing: MeetsTheme.spacing12) {
+            HStack(alignment: .top, spacing: MeetsTheme.spacing8) {
+                VStack(spacing: cellSpacing) {
+                    Color.clear.frame(width: 18, height: monthLabelHeight)
+                    ForEach(Array(weekdaySymbols.enumerated()), id: \.offset) { index, symbol in
+                        Text(index.isMultiple(of: 2) ? symbol : "")
+                            .font(.system(size: 9, weight: .medium))
+                            .foregroundStyle(InsightsPalette.tertiaryText)
+                            .frame(width: 18, height: cellSize, alignment: .trailing)
+                    }
+                }
+
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(alignment: .top, spacing: cellSpacing) {
+                        ForEach(Array(weekStarts.enumerated()), id: \.element) { index, weekStart in
+                            VStack(spacing: cellSpacing) {
+                                Color.clear
+                                    .frame(width: cellSize, height: monthLabelHeight)
+                                    .overlay(alignment: .leading) {
+                                        Text(monthLabel(for: weekStart, at: index))
+                                            .font(.system(size: 9, weight: .medium))
+                                            .foregroundStyle(InsightsPalette.tertiaryText)
+                                            .fixedSize()
+                                    }
+
+                                ForEach(0..<7, id: \.self) { dayOffset in
+                                    dayCell(date: calendar.date(byAdding: .day, value: dayOffset, to: weekStart))
+                                }
+                            }
                         }
                     }
                 }
-                .frame(height: chartHeight, alignment: .bottom)
             }
+
             HStack(spacing: 0) {
                 Text(bucketRangeLabel)
                     .font(.system(size: 9, weight: .medium))
                     .foregroundStyle(InsightsPalette.tertiaryText)
                 Spacer()
-                Text(totalLabel)
+                Text("\(activeDays.formatted()) active days · \(totalLabel)")
                     .font(.system(size: 9, weight: .medium))
                     .monospacedDigit()
                     .foregroundStyle(InsightsPalette.tertiaryText)
+                activityLegend
             }
         }
     }
 
+    @ViewBuilder
+    private func dayCell(date: Date?) -> some View {
+        if let date {
+            let day = calendar.startOfDay(for: date)
+            let bucket = bucketByDay[day]
+            let isInRange = orderedBuckets.first.map { day >= calendar.startOfDay(for: $0.bucketStart) } == true
+                && orderedBuckets.last.map { day <= calendar.startOfDay(for: $0.bucketStart) } == true
+
+            if isInRange {
+                RoundedRectangle(cornerRadius: 2.5)
+                    .fill(color(for: bucket?.meetings ?? 0))
+                    .frame(width: cellSize, height: cellSize)
+                    .help(dayHelp(date: day, bucket: bucket))
+                    .accessibilityLabel(dayHelp(date: day, bucket: bucket))
+            } else {
+                Color.clear.frame(width: cellSize, height: cellSize)
+            }
+        } else {
+            Color.clear.frame(width: cellSize, height: cellSize)
+        }
+    }
+
+    private var activityLegend: some View {
+        HStack(spacing: 4) {
+            Text("Less")
+            ForEach(0..<5, id: \.self) { level in
+                RoundedRectangle(cornerRadius: 1.5)
+                    .fill(level == 0 ? color(for: 0) : InsightsPalette.intensity(level))
+                    .frame(width: 9, height: 9)
+            }
+            Text("More")
+        }
+        .font(.system(size: 9, weight: .medium))
+        .foregroundStyle(InsightsPalette.tertiaryText)
+        .padding(.leading, MeetsTheme.spacing16)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Activity intensity, less to more")
+    }
+
     private var bucketRangeLabel: String {
-        guard let first = buckets.first?.bucketStart, let last = buckets.last?.bucketStart else { return "" }
+        guard let first = orderedBuckets.first?.bucketStart, let last = orderedBuckets.last?.bucketStart else { return "" }
         return "\(first.formatted(.dateTime.month(.abbreviated))) \(first.formatted(.dateTime.day())) – \(last.formatted(.dateTime.month(.abbreviated))) \(last.formatted(.dateTime.day()))"
     }
 
@@ -924,16 +1041,38 @@ private struct MeetingBarChart: View {
         totalMeetings == 1 ? "1 meeting" : "\(totalMeetings.formatted()) meetings"
     }
 
-    private func barHeight(for count: Int) -> CGFloat {
-        guard count > 0 else { return 2 }
-        let ratio = CGFloat(count) / CGFloat(maximum)
-        return max(3, (chartHeight - 24) * ratio)
+    private func monthLabel(for weekStart: Date, at index: Int) -> String {
+        guard index == 0 || calendar.component(.month, from: weekStart)
+            != calendar.component(.month, from: weekStarts[index - 1]) else { return "" }
+        if index == 0 || calendar.component(.month, from: weekStart) == 1 {
+            return weekStart.formatted(.dateTime.month(.abbreviated).year())
+        }
+        return weekStart.formatted(.dateTime.month(.abbreviated))
     }
 
-    private func barHelp(_ bucket: MeetingActivityBucket) -> String {
-        let date = bucket.bucketStart.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day().year())
-        let meetings = bucket.meetings == 1 ? "1 meeting" : "\(bucket.meetings.formatted()) meetings"
-        return "\(date), \(meetings)"
+    private func color(for count: Int) -> Color {
+        guard count > 0 else { return MeetsTheme.surfacePrimary.opacity(0.62) }
+        let level = max(1, min(4, Int(ceil(Double(count) / Double(maximum) * 4))))
+        return InsightsPalette.intensity(level)
+    }
+
+    private func dayHelp(date: Date, bucket: MeetingActivityBucket?) -> String {
+        let dateLabel = date.formatted(.dateTime.weekday(.wide).month(.wide).day().year())
+        guard let bucket, bucket.meetings > 0 else { return "\(dateLabel), no meetings" }
+        let meetingLabel = bucket.meetings == 1 ? "1 meeting" : "\(bucket.meetings.formatted()) meetings"
+        let durationLabel = duration(bucket.durationSeconds)
+        return durationLabel == nil
+            ? "\(dateLabel), \(meetingLabel)"
+            : "\(dateLabel), \(meetingLabel), \(durationLabel!) recorded"
+    }
+
+    private func duration(_ seconds: Double) -> String? {
+        guard seconds > 0 else { return nil }
+        let minutes = max(1, Int(seconds / 60))
+        let hours = minutes / 60
+        let remainder = minutes % 60
+        if hours > 0 { return "\(hours)h \(remainder)m" }
+        return "\(minutes)m"
     }
 }
 

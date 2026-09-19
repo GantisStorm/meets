@@ -3,8 +3,8 @@
 # Shared LocalVQE runtime discovery and completeness validation.
 # This file is sourced by packaging and smoke-test scripts.
 
-[[ -n "${_MUESLI_LOCALVQE_RUNTIME_LOADED:-}" ]] && return 0
-_MUESLI_LOCALVQE_RUNTIME_LOADED=1
+[[ -n "${_MEETS_LOCALVQE_RUNTIME_LOADED:-}" ]] && return 0
+_MEETS_LOCALVQE_RUNTIME_LOADED=1
 
 meets_collect_localvqe_runtime() {
   local dir="$1"

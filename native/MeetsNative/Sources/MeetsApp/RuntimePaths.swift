@@ -10,7 +10,7 @@ struct RuntimePaths {
         if let bundleResource = Bundle.main.resourceURL {
             return RuntimePaths(
                 repoRoot: bundleResource,
-                appIcon: bundleResource.appendingPathComponent("muesli.icns"),
+                appIcon: bundleResource.appendingPathComponent("meets.icns"),
                 bundlePath: Bundle.main.bundleURL
             )
         }
@@ -19,7 +19,7 @@ struct RuntimePaths {
         let fileManager = FileManager.default
         var searchURL = URL(fileURLWithPath: fileManager.currentDirectoryPath)
         for _ in 0..<8 {
-            let candidate = searchURL.appendingPathComponent("assets/muesli.icns")
+            let candidate = searchURL.appendingPathComponent("assets/meets.icns")
             if fileManager.fileExists(atPath: candidate.path) {
                 return RuntimePaths(
                     repoRoot: searchURL,

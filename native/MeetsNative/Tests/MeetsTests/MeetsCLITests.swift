@@ -32,11 +32,11 @@ struct MeetsCLITests {
     @Test("explicit db path overrides support directory resolution")
     func cliContextUsesExplicitDatabasePath() {
         let context = CLIContext(
-            dbPath: "/tmp/custom-muesli.db",
+            dbPath: "/tmp/custom-meets.db",
             supportDir: "/tmp/ignored-support"
         )
 
-        #expect(context.databaseURL.path == "/tmp/custom-muesli.db")
+        #expect(context.databaseURL.path == "/tmp/custom-meets.db")
         #expect(context.supportDirectory.path == "/tmp/ignored-support")
     }
 
@@ -44,11 +44,11 @@ struct MeetsCLITests {
     func cliContextUsesExplicitSupportDirectory() {
         let context = CLIContext(
             dbPath: nil,
-            supportDir: "/tmp/muesli-support"
+            supportDir: "/tmp/meets-support"
         )
 
-        #expect(context.supportDirectory.path == "/tmp/muesli-support")
-        #expect(context.databaseURL.path == "/tmp/muesli-support/meets.db")
+        #expect(context.supportDirectory.path == "/tmp/meets-support")
+        #expect(context.databaseURL.path == "/tmp/meets-support/meets.db")
     }
 
     @Test("summary config reads the app's persisted OpenRouter selection and protected credential")
@@ -85,9 +85,9 @@ struct MeetsCLITests {
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
 
-        // A meetings table shaped like an older Muesli release, predating
+        // A meetings table shaped like an older Meets release, predating
         // visual_context (mirrors makeLegacyStore in DictationStoreTests).
-        let dbURL = dir.appendingPathComponent("muesli.db")
+        let dbURL = dir.appendingPathComponent("meets.db")
         var db: OpaquePointer?
         #expect(sqlite3_open(dbURL.path, &db) == SQLITE_OK)
         let legacySQL = """
@@ -122,7 +122,7 @@ struct MeetsCLITests {
         // migration cannot run and must surface as a warning, not a crash.
         let dir = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("meets-cli-unwritable-\(UUID().uuidString)")
-        let dbURL = dir.appendingPathComponent("muesli.db")
+        let dbURL = dir.appendingPathComponent("meets.db")
         try? FileManager.default.createDirectory(at: dbURL, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
 
@@ -135,7 +135,7 @@ struct MeetsCLITests {
     func withMigrationAttachesMigrationFailureToReadError() {
         let dir = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("meets-cli-enrich-\(UUID().uuidString)")
-        let dbURL = dir.appendingPathComponent("muesli.db")
+        let dbURL = dir.appendingPathComponent("meets.db")
         try? FileManager.default.createDirectory(at: dbURL, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
 
@@ -160,7 +160,7 @@ struct MeetsCLITests {
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
 
-        let context = CLIContext(dbPath: dir.appendingPathComponent("muesli.db").path, supportDir: nil)
+        let context = CLIContext(dbPath: dir.appendingPathComponent("meets.db").path, supportDir: nil)
         // A migration can fail against a schema that is already current (a busy
         // database while the app writes), where the read still succeeds. The
         // warning is the only signal the caller gets, so it must survive.
@@ -179,7 +179,7 @@ struct MeetsCLITests {
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
 
-        let context = CLIContext(dbPath: dir.appendingPathComponent("muesli.db").path, supportDir: nil)
+        let context = CLIContext(dbPath: dir.appendingPathComponent("meets.db").path, supportDir: nil)
         let (rows, warnings) = try withMigration(context) { try context.store.recentMeetings(limit: 5) }
         #expect(rows.isEmpty)
         #expect(warnings.isEmpty)
@@ -258,13 +258,13 @@ struct MeetsCLITests {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("meets-cli-dictionary-\(UUID().uuidString).json")
         try Data("""
-        [{"word": "museli", "replacement": "muesli", "matching_threshold": 0.85}]
+        [{"word": "meetss", "replacement": "Meets", "matching_threshold": 0.85}]
         """.utf8).write(to: url)
 
         let words = try MeetsAudioTranscriptionPipeline.loadCustomWords(from: url)
         #expect(words.count == 1)
-        #expect(words[0].word == "museli")
-        #expect(words[0].targetWord == "muesli")
+        #expect(words[0].word == "meetss")
+        #expect(words[0].targetWord == "Meets")
     }
 
     @Test("loadCustomWords accepts a config.json-shaped object")
@@ -337,12 +337,12 @@ struct MeetsCLITests {
         let fixture = try TranscribeFixture()
         let dictionaryURL = fixture.directory.appendingPathComponent("dictionary.json")
         try Data("""
-        [{"word": "museli", "replacement": "muesli"}]
+        [{"word": "meetss", "replacement": "Meets"}]
         """.utf8).write(to: dictionaryURL)
 
         let pipeline = MeetsAudioTranscriptionPipeline(
             audioPreparer: FakeAudioPreparer(wavURL: fixture.wavURL, durationSeconds: 3),
-            transcriber: FakeTranscriber(text: "I love museli"),
+            transcriber: FakeTranscriber(text: "Open meetss"),
             summarizer: SuccessfulSummarizer(notes: "unused"),
             dataChangePoster: {}
         )
@@ -359,7 +359,7 @@ struct MeetsCLITests {
             context: fixture.context
         )
 
-        #expect(result.transcript == "I love muesli")
+        #expect(result.transcript == "Open Meets")
     }
 
     @Test("pipeline rejects a dictionary that removes the entire transcript")
@@ -434,7 +434,7 @@ struct MeetsCLITests {
     func transcribeTextOutputIsTranscriptOnly() throws {
         let result = MeetsAudioTranscriptionResult(
             title: "Demo",
-            transcript: "hello from muesli",
+            transcript: "hello from meets",
             summary: nil,
             durationSeconds: 2,
             wordCount: 3,
@@ -443,14 +443,14 @@ struct MeetsCLITests {
             savedMeetingID: nil
         )
 
-        #expect(result.textOutput == "hello from muesli\n")
+        #expect(result.textOutput == "hello from meets\n")
     }
 
     @Test("transcribe markdown output includes title summary and transcript")
     func transcribeMarkdownOutputIncludesSections() throws {
         let result = MeetsAudioTranscriptionResult(
             title: "Demo",
-            transcript: "hello from muesli",
+            transcript: "hello from meets",
             summary: "## Summary\n\n- Done",
             durationSeconds: 2,
             wordCount: 3,
@@ -468,7 +468,7 @@ struct MeetsCLITests {
 
         ## Raw Transcript
 
-        hello from muesli
+        hello from meets
         """)
     }
 
@@ -477,7 +477,7 @@ struct MeetsCLITests {
         let payload = TranscribeJSONPayload(
             MeetsAudioTranscriptionResult(
                 title: "Demo",
-                transcript: "hello from muesli",
+                transcript: "hello from meets",
                 summary: "## Summary\n\n- Done",
                 durationSeconds: 4,
                 wordCount: 3,
@@ -489,7 +489,7 @@ struct MeetsCLITests {
         let envelope = SuccessEnvelope(
             command: "meets-cli transcribe",
             data: payload,
-            meta: MetaBody(schemaVersion: 1, generatedAt: "2026-07-08T00:00:00Z", dbPath: "/tmp/muesli.db", warnings: ["summary warning"])
+            meta: MetaBody(schemaVersion: 1, generatedAt: "2026-07-08T00:00:00Z", dbPath: "/tmp/meets.db", warnings: ["summary warning"])
         )
         let data = try encodedJSON(envelope)
         let json = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
@@ -497,7 +497,7 @@ struct MeetsCLITests {
         #expect(json["ok"] as? Bool == true)
         #expect(json["command"] as? String == "meets-cli transcribe")
         let payloadData = try #require(json["data"] as? [String: Any])
-        #expect(payloadData["transcript"] as? String == "hello from muesli")
+        #expect(payloadData["transcript"] as? String == "hello from meets")
         #expect(payloadData["model"] as? String == "parakeet-v2")
         #expect(payloadData["savedMeetingID"] as? Int == 12)
         #expect(payloadData["summary"] as? String == "## Summary\n\n- Done")
@@ -610,7 +610,7 @@ private struct TranscribeFixture {
         try CLIWavWriter.writeWAV(samples: samples, to: sourceURL)
         try CLIWavWriter.writeWAV(samples: samples, to: wavURL)
         context = CLIContext(
-            dbPath: directory.appendingPathComponent("muesli.db").path,
+            dbPath: directory.appendingPathComponent("meets.db").path,
             supportDir: directory.path
         )
     }

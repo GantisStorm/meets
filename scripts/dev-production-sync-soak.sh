@@ -2,11 +2,11 @@
 set -euo pipefail
 
 # Local-only Production CloudKit smoke/soak harness for the maintainer's
-# MuesliDev lane. This script is not bundled into Muesli.app.
+# MeetsDev lane. This script is not bundled into Meets.app.
 
-APP_PATH="/Applications/MuesliDev.app"
-SUPPORT_DIR="$HOME/Library/Application Support/MuesliDev"
-DATABASE_PATH="$SUPPORT_DIR/muesli.db"
+APP_PATH="/Applications/MeetsDev.app"
+SUPPORT_DIR="$HOME/Library/Application Support/MeetsDev"
+DATABASE_PATH="$SUPPORT_DIR/meets.db"
 RESULTS_PATH="$SUPPORT_DIR/sync-soak-results.jsonl"
 DIRECTION="both"
 COUNT=1
@@ -16,7 +16,7 @@ CHECK_ONLY=0
 
 usage() {
   cat <<'EOF'
-Run a privacy-preserving Production CloudKit sync soak from MuesliDev.
+Run a privacy-preserving Production CloudKit sync soak from MeetsDev.
 
 Usage:
   ./scripts/dev-production-sync-soak.sh [options]
@@ -30,7 +30,7 @@ Options:
   --check                         Validate the dev lane without writing records.
   --help                          Show this help.
 
-The mac-to-ios leg inserts a timestamped synthetic dictation into MuesliDev and
+The mac-to-ios leg inserts a timestamped synthetic dictation into MeetsDev and
 waits until CKSyncEngine records a successful Production save. Confirm the
 printed marker appears in the TestFlight app.
 
@@ -94,29 +94,29 @@ is_positive_integer "$COUNT" || fail "--count must be a positive integer."
 is_positive_integer "$INTERVAL_SECONDS" || fail "--interval must be a positive integer."
 is_positive_integer "$TIMEOUT_SECONDS" || fail "--timeout must be a positive integer."
 
-[[ "$APP_PATH" == "/Applications/MuesliDev.app" ]] || fail "unexpected app path."
-[[ "$SUPPORT_DIR" == "$HOME/Library/Application Support/MuesliDev" ]] || fail "unexpected support directory."
-[[ -d "$APP_PATH" ]] || fail "MuesliDev is not installed at $APP_PATH."
-[[ -f "$DATABASE_PATH" ]] || fail "MuesliDev database is missing at $DATABASE_PATH."
+[[ "$APP_PATH" == "/Applications/MeetsDev.app" ]] || fail "unexpected app path."
+[[ "$SUPPORT_DIR" == "$HOME/Library/Application Support/MeetsDev" ]] || fail "unexpected support directory."
+[[ -d "$APP_PATH" ]] || fail "MeetsDev is not installed at $APP_PATH."
+[[ -f "$DATABASE_PATH" ]] || fail "MeetsDev database is missing at $DATABASE_PATH."
 command -v sqlite3 >/dev/null || fail "sqlite3 is required."
 command -v codesign >/dev/null || fail "codesign is required."
 
 BUNDLE_ID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP_PATH/Contents/Info.plist" 2>/dev/null || true)"
-[[ "$BUNDLE_ID" == "com.muesli.dev" ]] || fail "refusing to run for bundle ID '$BUNDLE_ID'."
+[[ "$BUNDLE_ID" == "com.meets.dev" ]] || fail "refusing to run for bundle ID '$BUNDLE_ID'."
 
-ENTITLEMENTS_PLIST="$(mktemp "${TMPDIR:-/tmp}/muesli-sync-soak-entitlements.XXXXXX")"
+ENTITLEMENTS_PLIST="$(mktemp "${TMPDIR:-/tmp}/meets-sync-soak-entitlements.XXXXXX")"
 cleanup() {
   rm -f "$ENTITLEMENTS_PLIST"
 }
 trap cleanup EXIT
 codesign -d --entitlements :- "$APP_PATH" > "$ENTITLEMENTS_PLIST" 2>/dev/null \
-  || fail "could not read MuesliDev entitlements."
+  || fail "could not read MeetsDev entitlements."
 ICLOUD_ENVIRONMENT="$(/usr/libexec/PlistBuddy -c 'Print :com.apple.developer.icloud-container-environment' "$ENTITLEMENTS_PLIST" 2>/dev/null || true)"
 [[ "$ICLOUD_ENVIRONMENT" == "Production" ]] \
   || fail "refusing to run without the exact Production CloudKit entitlement."
 
 if [[ "$CHECK_ONLY" -eq 1 ]]; then
-  printf 'PASS preflight | bundle=%s | CloudKit=%s | data=MuesliDev\n' "$BUNDLE_ID" "$ICLOUD_ENVIRONMENT"
+  printf 'PASS preflight | bundle=%s | CloudKit=%s | data=MeetsDev\n' "$BUNDLE_ID" "$ICLOUD_ENVIRONMENT"
   exit 0
 fi
 
@@ -132,7 +132,7 @@ json_result() {
     "$status" "$direction" "$started_at" "$finished_at" "$latency_ms" >> "$RESULTS_PATH"
 }
 
-reactivate_muesli_dev() {
+reactivate_meets_dev() {
   open -a "$APP_PATH" >/dev/null
 }
 
@@ -157,15 +157,15 @@ run_mac_to_ios() {
     local started_epoch started_iso marker escaped_marker row_id finished_epoch finished_iso latency_ms
     started_epoch="$(date +%s)"
     started_iso="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-    marker="MUESLI_SYNC_TEST_MAC_${started_epoch}_${index}"
+    marker="MEETS_SYNC_TEST_MAC_${started_epoch}_${index}"
     escaped_marker="${marker//\'/\'\'}"
 
-    sqlite3 "$DATABASE_PATH" "BEGIN IMMEDIATE; INSERT INTO dictations (timestamp, duration_seconds, raw_text, app_context, word_count, source, started_at, ended_at, updated_at, sync_dirty) VALUES ('$started_iso', 0, '$escaped_marker', 'muesli_sync_probe', 1, 'sync_probe', '$started_iso', '$started_iso', $started_epoch, 1); SELECT last_insert_rowid(); COMMIT;" > "${ENTITLEMENTS_PLIST}.row"
+    sqlite3 "$DATABASE_PATH" "BEGIN IMMEDIATE; INSERT INTO dictations (timestamp, duration_seconds, raw_text, app_context, word_count, source, started_at, ended_at, updated_at, sync_dirty) VALUES ('$started_iso', 0, '$escaped_marker', 'meets_sync_probe', 1, 'sync_probe', '$started_iso', '$started_iso', $started_epoch, 1); SELECT last_insert_rowid(); COMMIT;" > "${ENTITLEMENTS_PLIST}.row"
     row_id="$(sed -n '1p' "${ENTITLEMENTS_PLIST}.row")"
     rm -f "${ENTITLEMENTS_PLIST}.row"
     [[ "$row_id" =~ ^[0-9]+$ ]] || fail "failed to create the local synthetic probe."
 
-    reactivate_muesli_dev
+    reactivate_meets_dev
     if wait_for_mac_probe_upload "$row_id" "$started_epoch"; then
       finished_epoch="$(date +%s)"
       finished_iso="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -195,7 +195,7 @@ run_ios_to_mac() {
   deadline=$(( started_epoch + TIMEOUT_SECONDS ))
   printf 'WAIT iOS -> macOS | create one new TestFlight voice note within %ss.\n' "$TIMEOUT_SECONDS"
 
-  reactivate_muesli_dev
+  reactivate_meets_dev
   while (( $(date +%s) <= deadline )); do
     count="$(sqlite3 -readonly "$DATABASE_PATH" "SELECT COUNT(*) FROM dictations WHERE id>$baseline AND lower(trim(COALESCE(source, '')))='ios' AND deleted_at IS NULL;")"
     if [[ "$count" =~ ^[0-9]+$ ]] && (( count > 0 )); then

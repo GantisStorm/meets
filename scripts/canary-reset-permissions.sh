@@ -5,11 +5,11 @@ set -euo pipefail
 #
 # Usage:
 #   ./scripts/canary-reset-permissions.sh
-#   ./scripts/canary-reset-permissions.sh --bundle-id com.muesli.canary
+#   ./scripts/canary-reset-permissions.sh --bundle-id com.meets.canary
 #   ./scripts/canary-reset-permissions.sh --dry-run
 
-BUNDLE_ID="${MUESLI_CANARY_BUNDLE_ID:-com.muesli.canary}"
-APP_PROCESS_NAME="${MUESLI_CANARY_PROCESS_NAME:-MuesliCanary}"
+BUNDLE_ID="${MEETS_CANARY_BUNDLE_ID:-com.meets.canary}"
+APP_PROCESS_NAME="${MEETS_CANARY_PROCESS_NAME:-MeetsCanary}"
 DRY_RUN=0
 FORCE=0
 
@@ -95,7 +95,7 @@ if [[ "$DRY_RUN" -eq 1 ]]; then
 else
   log "Reset complete."
   log "Next manual steps:"
-  log "  1. Launch MuesliCanary."
+  log "  1. Launch MeetsCanary."
   log "  2. Re-grant Microphone, Screen Recording, Accessibility, Calendar, and Input Monitoring if prompted."
   log "  3. If macOS opens System Settings, finish the toggle there before retrying the feature."
 fi

@@ -4,10 +4,10 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$ROOT/scripts/localvqe_runtime.sh"
 BUILD_CONFIG="${1:-debug}"
-INSTALL_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/muesli-packaging-test.XXXXXX")"
-APP_BUNDLE_NAME="MuesliPackagingTest.app"
+INSTALL_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/meets-packaging-test.XXXXXX")"
+APP_BUNDLE_NAME="MeetsPackagingTest.app"
 APP_PATH="$INSTALL_ROOT/$APP_BUNDLE_NAME"
-APP_BIN="$APP_PATH/Contents/MacOS/Muesli"
+APP_BIN="$APP_PATH/Contents/MacOS/Meets"
 CLI_BIN="$APP_PATH/Contents/MacOS/meets-cli"
 SPEC_OUTPUT="$INSTALL_ROOT/meets-cli-spec.json"
 TRANSCRIBE_HELP_OUTPUT="$INSTALL_ROOT/meets-cli-transcribe-help.txt"
@@ -17,17 +17,17 @@ cleanup() {
 }
 trap cleanup EXIT
 
-LOCALVQE_LIB_DIR="${MUESLI_LOCALVQE_LIB_DIR:-$ROOT/native/MeetsNative/LocalVQE/lib}"
+LOCALVQE_LIB_DIR="${MEETS_LOCALVQE_LIB_DIR:-$ROOT/native/MeetsNative/LocalVQE/lib}"
 if ! meets_localvqe_runtime_is_complete "$LOCALVQE_LIB_DIR"; then
   echo "Building LocalVQE runtime for packaging smoke test..."
   "$ROOT/scripts/build_localvqe.sh"
 fi
 
 echo "Building isolated app bundle in $INSTALL_ROOT"
-MUESLI_INSTALL_DIR="$INSTALL_ROOT" \
-MUESLI_APP_BUNDLE_NAME="$APP_BUNDLE_NAME" \
-MUESLI_SKIP_SIGN=1 \
-MUESLI_REQUIRE_LOCALVQE=1 \
+MEETS_INSTALL_DIR="$INSTALL_ROOT" \
+MEETS_APP_BUNDLE_NAME="$APP_BUNDLE_NAME" \
+MEETS_SKIP_SIGN=1 \
+MEETS_REQUIRE_LOCALVQE=1 \
 "$ROOT/scripts/build_native_app.sh" "$BUILD_CONFIG"
 
 if [[ ! -d "$APP_PATH" ]]; then

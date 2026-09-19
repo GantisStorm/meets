@@ -19,7 +19,7 @@ if [[ ! -d "$APP_PATH" ]]; then
   exit 1
 fi
 
-TEMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/muesli-cloud-entitlements.XXXXXX")"
+TEMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/meets-cloud-entitlements.XXXXXX")"
 cleanup() {
   rm -rf "$TEMP_DIR"
 }

@@ -8,7 +8,7 @@ struct MeetingCandidateResolverTests {
 
     private func resolver() -> MeetingCandidateResolver {
         let resolver = MeetingCandidateResolver()
-        resolver.selfBundleID = "com.muesli.app"
+        resolver.selfBundleID = "com.meets.app"
         return resolver
     }
 

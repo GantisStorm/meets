@@ -17,7 +17,7 @@ final class CameraActivityMonitor {
 
     init(
         observer: CameraActivityObserving? = nil,
-        queue: DispatchQueue = DispatchQueue(label: "com.muesli.camera-activity")
+        queue: DispatchQueue = DispatchQueue(label: "com.meets.camera-activity")
     ) {
         self.queue = queue
         self.observer = observer ?? CoreMediaIOCameraActivityObserver(queue: queue)

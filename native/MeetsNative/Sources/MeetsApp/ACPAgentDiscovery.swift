@@ -111,7 +111,7 @@ struct ACPCommandPicker: View {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let selection = discovered.first(where: { $0.command == current })?.label
             ?? Self.customLabel
-        VStack(alignment: .trailing, spacing: 6) {
+        VStack(alignment: .trailing, spacing: MeetsTheme.spacing8) {
             FixedWidthPopUp(
                 selection: selection,
                 options: discovered.map(\.label) + [Self.customLabel]

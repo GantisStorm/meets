@@ -6,7 +6,6 @@ enum DashboardTab: String, CaseIterable {
     case meetings
     case calendar
     case insights
-    case dictionary
     case models
     case settings
     case about

@@ -29,7 +29,7 @@ struct MeetingsNavigationTests {
 
     private func makeStore() throws -> DictationStore {
         let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("muesli-nav-test-\(UUID().uuidString).db")
+            .appendingPathComponent("meets-nav-test-\(UUID().uuidString).db")
         let store = DictationStore(databaseURL: url)
         try store.migrateIfNeeded()
         return store
@@ -37,7 +37,7 @@ struct MeetingsNavigationTests {
 
     private func makeSupportDirectory() -> URL {
         FileManager.default.temporaryDirectory
-            .appendingPathComponent("muesli-nav-support-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("meets-nav-support-\(UUID().uuidString)", isDirectory: true)
     }
 
     @discardableResult

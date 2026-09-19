@@ -1,0 +1,4 @@
+interface:
+  display_name: "Meets Dev Build Lanes"
+  short_description: "Build local Meets dev lanes safely across worktrees."
+  default_prompt: "Use the Meets dev build lanes workflow for local-only or signed dev app builds across multiple worktrees."

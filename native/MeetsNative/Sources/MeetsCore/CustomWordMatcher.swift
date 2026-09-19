@@ -1,6 +1,6 @@
 import Foundation
 
-/// A user-defined dictionary entry: a word or phrase Muesli's ASR output should be
+/// A user-defined dictionary entry: a word or phrase Meets's ASR output should be
 /// corrected to, applied post-transcription by `CustomWordMatcher`.
 public struct CustomWord: Codable, Equatable, Identifiable {
     public var id = UUID()

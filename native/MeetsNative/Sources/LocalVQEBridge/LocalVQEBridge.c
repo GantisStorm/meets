@@ -137,7 +137,7 @@ MeetsLocalVQEContext *meets_localvqe_create(
     if (context == NULL) {
         free_context(localvqe);
         dlclose(library);
-        set_error(error_buffer, error_buffer_length, "Could not allocate Muesli LocalVQE context");
+        set_error(error_buffer, error_buffer_length, "Could not allocate Meets LocalVQE context");
         return NULL;
     }
 

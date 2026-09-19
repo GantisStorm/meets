@@ -224,9 +224,15 @@ private struct InsightsShareCard: View {
     let rangeLabel: String
     let showsNumbers: Bool
 
+    private struct ShareMetric {
+        let label: String
+        let value: String
+    }
+
     private let pale = Color(red: 0.91, green: 0.95, blue: 0.98)
-    private let muted = Color(red: 0.61, green: 0.68, blue: 0.74)
+    private let muted = Color(red: 0.70, green: 0.77, blue: 0.82)
     private let cyan = Color(red: 0.20, green: 0.78, blue: 0.91)
+    private let ink = Color(red: 0.025, green: 0.043, blue: 0.060)
 
     var body: some View {
         ZStack {
@@ -242,83 +248,154 @@ private struct InsightsShareCard: View {
 
             LinearGradient(
                 colors: [
-                    Color(red: 0.035, green: 0.050, blue: 0.068).opacity(0.08),
-                    Color(red: 0.045, green: 0.062, blue: 0.080).opacity(0.12),
+                    ink.opacity(0.92),
+                    ink.opacity(0.66),
+                    ink.opacity(0.18),
                 ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
+                startPoint: .leading,
+                endPoint: .trailing
+            )
+
+            LinearGradient(
+                colors: [.clear, ink.opacity(0.68)],
+                startPoint: .top,
+                endPoint: .bottom
             )
 
             VStack(alignment: .leading, spacing: 0) {
                 HStack(alignment: .top) {
-                    Text(rangeLabel.uppercased())
-                        .font(.system(size: 14, weight: .semibold))
-                        .tracking(1.9)
-                        .foregroundStyle(pale.opacity(0.82))
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Meeting snapshot")
+                            .font(.system(size: 22, weight: .semibold))
+                            .tracking(-0.3)
+                            .foregroundStyle(pale)
+                        Text(rangeLabel.uppercased())
+                            .font(.system(size: 12, weight: .semibold))
+                            .tracking(1.8)
+                            .foregroundStyle(muted)
+                    }
                     Spacer()
                     MeetsShareMark(color: pale)
                         .padding(.horizontal, 14)
                         .padding(.vertical, 9)
-                        .background(Color(red: 0.035, green: 0.050, blue: 0.068).opacity(0.44))
+                        .background(ink.opacity(0.52))
                         .clipShape(RoundedRectangle(cornerRadius: 14))
                         .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Color.white.opacity(0.12)))
                 }
 
-                Spacer(minLength: 34)
+                Spacer(minLength: 24)
 
-                Text(showsNumbers ? snapshot.lifetimeMeetingStats.totalMeetings.formatted() : "—")
-                    .font(.system(size: 108, weight: .bold, design: .rounded))
-                    .tracking(-5)
-                    .monospacedDigit()
-                    .foregroundStyle(pale)
-                Text("MEETINGS RECORDED")
-                    .font(.system(size: 18, weight: .bold))
-                    .tracking(2.8)
-                    .foregroundStyle(muted)
-                if showsNumbers, snapshot.lifetimeMeetingStats.totalDurationSeconds > 0 {
-                    Text(shareDurationLine)
-                        .font(.system(size: 16, weight: .medium))
-                        .tracking(0.4)
-                        .foregroundStyle(pale.opacity(0.82))
-                        .padding(.top, 6)
+                HStack(alignment: .bottom, spacing: 30) {
+                    HStack(alignment: .firstTextBaseline, spacing: 14) {
+                        Text(display(formatShare(snapshot.meetingStats.totalMeetings)))
+                            .font(.system(size: 82, weight: .bold, design: .rounded))
+                            .tracking(-3.2)
+                            .monospacedDigit()
+                            .foregroundStyle(pale)
+                        Text("meetings")
+                            .font(.system(size: 25, weight: .semibold))
+                            .tracking(-0.4)
+                            .foregroundStyle(muted)
+                    }
+
+                    Spacer()
+
+                    HStack(spacing: 32) {
+                        heroFact(display(duration(snapshot.meetingStats.totalDurationSeconds)), "recorded")
+                        heroFact(display(formatShare(snapshot.activeDaysInRange)), "active days")
+                        heroFact(display(dayCount(snapshot.currentStreakDays)), "current streak")
+                    }
                 }
 
-                Spacer(minLength: 36)
+                Spacer(minLength: 26)
 
-                HStack(spacing: 0) {
-                    shareDatum(value: showsNumbers ? formatShare(snapshot.lifetimeMeetingStats.meetingsWithRecording) : "—", label: "WITH RECORDING")
+                HStack(alignment: .top, spacing: 0) {
+                    shareGroup("Capture", metrics: captureMetrics)
                     shareDivider
-                    shareDatum(value: showsNumbers ? "\(sharePercent(snapshot.lifetimeMeetingStats.meetingsLinkedToCalendar, of: snapshot.lifetimeMeetingStats.totalMeetings))" : "—", label: "CALENDAR-LINKED")
+                    shareGroup("Workflow", metrics: workflowMetrics)
                     shareDivider
-                    shareDatum(value: showsNumbers ? formatShare(snapshot.lifetimeMeetingStats.followUpMeetings) : "—", label: "FOLLOW-UPS")
+                    shareGroup("AI", metrics: aiMetrics)
+                    shareDivider
+                    shareGroup("Calendar", metrics: calendarMetrics)
                 }
-                .padding(.vertical, 24)
-                .background(Color(red: 0.035, green: 0.050, blue: 0.068).opacity(0.48))
+                .padding(.horizontal, 22)
+                .padding(.vertical, 20)
+                .background(ink.opacity(0.62))
                 .clipShape(RoundedRectangle(cornerRadius: 14))
-                .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Color.white.opacity(0.16)))
 
-                Spacer(minLength: 30)
+                Spacer(minLength: 20)
 
                 HStack {
-                    Text("Private by design. Made on this Mac.")
-                        .font(.system(size: 15, weight: .medium))
-                        .foregroundStyle(pale.opacity(0.88))
+                    Text("Private by design · Computed on this Mac · No transcripts shared")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(pale.opacity(0.90))
                         .shadow(color: Color.black.opacity(0.48), radius: 3, y: 1)
                     Spacer()
                     MeetsWordmark(size: 15, color: cyan, periodColor: Color(red: 0.90, green: 0.28, blue: 0.30))
                         .shadow(color: Color.black.opacity(0.48), radius: 3, y: 1)
-                }
+                    }
             }
-            .padding(54)
+            .padding(46)
         }
     }
 
-    private var shareDurationLine: String {
-        let seconds = snapshot.lifetimeMeetingStats.totalDurationSeconds
+    private var captureMetrics: [ShareMetric] {
+        let stats = snapshot.meetingStats
+        return [
+            ShareMetric(label: "Recorded time", value: display(duration(stats.totalDurationSeconds))),
+            ShareMetric(label: "Words captured", value: display(formatShare(stats.totalWords))),
+            ShareMetric(label: "Average length", value: display(duration(stats.averageDurationSeconds))),
+            ShareMetric(label: "With audio", value: display(sharePercent(stats.meetingsWithRecording, of: stats.totalMeetings))),
+            ShareMetric(label: "Audio imports", value: display(formatShare(stats.importedMeetings))),
+        ]
+    }
+
+    private var workflowMetrics: [ShareMetric] {
+        let stats = snapshot.meetingStats
+        return [
+            ShareMetric(label: "Completed", value: display(formatShare(stats.completedMeetings))),
+            ShareMetric(label: "Failed", value: display(formatShare(stats.failedMeetings))),
+            ShareMetric(label: "Follow-ups", value: display(formatShare(stats.followUpMeetings))),
+            ShareMetric(label: "Active days", value: display(formatShare(snapshot.activeDaysInRange))),
+            ShareMetric(label: "Best streak", value: display(dayCount(snapshot.longestStreakDays))),
+        ]
+    }
+
+    private var aiMetrics: [ShareMetric] {
+        let stats = snapshot.llmStats
+        return [
+            ShareMetric(label: "Runs", value: display(formatShare(stats.totalRuns))),
+            ShareMetric(label: "Successful", value: display(sharePercent(stats.successfulRuns, of: stats.totalRuns))),
+            ShareMetric(label: "Summaries", value: display(formatShare(kindCount("summary")))),
+            ShareMetric(label: "Cleanups", value: display(formatShare(kindCount("cleanup")))),
+            ShareMetric(label: "Characters", value: display(formatShare(stats.totalCharacters))),
+        ]
+    }
+
+    private var calendarMetrics: [ShareMetric] {
+        let stats = snapshot.calendarStats
+        return [
+            ShareMetric(label: "Events", value: display(formatShare(stats.eventsInRange))),
+            ShareMetric(label: "Meetings linked", value: display(sharePercent(snapshot.meetingStats.meetingsLinkedToCalendar, of: snapshot.meetingStats.totalMeetings))),
+            ShareMetric(label: "Recorded", value: display(formatShare(stats.recordedEvents))),
+            ShareMetric(label: "Missed", value: display(formatShare(stats.missedEvents))),
+            ShareMetric(label: "Upcoming", value: display(formatShare(stats.upcomingEvents))),
+        ]
+    }
+
+    private func display(_ value: String) -> String {
+        showsNumbers ? value : "—"
+    }
+
+    private func duration(_ seconds: Double) -> String {
         let hours = Int(seconds) / 3600
         let minutes = Int(seconds) % 3600 / 60
-        if hours > 0 { return "\(hours)h \(minutes)m of meetings recorded" }
-        return "\(minutes)m of meetings recorded"
+        if hours > 0 { return "\(hours)h \(minutes)m" }
+        return "\(minutes)m"
+    }
+
+    private func dayCount(_ days: Int) -> String {
+        "\(days)d"
     }
 
     private func sharePercent(_ part: Int, of total: Int) -> String {
@@ -330,24 +407,59 @@ private struct InsightsShareCard: View {
         value.formatted(.number.notation(.compactName))
     }
 
-    private func shareDatum(value: String, label: String) -> some View {
-        VStack(alignment: .leading, spacing: 7) {
+    private func kindCount(_ kind: String) -> Int {
+        snapshot.llmStats.byKind.reduce(into: 0) { result, entry in
+            if entry.key.lowercased() == kind { result += entry.value }
+        }
+    }
+
+    private func heroFact(_ value: String, _ label: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
             Text(value)
-                .font(.system(size: 30, weight: .semibold, design: .rounded))
-                .tracking(-0.8)
+                .font(.system(size: 24, weight: .semibold, design: .rounded))
+                .tracking(-0.5)
                 .monospacedDigit()
                 .foregroundStyle(pale)
-            Text(label)
-                .font(.system(size: 12, weight: .bold))
-                .tracking(1.7)
+            Text(label.uppercased())
+                .font(.system(size: 9, weight: .bold))
+                .tracking(1.3)
                 .foregroundStyle(muted)
         }
+    }
+
+    private func shareGroup(_ title: String, metrics: [ShareMetric]) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(title.uppercased())
+                .font(.system(size: 10, weight: .bold))
+                .tracking(1.6)
+                .foregroundStyle(cyan)
+                .padding(.bottom, 2)
+
+            ForEach(Array(metrics.enumerated()), id: \.offset) { _, metric in
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(metric.label)
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(muted)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.82)
+                    Spacer(minLength: 4)
+                    Text(metric.value)
+                        .font(.system(size: 16, weight: .semibold, design: .rounded))
+                        .monospacedDigit()
+                        .foregroundStyle(pale)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.78)
+                }
+            }
+        }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 24)
+        .padding(.horizontal, 18)
     }
 
     private var shareDivider: some View {
-        Rectangle().fill(Color.white.opacity(0.11)).frame(width: 1, height: 58)
+        Rectangle()
+            .fill(Color.white.opacity(0.12))
+            .frame(width: 1, height: 148)
     }
 }
 
@@ -374,7 +486,7 @@ enum InsightsBrandAssets {
            let image = NSImage(contentsOf: bundledURL) {
             return image
         }
-        if let repositoryRoot = ProcessInfo.processInfo.environment["MUESLI_REPO_ROOT"],
+        if let repositoryRoot = ProcessInfo.processInfo.environment["MEETS_REPO_ROOT"],
            let image = NSImage(contentsOf: URL(fileURLWithPath: repositoryRoot, isDirectory: true).appendingPathComponent(repositoryPath)) {
             return image
         }

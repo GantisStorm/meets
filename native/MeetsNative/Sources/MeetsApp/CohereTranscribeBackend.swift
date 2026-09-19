@@ -206,7 +206,7 @@ enum CohereTranscribeLanguage: String, CaseIterable, Codable, Sendable {
 
 private enum CohereTranscribeConfig {
     static let repoId = "phequals/cohere-transcribe-coreml-mixed-precision"
-    static let envOverride = "MUESLI_COHERE_MODEL_DIR"
+    static let envOverride = "MEETS_COHERE_MODEL_DIR"
 
     static let dynamicEncoderPackage = "cohere_encoder_dynamic.mlpackage"
     static let prefillPackage = "cohere_decoder_prefill_int8.mlpackage"
@@ -263,9 +263,9 @@ private enum CohereTranscribeConfig {
     ]
 
     static var defaultCacheDirectory: URL {
-        FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".cache/muesli/models", isDirectory: true)
-            .appendingPathComponent("cohere-transcribe-coreml-mixed-precision", isDirectory: true)
+        MeetsPaths.modelCacheDirectoryURL(
+            relativePath: "cohere-transcribe-coreml-mixed-precision"
+        )
     }
 
 }

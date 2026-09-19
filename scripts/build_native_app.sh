@@ -6,45 +6,45 @@ source "$ROOT/scripts/meets_spm_cache.sh"
 source "$ROOT/scripts/localvqe_runtime.sh"
 PACKAGE_DIR="$ROOT/native/MeetsNative"
 DIST_DIR="$ROOT/dist-native"
-INSTALL_DIR="${MUESLI_INSTALL_DIR:-/Applications}"
+INSTALL_DIR="${MEETS_INSTALL_DIR:-/Applications}"
 BUILD_CONFIG="${1:-release}"
 APP_BINARY="MeetsApp"
 CLI_BINARY="meets-cli"
-APP_NAME="${MUESLI_APP_NAME:-Meets}"
-APP_DISPLAY_NAME="${MUESLI_DISPLAY_NAME:-$APP_NAME}"
-APP_BUNDLE_NAME="${MUESLI_APP_BUNDLE_NAME:-Meets.app}"
-APP_EXECUTABLE_NAME="${MUESLI_EXECUTABLE_NAME:-Meets}"
-APP_SUPPORT_DIR_NAME="${MUESLI_SUPPORT_DIR_NAME:-$APP_DISPLAY_NAME}"
-BUNDLE_ID="${MUESLI_BUNDLE_ID:-com.meets.app}"
-TELEMETRYDECK_APP_ID="${MUESLI_TELEMETRYDECK_APP_ID:-}"
-TELEMETRY_CHANNEL="${MUESLI_TELEMETRY_CHANNEL:-unconfigured}"
+APP_NAME="${MEETS_APP_NAME:-Meets}"
+APP_DISPLAY_NAME="${MEETS_DISPLAY_NAME:-$APP_NAME}"
+APP_BUNDLE_NAME="${MEETS_APP_BUNDLE_NAME:-Meets.app}"
+APP_EXECUTABLE_NAME="${MEETS_EXECUTABLE_NAME:-Meets}"
+APP_SUPPORT_DIR_NAME="${MEETS_SUPPORT_DIR_NAME:-$APP_DISPLAY_NAME}"
+BUNDLE_ID="${MEETS_BUNDLE_ID:-com.meets.app}"
+TELEMETRYDECK_APP_ID="${MEETS_TELEMETRYDECK_APP_ID:-}"
+TELEMETRY_CHANNEL="${MEETS_TELEMETRY_CHANNEL:-unconfigured}"
 DEFAULT_APP_VERSION="0.8.4"
-APP_VERSION="${MUESLI_BUILD_VERSION:-$DEFAULT_APP_VERSION}"
-APP_BUNDLE_VERSION="${MUESLI_BUNDLE_VERSION:-$APP_VERSION}"
-APP_SHORT_VERSION="${MUESLI_SHORT_VERSION:-$APP_VERSION}"
-SPARKLE_FEED_URL="${MUESLI_SPARKLE_FEED_URL-https://muesli-hq.github.io/muesli/appcast.xml}"
-SPARKLE_EDKEY="${MUESLI_SPARKLE_EDKEY-ok9CQBJ3f0MJ2GXuGBubc6VyeWyb5exmqP2b9DceqH4=}"
+APP_VERSION="${MEETS_BUILD_VERSION:-$DEFAULT_APP_VERSION}"
+APP_BUNDLE_VERSION="${MEETS_BUNDLE_VERSION:-$APP_VERSION}"
+APP_SHORT_VERSION="${MEETS_SHORT_VERSION:-$APP_VERSION}"
+SPARKLE_FEED_URL="${MEETS_SPARKLE_FEED_URL-https://gantisstorm.github.io/meets/appcast.xml}"
+SPARKLE_EDKEY="${MEETS_SPARKLE_EDKEY-ok9CQBJ3f0MJ2GXuGBubc6VyeWyb5exmqP2b9DceqH4=}"
 STAGED_APP_DIR="$DIST_DIR/$APP_BUNDLE_NAME"
 APP_DIR="$INSTALL_DIR/$APP_BUNDLE_NAME"
 DEFAULT_SIGN_IDENTITY="Developer ID Application: Pranav Hari Guruvayurappan (58W55QJ567)"
-SIGN_IDENTITY="${MUESLI_SIGN_IDENTITY:-$DEFAULT_SIGN_IDENTITY}"
-SKIP_SIGN="${MUESLI_SKIP_SIGN:-0}"
-PROVISIONING_PROFILE="${MUESLI_PROVISIONING_PROFILE:-}"
-CODESIGN_TIMESTAMP="${MUESLI_CODESIGN_TIMESTAMP:---timestamp}"
+SIGN_IDENTITY="${MEETS_SIGN_IDENTITY:-$DEFAULT_SIGN_IDENTITY}"
+SKIP_SIGN="${MEETS_SKIP_SIGN:-0}"
+PROVISIONING_PROFILE="${MEETS_PROVISIONING_PROFILE:-}"
+CODESIGN_TIMESTAMP="${MEETS_CODESIGN_TIMESTAMP:---timestamp}"
 if [[ "$CODESIGN_TIMESTAMP" == "none" ]]; then
   CODESIGN_TIMESTAMP="--timestamp=none"
 fi
-BUNDLE_THIN_ARCH="${MUESLI_BUNDLE_THIN_ARCH:-arm64}"
-# Compile path switch: xcodebuild against native/MuesliXcode (1) vs plain
+BUNDLE_THIN_ARCH="${MEETS_BUNDLE_THIN_ARCH:-arm64}"
+# Compile path switch: xcodebuild against native/MeetsXcode (1) vs plain
 # `swift build` (0). Only the xcodebuild path generates
 # Contents/Resources/Metadata.appintents (App Intents metadata extraction
 # runs for real Xcode Application targets, not SwiftPM executables), so all
 # shipped builds — release.sh, release-preprod.sh, release-alpha.sh — pin
 # this to 1, and dev-test.sh defaults to 1. The script-level default stays 0
 # so bare contributor invocations don't require xcodegen; set
-# MUESLI_USE_XCODE_BUILD=1 explicitly when testing Shortcuts by hand.
-USE_XCODE_BUILD="${MUESLI_USE_XCODE_BUILD:-0}"
-XCODE_PROJECT_DIR="$ROOT/native/MuesliXcode"
+# MEETS_USE_XCODE_BUILD=1 explicitly when testing Shortcuts by hand.
+USE_XCODE_BUILD="${MEETS_USE_XCODE_BUILD:-0}"
+XCODE_PROJECT_DIR="$ROOT/native/MeetsXcode"
 XCODE_PRODUCT_NAME="Meets"
 
 thin_macho_to_bundle_arch() {
@@ -67,27 +67,27 @@ thin_macho_to_bundle_arch() {
 }
 
 if [[ -n "$TELEMETRYDECK_APP_ID" && ! "$TELEMETRYDECK_APP_ID" =~ ^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$ ]]; then
-  echo "Invalid MUESLI_TELEMETRYDECK_APP_ID: expected a UUID." >&2
+  echo "Invalid MEETS_TELEMETRYDECK_APP_ID: expected a UUID." >&2
   exit 2
 fi
 case "$TELEMETRY_CHANNEL" in
   production|preprod|dev|canary|unconfigured) ;;
   *)
-    echo "Invalid MUESLI_TELEMETRY_CHANNEL: $TELEMETRY_CHANNEL" >&2
+    echo "Invalid MEETS_TELEMETRY_CHANNEL: $TELEMETRY_CHANNEL" >&2
     exit 2
     ;;
 esac
 if [[ -n "$TELEMETRYDECK_APP_ID" && "$TELEMETRY_CHANNEL" == "unconfigured" ]]; then
-  echo "MUESLI_TELEMETRY_CHANNEL is required when telemetry is enabled." >&2
+  echo "MEETS_TELEMETRY_CHANNEL is required when telemetry is enabled." >&2
   exit 2
 fi
 if [[ -z "$TELEMETRYDECK_APP_ID" && "$TELEMETRY_CHANNEL" != "unconfigured" ]]; then
-  echo "MUESLI_TELEMETRYDECK_APP_ID is required for channel $TELEMETRY_CHANNEL." >&2
+  echo "MEETS_TELEMETRYDECK_APP_ID is required for channel $TELEMETRY_CHANNEL." >&2
   exit 2
 fi
 
 SWIFT_BUILD_ARGS=(--package-path "$PACKAGE_DIR" -c "$BUILD_CONFIG")
-if ! muesli_spm_scratch_disabled; then
+if ! meets_spm_scratch_disabled; then
   DEFAULT_SCRATCH_CHANNEL="release"
   if [[ "$BUILD_CONFIG" == "debug" ]]; then
     DEFAULT_SCRATCH_CHANNEL="$(meets_worktree_spm_scratch_channel dev "$ROOT")"
@@ -103,7 +103,7 @@ mkdir -p "$DIST_DIR"
 XCODE_APP_DIR=""
 if [[ "$USE_XCODE_BUILD" == "1" ]]; then
   if ! command -v xcodegen >/dev/null 2>&1; then
-    echo "MUESLI_USE_XCODE_BUILD=1 requires xcodegen. Install with: brew install xcodegen" >&2
+    echo "MEETS_USE_XCODE_BUILD=1 requires xcodegen. Install with: brew install xcodegen" >&2
     exit 1
   fi
 
@@ -111,14 +111,14 @@ if [[ "$USE_XCODE_BUILD" == "1" ]]; then
   [[ "$BUILD_CONFIG" == "release" ]] && XCODE_CONFIG="Release"
 
   # Scope DerivedData like the SwiftPM scratch path: per-worktree for debug
-  # builds and per-app-name so concurrent dev lanes (MuesliDevA/B/C) and the
+  # builds and per-app-name so concurrent dev lanes (MeetsDevA/B/C) and the
   # production build never share an xcodebuild cache directory.
   if [[ "$BUILD_CONFIG" == "release" ]]; then
     XCODE_SCRATCH_CHANNEL="release"
   else
     XCODE_SCRATCH_CHANNEL="$(meets_worktree_spm_scratch_channel dev "$ROOT")"
   fi
-  XCODE_DERIVED_DATA="${MUESLI_XCODEBUILD_DERIVED_DATA:-$(meets_default_spm_cache_root)/$XCODE_SCRATCH_CHANNEL/xcodebuild/$APP_NAME-$BUILD_CONFIG}"
+  XCODE_DERIVED_DATA="${MEETS_XCODEBUILD_DERIVED_DATA:-$(meets_default_spm_cache_root)/$XCODE_SCRATCH_CHANNEL/xcodebuild/$APP_NAME-$BUILD_CONFIG}"
   mkdir -p "$XCODE_DERIVED_DATA"
 
   echo "Generating Xcode project (xcodegen)..."
@@ -127,15 +127,15 @@ if [[ "$USE_XCODE_BUILD" == "1" ]]; then
   echo "Building app target via xcodebuild ($XCODE_CONFIG)..."
   set +e
   plugin_validation_args=()
-  if [[ "${MUESLI_TRUST_PACKAGE_PLUGINS:-0}" == "1" ]]; then
+  if [[ "${MEETS_TRUST_PACKAGE_PLUGINS:-0}" == "1" ]]; then
     plugin_validation_args=(-skipPackagePluginValidation)
   fi
   performance_args=()
-  if [[ "${MUESLI_PROFILE_OPTIMIZED:-0}" == "1" ]]; then
+  if [[ "${MEETS_PROFILE_OPTIMIZED:-0}" == "1" ]]; then
     performance_args=(SWIFT_OPTIMIZATION_LEVEL=-O GCC_OPTIMIZATION_LEVEL=3)
   fi
   xcodebuild build ${plugin_validation_args[@]+"${plugin_validation_args[@]}"} ${performance_args[@]+"${performance_args[@]}"} \
-    -project "$XCODE_PROJECT_DIR/MuesliXcode.xcodeproj" \
+    -project "$XCODE_PROJECT_DIR/MeetsXcode.xcodeproj" \
     -scheme Meets \
     -configuration "$XCODE_CONFIG" \
     -destination 'platform=macOS' \
@@ -251,10 +251,10 @@ fi
 # Bundle LocalVQE runtime (default meeting AEC). The .gguf model is committed;
 # the shared libraries under LocalVQE/lib/ are gitignored and produced by
 # scripts/build_localvqe.sh. Without them the app silently falls back to DTLN.
-LOCALVQE_LIB_DIR="${MUESLI_LOCALVQE_LIB_DIR:-$ROOT/native/MeetsNative/LocalVQE/lib}"
-ALLOW_MISSING_LOCALVQE="${MUESLI_ALLOW_MISSING_LOCALVQE:-0}"
-REQUIRE_LOCALVQE="${MUESLI_REQUIRE_LOCALVQE:-0}"
-BUILD_LOCALVQE="${MUESLI_BUILD_LOCALVQE:-0}"
+LOCALVQE_LIB_DIR="${MEETS_LOCALVQE_LIB_DIR:-$ROOT/native/MeetsNative/LocalVQE/lib}"
+ALLOW_MISSING_LOCALVQE="${MEETS_ALLOW_MISSING_LOCALVQE:-0}"
+REQUIRE_LOCALVQE="${MEETS_REQUIRE_LOCALVQE:-0}"
+BUILD_LOCALVQE="${MEETS_BUILD_LOCALVQE:-0}"
 
 # Reject partial LocalVQE installs (e.g. liblocalvqe present but libggml-base
 # missing). Otherwise packaging would "succeed" and the app would still fall
@@ -280,7 +280,7 @@ refresh_localvqe_runtime_files() {
 refresh_localvqe_runtime_files
 
 if [[ ${#LOCALVQE_RUNTIME_FILES[@]} -eq 0 && "$BUILD_LOCALVQE" == "1" ]]; then
-  echo "LocalVQE runtime missing/incomplete; building via scripts/build_localvqe.sh (MUESLI_BUILD_LOCALVQE=1)..."
+  echo "LocalVQE runtime missing/incomplete; building via scripts/build_localvqe.sh (MEETS_BUILD_LOCALVQE=1)..."
   "$ROOT/scripts/build_localvqe.sh"
   refresh_localvqe_runtime_files
 fi
@@ -296,21 +296,21 @@ WARNING: Complete LocalVQE runtime not found in $LOCALVQE_LIB_DIR
     ./scripts/build_localvqe.sh
 
   Or re-run this build with:
-    MUESLI_BUILD_LOCALVQE=1 $0 $*
+    MEETS_BUILD_LOCALVQE=1 $0 $*
 EOF
   if [[ "$ALLOW_MISSING_LOCALVQE" == "1" && "$SKIP_SIGN" == "1" && "$REQUIRE_LOCALVQE" != "1" ]]; then
-    echo "Continuing without LocalVQE (MUESLI_ALLOW_MISSING_LOCALVQE=1, unsigned packaging)." >&2
+    echo "Continuing without LocalVQE (MEETS_ALLOW_MISSING_LOCALVQE=1, unsigned packaging)." >&2
   elif [[ "$ALLOW_MISSING_LOCALVQE" == "1" ]]; then
-    echo "ERROR: MUESLI_ALLOW_MISSING_LOCALVQE=1 cannot override signed packaging or MUESLI_REQUIRE_LOCALVQE=1." >&2
+    echo "ERROR: MEETS_ALLOW_MISSING_LOCALVQE=1 cannot override signed packaging or MEETS_REQUIRE_LOCALVQE=1." >&2
     exit 1
   elif [[ "$REQUIRE_LOCALVQE" == "1" || "$SKIP_SIGN" != "1" ]]; then
     # Intentionally keyed on signing, not BUILD_CONFIG: signed packaging
     # (release scripts and maintainer ./scripts/dev-test.sh without
-    # MUESLI_SKIP_SIGN=1) must not silently ship a DTLN-only bundle.
-    echo "ERROR: refusing to package without a complete LocalVQE runtime. Set MUESLI_ALLOW_MISSING_LOCALVQE=1 with MUESLI_SKIP_SIGN=1 to override for unsigned builds." >&2
+    # MEETS_SKIP_SIGN=1) must not silently ship a DTLN-only bundle.
+    echo "ERROR: refusing to package without a complete LocalVQE runtime. Set MEETS_ALLOW_MISSING_LOCALVQE=1 with MEETS_SKIP_SIGN=1 to override for unsigned builds." >&2
     exit 1
   else
-    echo "Continuing without LocalVQE for unsigned packaging (MUESLI_SKIP_SIGN=1). Set MUESLI_REQUIRE_LOCALVQE=1 to fail instead." >&2
+    echo "Continuing without LocalVQE for unsigned packaging (MEETS_SKIP_SIGN=1). Set MEETS_REQUIRE_LOCALVQE=1 to fail instead." >&2
   fi
 else
   for dylib in "${LOCALVQE_RUNTIME_FILES[@]}"; do
@@ -320,7 +320,7 @@ else
   done
   echo "Bundled LocalVQE runtime (${#LOCALVQE_RUNTIME_FILES[@]} files) from $LOCALVQE_LIB_DIR"
 fi
-LOCALVQE_MODEL_PATH="${MUESLI_LOCALVQE_MODEL_PATH:-$ROOT/native/MeetsNative/LocalVQE/models/localvqe-v1.2-1.3M-f32.gguf}"
+LOCALVQE_MODEL_PATH="${MEETS_LOCALVQE_MODEL_PATH:-$ROOT/native/MeetsNative/LocalVQE/models/localvqe-v1.2-1.3M-f32.gguf}"
 if [[ -f "$LOCALVQE_MODEL_PATH" ]]; then
   mkdir -p "$STAGED_APP_DIR/Contents/Resources/Models/localvqe"
   cp "$LOCALVQE_MODEL_PATH" "$STAGED_APP_DIR/Contents/Resources/Models/localvqe/localvqe-v1.2-1.3M-f32.gguf"
@@ -421,7 +421,7 @@ xattr -cr "$APP_DIR" 2>/dev/null || true
 if [[ "$SKIP_SIGN" != "1" ]]; then
   if ! security find-identity -v -p codesigning | grep -Fq "$SIGN_IDENTITY"; then
     echo "Signing identity not found: $SIGN_IDENTITY" >&2
-    echo "For local contributor builds without this certificate, run: MUESLI_SKIP_SIGN=1 ./scripts/dev-test.sh" >&2
+    echo "For local contributor builds without this certificate, run: MEETS_SKIP_SIGN=1 ./scripts/dev-test.sh" >&2
     exit 1
   fi
 
@@ -472,12 +472,12 @@ if [[ "$SKIP_SIGN" != "1" ]]; then
     "$APP_DIR/Contents/MacOS/meets-cli"
 
   # Sign the app bundle with hardened runtime, secure timestamp, and entitlements
-  ENTITLEMENTS="${MUESLI_ENTITLEMENTS:-$ROOT/scripts/Meets.entitlements}"
+  ENTITLEMENTS="${MEETS_ENTITLEMENTS:-$ROOT/scripts/Meets.entitlements}"
   CODESIGN_ENTITLEMENTS="$ENTITLEMENTS"
   TEMP_ENTITLEMENTS=""
-  APS_ENVIRONMENT="${MUESLI_APS_ENVIRONMENT:-}"
-  ICLOUD_CONTAINER_ENVIRONMENT="${MUESLI_ICLOUD_CONTAINER_ENVIRONMENT:-}"
-  ICLOUD_CONTAINER_ID="${MUESLI_ICLOUD_CONTAINER_ID:-iCloud.com.mueslihq.muesli}"
+  APS_ENVIRONMENT="${MEETS_APS_ENVIRONMENT:-}"
+  ICLOUD_CONTAINER_ENVIRONMENT="${MEETS_ICLOUD_CONTAINER_ENVIRONMENT:-}"
+  ICLOUD_CONTAINER_ID="${MEETS_ICLOUD_CONTAINER_ID:-iCloud.com.meets.app}"
   PROFILE_PLIST=""
   SIGN_TEMP_FILES=()
   cleanup_sign_temp_files() {
@@ -488,7 +488,7 @@ if [[ "$SKIP_SIGN" != "1" ]]; then
   }
   trap cleanup_sign_temp_files EXIT
   if [[ -n "$PROVISIONING_PROFILE" ]]; then
-    PROFILE_PLIST="$(mktemp "${TMPDIR:-/tmp}/muesli-profile.XXXXXX")"
+    PROFILE_PLIST="$(mktemp "${TMPDIR:-/tmp}/meets-profile.XXXXXX")"
     SIGN_TEMP_FILES+=("$PROFILE_PLIST")
     if ! security cms -D -i "$PROVISIONING_PROFILE" > "$PROFILE_PLIST" 2>/dev/null; then
       echo "ERROR: could not decode provisioning profile: $PROVISIONING_PROFILE" >&2
@@ -501,7 +501,7 @@ if [[ "$SKIP_SIGN" != "1" ]]; then
     fi
     if [[ -n "$PROFILE_APP_IDENTIFIER" ]]; then
       PROFILE_BUNDLE_ID="${PROFILE_APP_IDENTIFIER#*.}"
-      # shellcheck disable=SC2053 # Intentionally glob-match wildcard App IDs such as com.muesli.*.
+      # shellcheck disable=SC2053 # Intentionally glob-match wildcard App IDs such as com.meets.*.
       if [[ "$BUNDLE_ID" != $PROFILE_BUNDLE_ID ]]; then
         echo "ERROR: provisioning profile app identifier '$PROFILE_APP_IDENTIFIER' does not match bundle ID '$BUNDLE_ID'." >&2
         exit 1
@@ -518,14 +518,14 @@ if [[ "$SKIP_SIGN" != "1" ]]; then
 
     if /usr/libexec/PlistBuddy -c 'Print :Entitlements:com.apple.developer.icloud-container-environment' "$PROFILE_PLIST" >/dev/null 2>&1 \
       && [[ -z "$ICLOUD_CONTAINER_ENVIRONMENT" ]]; then
-      echo "ERROR: CloudKit provisioning profiles require an explicit MUESLI_ICLOUD_CONTAINER_ENVIRONMENT." >&2
+      echo "ERROR: CloudKit provisioning profiles require an explicit MEETS_ICLOUD_CONTAINER_ENVIRONMENT." >&2
       echo "Set it to Development or Production; signed builds may not silently use an unspecified environment." >&2
       exit 1
     fi
   fi
 
   if [[ -n "$APS_ENVIRONMENT" || -n "$PROFILE_PLIST" ]]; then
-    TEMP_ENTITLEMENTS="$(mktemp "${TMPDIR:-/tmp}/muesli-entitlements.XXXXXX")"
+    TEMP_ENTITLEMENTS="$(mktemp "${TMPDIR:-/tmp}/meets-entitlements.XXXXXX")"
     SIGN_TEMP_FILES+=("$TEMP_ENTITLEMENTS")
     cp "$ENTITLEMENTS" "$TEMP_ENTITLEMENTS"
     copy_profile_string_entitlement() {
@@ -595,7 +595,7 @@ if [[ "$SKIP_SIGN" != "1" ]]; then
   echo "  Deep signature valid."
   if [[ -n "$ICLOUD_CONTAINER_ENVIRONMENT" ]]; then
     if [[ -z "$APS_ENVIRONMENT" ]]; then
-      echo "ERROR: CloudKit signed builds require an APNs environment from the profile or MUESLI_APS_ENVIRONMENT." >&2
+      echo "ERROR: CloudKit signed builds require an APNs environment from the profile or MEETS_APS_ENVIRONMENT." >&2
       exit 1
     fi
     "$ROOT/scripts/verify_signed_cloud_entitlements.sh" \
@@ -608,7 +608,7 @@ if [[ "$SKIP_SIGN" != "1" ]]; then
 else
   # No Developer ID certificate: ad-hoc sign for local dev instead of leaving the
   # bundle with SwiftPM's incoherent per-binary signature. An ad-hoc *bundle* signature
-  # binds Info.plist and adopts the bundle's CFBundleIdentifier (com.muesli.*) as the
+  # binds Info.plist and adopts the bundle's CFBundleIdentifier (com.meets.*) as the
   # signing identity, which macOS TCC needs to attribute Accessibility / Input-Monitoring
   # grants to the running process. Without it, AXIsProcessTrusted()/CGPreflightListenEventAccess()
   # keep returning false even after the user grants permission, so onboarding stalls.
@@ -616,20 +616,20 @@ else
   # Note: ad-hoc signatures have no stable designated requirement, so the cdhash changes on
   # every rebuild and macOS privacy grants must be re-approved after each dev build. For grants
   # that persist across rebuilds, create a self-signed code-signing certificate and pass its name
-  # via MUESLI_SIGN_IDENTITY. No hardened runtime here: ad-hoc has no Team ID, so library
+  # via MEETS_SIGN_IDENTITY. No hardened runtime here: ad-hoc has no Team ID, so library
   # validation would block dlopen of the bundled frameworks/dylibs.
   LOCAL_SIGN_IDENTITY="-"
-  if [[ -n "${MUESLI_SIGN_IDENTITY:-}" ]]; then
-    LOCAL_SIGN_IDENTITY="$MUESLI_SIGN_IDENTITY"
+  if [[ -n "${MEETS_SIGN_IDENTITY:-}" ]]; then
+    LOCAL_SIGN_IDENTITY="$MEETS_SIGN_IDENTITY"
     if ! security find-identity -v -p codesigning | grep -Fq "$LOCAL_SIGN_IDENTITY"; then
       echo "Signing identity not found: $LOCAL_SIGN_IDENTITY" >&2
       exit 1
     fi
-    echo "Local signing with MUESLI_SIGN_IDENTITY=$LOCAL_SIGN_IDENTITY (MUESLI_SKIP_SIGN=1)..."
+    echo "Local signing with MEETS_SIGN_IDENTITY=$LOCAL_SIGN_IDENTITY (MEETS_SKIP_SIGN=1)..."
   else
-    echo "Ad-hoc signing for local dev (MUESLI_SKIP_SIGN=1; no Developer ID)..."
+    echo "Ad-hoc signing for local dev (MEETS_SKIP_SIGN=1; no Developer ID)..."
   fi
-  ENTITLEMENTS="${MUESLI_ENTITLEMENTS:-$ROOT/scripts/Meets.entitlements}"
+  ENTITLEMENTS="${MEETS_ENTITLEMENTS:-$ROOT/scripts/Meets.entitlements}"
 
   find "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Frameworks" -maxdepth 1 -name "*.framework" -type d | while read -r framework; do
     # Sign every nested standalone Mach-O (e.g. Sparkle's Versions/B/Autoupdate),

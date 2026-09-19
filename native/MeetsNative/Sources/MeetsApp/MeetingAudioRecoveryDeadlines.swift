@@ -21,7 +21,7 @@ final class MeetingAudioRecoveryDeadlines: @unchecked Sendable {
         precondition(zip(offsets, offsets.dropFirst()).allSatisfy { $0 < $1 })
         self.offsets = offsets
         self.check = check
-        let queue = DispatchQueue(label: "com.muesli.meeting-recovery-deadline")
+        let queue = DispatchQueue(label: "com.meets.meeting-recovery-deadline")
         self.schedule = scheduler ?? { delay, item in
             queue.asyncAfter(deadline: .now() + delay, execute: item)
         }

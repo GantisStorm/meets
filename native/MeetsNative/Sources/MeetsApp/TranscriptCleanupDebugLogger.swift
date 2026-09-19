@@ -1,7 +1,7 @@
 import Foundation
 
 enum TranscriptCleanupDebugLogger {
-    private static let logEnv = "MUESLI_LOG_TRANSCRIPT_CLEANUP_DEBUG"
+    private static let logEnv = "MEETS_LOG_TRANSCRIPT_CLEANUP_DEBUG"
     private static let maxLoggedTextCharacters = 4_000
     private static let maxLogFileBytes: UInt64 = 5 * 1024 * 1024
     private static let writeQueue = DispatchQueue(label: "MeetsNative.TranscriptCleanupDebugLogger")

@@ -23,13 +23,13 @@ struct CLIContext {
             return
         }
 
-        if let envDB = ProcessInfo.processInfo.environment["MUESLI_DB_PATH"], !envDB.isEmpty {
+        if let envDB = ProcessInfo.processInfo.environment["MEETS_DB_PATH"], !envDB.isEmpty {
             self.databaseURL = URL(fileURLWithPath: envDB)
-            self.supportDirectory = URL(fileURLWithPath: ProcessInfo.processInfo.environment["MUESLI_SUPPORT_DIR"] ?? self.databaseURL.deletingLastPathComponent().path)
+            self.supportDirectory = URL(fileURLWithPath: ProcessInfo.processInfo.environment["MEETS_SUPPORT_DIR"] ?? self.databaseURL.deletingLastPathComponent().path)
             return
         }
 
-        if let envSupport = ProcessInfo.processInfo.environment["MUESLI_SUPPORT_DIR"], !envSupport.isEmpty {
+        if let envSupport = ProcessInfo.processInfo.environment["MEETS_SUPPORT_DIR"], !envSupport.isEmpty {
             self.supportDirectory = URL(fileURLWithPath: envSupport)
             self.databaseURL = self.supportDirectory.appendingPathComponent("meets.db")
             return

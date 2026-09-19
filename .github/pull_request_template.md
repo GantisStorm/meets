@@ -12,8 +12,8 @@
       `Signed-off-by` trailer from its author under the
       [Developer Certificate of Origin](https://developercertificate.org/).
 - [ ] I created this contribution or otherwise have the right to submit it
-      under Muesli's
-      [MIT License](https://github.com/Muesli-HQ/muesli/blob/main/LICENSE).
+      under Meets's
+      [MIT License](https://github.com/GantisStorm/meets/blob/main/LICENSE).
 - [ ] I have obtained any permission required by an employer, client,
       institution, or other party that may have rights in this contribution.
 - [ ] I have identified all third-party code, models, datasets, media, and

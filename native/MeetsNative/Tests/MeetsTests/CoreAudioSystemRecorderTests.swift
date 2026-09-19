@@ -5,14 +5,14 @@ import Testing
 @Suite("CoreAudioSystemRecorder")
 struct CoreAudioSystemRecorderTests {
 
-    @Test("global tap description captures process mix except Muesli")
+    @Test("global tap description captures process mix except Meets")
     func globalTapDescriptionExcludesSelfAudio() {
         let tapDescription = CoreAudioSystemRecorder.makeGlobalTapDescription(
             excludingProcessID: 123,
-            name: "Muesli Global Test Tap"
+            name: "Meets Global Test Tap"
         )
 
-        #expect(tapDescription.name == "Muesli Global Test Tap")
+        #expect(tapDescription.name == "Meets Global Test Tap")
         #expect(tapDescription.deviceUID == nil)
         #expect(tapDescription.stream == nil)
         #expect(tapDescription.processes == [123])

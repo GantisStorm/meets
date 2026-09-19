@@ -1,0 +1,4 @@
+interface:
+  display_name: "Meets Agent"
+  short_description: "Inspect and summarize local Meets transcripts and notes"
+  default_prompt: "Use the local Meets CLI to inspect meetings or dictations, analyze them with your own model, and write notes back when requested."

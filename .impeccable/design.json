@@ -1,0 +1,52 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-09-19T20:58:32Z",
+  "title": "Design System: Meets",
+  "extensions": {
+    "colorMeta": {
+      "deep-dark": {"role": "neutral", "displayName": "Deep Background — Dark", "canonical": "#0A0A0A"},
+      "deep-light": {"role": "neutral", "displayName": "Deep Background — Light", "canonical": "#F6F6F6"},
+      "base-dark": {"role": "neutral", "displayName": "Base Background — Dark", "canonical": "#121212"},
+      "base-light": {"role": "neutral", "displayName": "Base Background — Light", "canonical": "#FFFFFF"},
+      "raised-dark": {"role": "neutral", "displayName": "Raised Surface — Dark", "canonical": "#181818"},
+      "raised-light": {"role": "neutral", "displayName": "Raised Surface — Light", "canonical": "#F0F0F0"},
+      "recording": {"role": "primary", "displayName": "Recording Red", "canonical": "#E5484D"},
+      "transcribing": {"role": "secondary", "displayName": "Transcribing Amber", "canonical": "#E8A020"},
+      "success": {"role": "tertiary", "displayName": "Success Green", "canonical": "#30A46C"}
+    },
+    "typographyMeta": {
+      "display": {"displayName": "Page Title", "purpose": "Names one dashboard surface."},
+      "title": {"displayName": "Pane Title", "purpose": "Names the active settings pane."},
+      "headline": {"displayName": "Section Heading", "purpose": "Names a grouped task surface."},
+      "body": {"displayName": "Body", "purpose": "Setting labels and primary copy."},
+      "label": {"displayName": "Caption", "purpose": "Status and explanatory copy."}
+    },
+    "shadows": [],
+    "motion": [
+      {"name": "disclosure", "value": "ease-out 180ms", "purpose": "Expands or collapses a settings group."},
+      {"name": "pane-selection", "value": "ease-out 160ms", "purpose": "Moves between top-level settings panes."}
+    ],
+    "breakpoints": [
+      {"name": "settings-row-stack", "value": "content-driven", "purpose": "ViewThatFits stacks described controls when the horizontal row no longer fits."}
+    ],
+    "narrative": {
+      "northStar": "The Quiet Native Utility",
+      "rules": [
+        "Use saturated color only for state or selection.",
+        "Reveal expert controls progressively and summarize their closed state.",
+        "Use 12-point row breathing room and a 4-point sibling rhythm inside settings cards.",
+        "Use tonal depth rather than decorative shadows."
+      ],
+      "dos": [
+        "Use native controls and keyboard behavior.",
+        "Let descriptions wrap without overlap.",
+        "Keep settings content at a readable centered width."
+      ],
+      "donts": [
+        "Do not give all settings equal priority.",
+        "Do not use negative spacing to repair row layout.",
+        "Do not decorate native task surfaces with gradients or glass."
+      ]
+    }
+  }
+}

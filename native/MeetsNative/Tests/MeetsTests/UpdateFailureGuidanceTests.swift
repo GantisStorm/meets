@@ -77,7 +77,7 @@ struct UpdateFailureGuidanceTests {
 struct UpdateActionRoutingTests {
     @Test("status-bar update action enters the standard Sparkle UI")
     func statusBarUpdateActionUsesStandardSparkleFlow() throws {
-        let source = try muesliControllerSource()
+        let source = try meetsControllerSource()
         let statusBarSource = try statusBarControllerSource()
 
         #expect(source.contains("""
@@ -95,7 +95,7 @@ struct UpdateActionRoutingTests {
 
     @Test("standard update presentation does not preflight canCheckForUpdates")
     func standardUpdatePresentationLetsSparkleRefocusExistingUI() throws {
-        let source = try muesliControllerSource()
+        let source = try meetsControllerSource()
 
         #expect(source.contains("updaterController.checkForUpdates(nil)"))
         #expect(source.contains("focusUpdaterWindowsCreatedAfterUpdateAction(excluding: existingWindows)"))
@@ -141,7 +141,7 @@ struct UpdateActionRoutingTests {
 
     @Test("updater focus only targets windows created by the update action")
     func updaterFocusTargetsNewUpdaterWindowsOnly() throws {
-        let source = try muesliControllerSource()
+        let source = try meetsControllerSource()
 
         #expect(source.contains("focusUpdaterWindowsCreatedAfterUpdateAction(excluding: existingWindows)"))
         #expect(source.contains("return !existingWindows.contains(ObjectIdentifier(window)) && isLikelyUpdaterWindow(window)"))
@@ -185,7 +185,7 @@ struct UpdateActionRoutingTests {
         #expect(!source.contains("orderFrontRegardless()"))
     }
 
-    private func muesliControllerSource() throws -> String {
+    private func meetsControllerSource() throws -> String {
         let testFileURL = URL(fileURLWithPath: #filePath)
         let packageRoot = testFileURL
             .deletingLastPathComponent()

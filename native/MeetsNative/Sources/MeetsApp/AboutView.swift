@@ -71,8 +71,8 @@ struct AboutView: View {
                 sectionHeader("Acknowledgements")
                 aboutCard {
                     acknowledgement(
-                        name: "Muesli by Muesli-HQ",
-                        description: "Meets is a meetings-only fork of Muesli (github.com/Muesli-HQ/muesli), \u{00A9} 2026 Pranav Hari, available under the MIT License."
+                        name: "Meets",
+                        description: "Open-source meeting capture and transcription for macOS, \u{00A9} 2026 Pranav Hari, available under the MIT License."
                     )
 
                     Divider().background(MeetsTheme.surfaceBorder)

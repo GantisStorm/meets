@@ -49,8 +49,8 @@ struct TelemetryRuntimeConfiguration: Equatable, Sendable {
 
     var defaultParameters: [String: String] {
         [
-            "muesli.channel": channel.rawValue,
-            "muesli.bundle_id": bundleID,
+            "meets.channel": channel.rawValue,
+            "meets.bundle_id": bundleID,
         ]
     }
 

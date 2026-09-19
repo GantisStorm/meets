@@ -1,10 +1,10 @@
 > **Post-compaction recovery:** PreCompact hooks auto-generate context handover files at `Context/handoff-summary-YYYY-MM-DD-<slug>.md`. After compaction, read the latest handoff file in `Context/` to restore session memory and resume work.
 
-# Muesli
+# Meets
 
 Local-first macOS app for **dictation** and **meeting transcription** on Apple Silicon. Speech-to-text runs on-device via CoreML/Neural Engine by default; users can explicitly opt into BYOK OpenAI Realtime dictation. Native Swift/AppKit — no Electron or Python runtime.
 
-**Status:** Live and public. Available at [GitHub Releases](https://github.com/Muesli-HQ/muesli/releases). Signed, notarized, stapled.
+**Status:** Live and public. Available at [GitHub Releases](https://github.com/GantisStorm/meets/releases). Signed, notarized, stapled.
 
 ## What It Does
 
@@ -31,53 +31,53 @@ Bodhan uses a CoreML encoder and native MLX decoder in both precisions. Its `mlx
 ### Dev/test build (isolated from production)
 ```bash
 ./scripts/dev-test.sh                         # Build MeetsDev.app (separate bundle ID, separate data)
-./scripts/dev-test.sh --lane A                # Build MuesliDevA.app for a parallel worktree
-./scripts/dev-test.sh --lane B                # Build MuesliDevB.app for another parallel worktree
+./scripts/dev-test.sh --lane A                # Build MeetsDevA.app for a parallel worktree
+./scripts/dev-test.sh --lane B                # Build MeetsDevB.app for another parallel worktree
 ./scripts/dev-test.sh --lane A --local-only   # Explicitly omit iCloud/APNs entitlements
 ./scripts/dev-test.sh --lane A --reset        # Re-run onboarding for lane A, keep lane data
 ./scripts/dev-test.sh --reset                 # Re-run onboarding for default MeetsDev, keep data
 ./scripts/dev-seed-from-prod.sh               # Copy production DB/config into MeetsDev safely
 ```
 
-MeetsDev uses bundle ID `com.muesli.dev` and stores data at `~/Library/Application Support/MeetsDev/`. Named lanes use fixed identities: `MuesliDevA` / `com.muesli.dev.a` / `~/Library/Application Support/MuesliDevA`, then B and C with matching suffixes. Named lane executable/process names also match the lane app name. Production data is never touched.
+MeetsDev uses bundle ID `com.meets.dev` and stores data at `~/Library/Application Support/MeetsDev/`. Named lanes use fixed identities: `MeetsDevA` / `com.meets.dev.a` / `~/Library/Application Support/MeetsDevA`, then B and C with matching suffixes. Named lane executable/process names also match the lane app name. Production data is never touched.
 
 Named lanes default to local-only signing through `scripts/MeetsLocalOnly.entitlements`, which omits iCloud and APNs entitlements for non-sync feature work. Use `--cloud-entitlements` only when the lane has a matching Apple Developer provisioning profile and the test actually needs iCloud/APNs behavior.
 
 ### SwiftPM build artifacts in worktrees
-SwiftPM can write build artifacts to `native/MeetsNative/.build` inside the active worktree. That can consume several GB per worktree. Local scripts now resolve a shared SwiftPM scratch path through `scripts/muesli_spm_cache.sh`:
+SwiftPM can write build artifacts to `native/MeetsNative/.build` inside the active worktree. That can consume several GB per worktree. Local scripts now resolve a shared SwiftPM scratch path through `scripts/meets_spm_cache.sh`:
 
-- Explicit `MUESLI_SWIFTPM_SCRATCH_PATH` wins.
-- `MUESLI_SWIFTPM_SCRATCH_CHANNEL` overrides the channel segment under the resolved cache root.
-- `MUESLI_EXTERNAL_SPM_CACHE_ROOT` overrides the default `/Volumes/MuesliBuildCache/muesli-spm` external cache root.
-- If `/Volumes/MuesliBuildCache/muesli-spm` is mounted, scripts use that external APFS cache.
-- Otherwise scripts fall back to `~/Library/Caches/muesli-spm`.
-- `MUESLI_DISABLE_SWIFTPM_SCRATCH_PATH=1` intentionally opts out and uses SwiftPM's package-local `.build`; this takes precedence over all scratch path settings.
+- Explicit `MEETS_SWIFTPM_SCRATCH_PATH` wins.
+- `MEETS_SWIFTPM_SCRATCH_CHANNEL` overrides the channel segment under the resolved cache root.
+- `MEETS_EXTERNAL_SPM_CACHE_ROOT` overrides the default `/Volumes/MeetsBuildCache/meets-spm` external cache root.
+- If `/Volumes/MeetsBuildCache/meets-spm` is mounted, scripts use that external APFS cache.
+- Otherwise scripts fall back to `~/Library/Caches/meets-spm`.
+- `MEETS_DISABLE_SWIFTPM_SCRATCH_PATH=1` intentionally opts out and uses SwiftPM's package-local `.build`; this takes precedence over all scratch path settings.
 
-The preferred local cache is an APFS sparse bundle stored on the external SSD at `/Volumes/eSSD/MuesliBuildCache.sparsebundle`. Mount it before build-heavy local work:
+The preferred local cache is an APFS sparse bundle stored on the external SSD at `/Volumes/eSSD/MeetsBuildCache.sparsebundle`. Mount it before build-heavy local work:
 
 ```bash
-hdiutil attach /Volumes/eSSD/MuesliBuildCache.sparsebundle
+hdiutil attach /Volumes/eSSD/MeetsBuildCache.sparsebundle
 ```
 
-That sparse-bundle path is the maintainer's local SSD path. Contributors can substitute their own volume path or skip the attach step; scripts fall back to `~/Library/Caches/muesli-spm` when the external cache is not mounted.
+That sparse-bundle path is the maintainer's local SSD path. Contributors can substitute their own volume path or skip the attach step; scripts fall back to `~/Library/Caches/meets-spm` when the external cache is not mounted.
 
 Default script channels:
 
 ```bash
-./scripts/dev-test.sh                 # /Volumes/MuesliBuildCache/muesli-spm/worktrees/<worktree>/dev when mounted
-./scripts/build_native_app.sh release # /Volumes/MuesliBuildCache/muesli-spm/release when mounted
-./scripts/release-preprod.sh          # /Volumes/MuesliBuildCache/muesli-spm/preprod when mounted
-./scripts/release-alpha.sh            # /Volumes/MuesliBuildCache/muesli-spm/alpha when mounted
+./scripts/dev-test.sh                 # /Volumes/MeetsBuildCache/meets-spm/worktrees/<worktree>/dev when mounted
+./scripts/build_native_app.sh release # /Volumes/MeetsBuildCache/meets-spm/release when mounted
+./scripts/release-preprod.sh          # /Volumes/MeetsBuildCache/meets-spm/preprod when mounted
+./scripts/release-alpha.sh            # /Volumes/MeetsBuildCache/meets-spm/alpha when mounted
 ```
 
 For parallel PR/worktree work, use isolated paths:
 
 ```bash
-MUESLI_SWIFTPM_SCRATCH_PATH="/Volumes/MuesliBuildCache/muesli-spm/worktrees/pr182/dev" ./scripts/dev-test.sh
-swift test --package-path native/MeetsNative --scratch-path "/Volumes/MuesliBuildCache/muesli-spm/worktrees/pr182/test"
+MEETS_SWIFTPM_SCRATCH_PATH="/Volumes/MeetsBuildCache/meets-spm/worktrees/pr182/dev" ./scripts/dev-test.sh
+swift test --package-path native/MeetsNative --scratch-path "/Volumes/MeetsBuildCache/meets-spm/worktrees/pr182/test"
 ```
 
-The build script passes the resolved path to SwiftPM as `--scratch-path`, so multiple worktrees do not each grow their own `.build`. Caveat: do not run concurrent builds from different worktrees into the same scratch path; use separate paths per channel, agent, or simultaneous build. Deleting a scratch path only removes rebuildable SwiftPM artifacts, not installed apps or app data. Set `MUESLI_DISABLE_SWIFTPM_SCRATCH_PATH=1` only when you intentionally want package-local `.build`.
+The build script passes the resolved path to SwiftPM as `--scratch-path`, so multiple worktrees do not each grow their own `.build`. Caveat: do not run concurrent builds from different worktrees into the same scratch path; use separate paths per channel, agent, or simultaneous build. Deleting a scratch path only removes rebuildable SwiftPM artifacts, not installed apps or app data. Set `MEETS_DISABLE_SWIFTPM_SCRATCH_PATH=1` only when you intentionally want package-local `.build`.
 
 ### Parallel dev lanes
 Use fixed lanes for concurrent local testing instead of creating branch-named app identities:
@@ -103,7 +103,7 @@ swift test --package-path native/MeetsNative    # 1,148 @Test declarations acros
 
 # Reset macOS permissions only when intentionally re-granting TCC:
 ./scripts/dev-reset-permissions.sh
-./scripts/dev-reset-permissions.sh --bundle-id com.muesli.dev.a --process-name MuesliDevA --app-path /Applications/MuesliDevA.app
+./scripts/dev-reset-permissions.sh --bundle-id com.meets.dev.a --process-name MeetsDevA --app-path /Applications/MeetsDevA.app
 
 # Then:
 ./scripts/dev-test.sh
@@ -130,8 +130,8 @@ Note: config JSON uses snake_case keys (`has_completed_onboarding`, not `hasComp
 
 ### Signing & Notarization
 - Developer ID: `Pranav Hari Guruvayurappan (58W55QJ567)`
-- Bundle ID: `com.muesli.app`
-- Notary profile: `MuesliNotary` (Keychain)
+- Bundle ID: `com.meets.app`
+- Notary profile: `MeetsNotary` (Keychain)
 
 ## Key Architecture
 
@@ -165,13 +165,13 @@ native/MeetsNative/Sources/
 ## Data Storage
 
 - **Config:** `~/Library/Application Support/{AppName}/config.json` (snake_case keys)
-- **Database:** `~/Library/Application Support/{AppName}/muesli.db` (SQLite WAL)
+- **Database:** `~/Library/Application Support/{AppName}/meets.db` (SQLite WAL)
 - **Models:** `~/Library/Application Support/FluidAudio/Models/` (shared across app identities)
 - **Onboarding progress:** `~/Library/Application Support/{AppName}/onboarding-progress.json` (deleted on completion)
-- **ChatGPT tokens:** macOS Keychain (`com.muesli.app.chatgpt-auth`)
-- **Whisper models:** `~/.cache/muesli/models/`
+- **ChatGPT tokens:** macOS Keychain (`com.meets.app.chatgpt-auth`)
+- **Whisper models:** `~/.cache/meets/models/`
 
-`{AppName}` is `Muesli` for production, `MeetsDev` for dev, `MeetsCanary` for alpha — controlled by `MeetsSupportDirectoryName` in Info.plist.
+`{AppName}` is `Meets` for production, `MeetsDev` for dev, `MeetsCanary` for alpha — controlled by `MeetsSupportDirectoryName` in Info.plist.
 
 ## macOS Permissions
 
@@ -249,7 +249,7 @@ Event-driven architecture for meeting notifications:
 
 ## Known Limitations
 
-- **Nemotron 3.5 Multilingual (`nemotron35`):** Supported local Nemotron ASR backend. Ships the FluidInference `multilingual/2240ms` variant (~665 MB, vocab 13087, blank 13087). Multilingual incl. Hindi/Chinese/Japanese + 100+ locales via `prompt_id`. In-app **language picker** (`Nemotron35Language` enum → `prompt_id`; config key `nemotron35_language`, default `auto`=101): the controller pushes the selected prompt id to the coordinator (`setNemotron35PromptId`), which applies it to the actor on load/select. Picker UI lives in the Models tab card (mirrors the Cohere language card). A **model-update check** records the HF repo commit sha at download (`<cache>/.revision`) and surfaces an "Update" affordance in the Models tab when the repo's `main` advances (never auto-downloads). Native punctuation (in-vocab). Append-only/no corrections, weak on very short dictations. 2240ms chunk latency (35840 samples). Cache shape `[1,24,42,1024]`. Uses shared `RNNTStreamState` helpers through the `NemotronStreamingTranscribing` protocol; `StreamingDictationController` takes a `chunkSamples` override. Model cached at `~/.cache/muesli/models/nemotron35-multilingual-2240ms/`. Offered in onboarding under "Other models". **Dictation modes:** hold-to-talk uses the normal record→transcribe-file path (`transcribeWithNemotron35`); double-tap uses live streaming (`StreamingDictationController`). `handleStart` allows hold-to-talk; prepare/arm pre-warm stays skipped for streaming backends (`isStreamingDictationBackend`) so the double-tap detection window stays clean.
+- **Nemotron 3.5 Multilingual (`nemotron35`):** Supported local Nemotron ASR backend. Ships the FluidInference `multilingual/2240ms` variant (~665 MB, vocab 13087, blank 13087). Multilingual incl. Hindi/Chinese/Japanese + 100+ locales via `prompt_id`. In-app **language picker** (`Nemotron35Language` enum → `prompt_id`; config key `nemotron35_language`, default `auto`=101): the controller pushes the selected prompt id to the coordinator (`setNemotron35PromptId`), which applies it to the actor on load/select. Picker UI lives in the Models tab card (mirrors the Cohere language card). A **model-update check** records the HF repo commit sha at download (`<cache>/.revision`) and surfaces an "Update" affordance in the Models tab when the repo's `main` advances (never auto-downloads). Native punctuation (in-vocab). Append-only/no corrections, weak on very short dictations. 2240ms chunk latency (35840 samples). Cache shape `[1,24,42,1024]`. Uses shared `RNNTStreamState` helpers through the `NemotronStreamingTranscribing` protocol; `StreamingDictationController` takes a `chunkSamples` override. Model cached at `~/.cache/meets/models/nemotron35-multilingual-2240ms/`. Offered in onboarding under "Other models". **Dictation modes:** hold-to-talk uses the normal record→transcribe-file path (`transcribeWithNemotron35`); double-tap uses live streaming (`StreamingDictationController`). `handleStart` allows hold-to-talk; prepare/arm pre-warm stays skipped for streaming backends (`isStreamingDictationBackend`) so the double-tap detection window stays clean.
 - **Qwen3 ASR:** 2-3s latency (autoregressive decoder). First run after launch has ~30s CoreML compilation warmup.
 - **ChatGPT OAuth:** Uses reverse-engineered WHAM API. Could break if OpenAI changes the API.
 - **Speaker diarization:** Post-processing only. Runs after meeting stops.

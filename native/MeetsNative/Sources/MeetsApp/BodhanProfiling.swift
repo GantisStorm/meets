@@ -3,7 +3,7 @@ import os
 
 /// Numeric performance markers only. Never attach audio, text or token IDs.
 enum BodhanProfiling {
-    private static let log = OSLog(subsystem: "com.muesli.bodhan", category: .pointsOfInterest)
+    private static let log = OSLog(subsystem: "com.meets.bodhan", category: .pointsOfInterest)
     static func begin(_ name: StaticString) -> OSSignpostID {
         let id = OSSignpostID(log: log)
         os_signpost(.begin, log: log, name: name, signpostID: id)

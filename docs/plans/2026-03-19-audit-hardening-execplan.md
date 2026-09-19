@@ -24,7 +24,7 @@ plain language.
       the SQL item from “proven exploit” to “unsafe API sink in the store
       layer”.
 - [x] (2026-03-19 16:35 IST) Created branch
-      `audit/muesli-hardening-report-and-fixes`.
+      `audit/meets-hardening-report-and-fixes`.
 - [x] (2026-03-19 16:35 IST) Cleared the stale SwiftPM `.build/.lock` file left
       by the earlier dependency fetch.
 - [x] (2026-03-19 16:43 IST) Added regression tests for SQL binding, config
@@ -34,9 +34,9 @@ plain language.
 - [x] (2026-03-19 17:01 IST) Updated README storage wording and wrote the audit
       report.
 - [x] (2026-03-19 17:07 IST) Verified package compilation with
-      `swift build --package-path native/MuesliNative` and verified the CLI
-      still responds via `swift run --package-path native/MuesliNative
-      muesli-cli spec`.
+      `swift build --package-path native/MeetsNative` and verified the CLI
+      still responds via `swift run --package-path native/MeetsNative
+      meets-cli spec`.
 - [ ] (2026-03-19 17:07 IST) Targeted Swift tests are added but could not be
       executed in this environment because the active developer directory only
       exposes Command Line Tools, while the repo test target imports the Swift
@@ -45,10 +45,10 @@ plain language.
 
 ## Surprises & Discoveries
 
-- Observation: the earlier `swift test --package-path native/MuesliNative`
+- Observation: the earlier `swift test --package-path native/MeetsNative`
   attempt spent most of its time fetching large transitive dependencies from
   FluidAudio and related Swift packages, and it left a stale lock file behind.
-  Evidence: `native/MuesliNative/.build/.lock` existed with PID `88677`, but
+  Evidence: `native/MeetsNative/.build/.lock` existed with PID `88677`, but
   `ps -p 88677` returned no live process.
 
 - Observation: the secret-storage issue is partly documentation drift, not just
@@ -61,7 +61,7 @@ plain language.
   new assertions execute, because the active developer directory is
   `/Library/Developer/CommandLineTools` and the repository test target imports
   the Swift `Testing` module.
-  Evidence: `swift test --package-path native/MuesliNative --filter
+  Evidence: `swift test --package-path native/MeetsNative --filter
   MeetingChunkCollectorTests` fails in existing test files with `no such module
   'Testing'`, and `xcodebuild -version` reports that full Xcode is not active.
 
@@ -97,9 +97,9 @@ the repo’s `Testing`-based suite.
 
 ## Context and Orientation
 
-The Swift package lives in `native/MuesliNative`. The storage layer is in
-`native/MuesliNative/Sources/MuesliCore/DictationStore.swift`. The desktop app
-logic is in `native/MuesliNative/Sources/MuesliNativeApp`. Three files matter
+The Swift package lives in `native/MeetsNative`. The storage layer is in
+`native/MeetsNative/Sources/MeetsCore/DictationStore.swift`. The desktop app
+logic is in `native/MeetsNative/Sources/MeetsNativeApp`. Three files matter
 most for the fixes:
 
 - `MeetingSession.swift` manages live meeting recording and async chunk
@@ -109,7 +109,7 @@ most for the fixes:
 - `ConfigStore.swift` persists `AppConfig`, which includes provider API keys.
 
 The most relevant tests already live in
-`native/MuesliNative/Tests/MuesliTests`. `DictationStoreTests.swift` covers the
+`native/MeetsNative/Tests/MeetsTests`. `DictationStoreTests.swift` covers the
 SQLite store. `ConfigStoreTests.swift` covers config persistence. There are no
 existing tests for `MeetingSession` or `SystemAudioRecorder`, so the fix there
 should either add a narrowly testable helper or keep the change small and
@@ -149,12 +149,12 @@ remaining risk.
 
 ## Concrete Steps
 
-From `/Users/codex/muesli`:
+From `/Users/codex/meets`:
 
 1. Run focused failing tests:
 
-    swift test --package-path native/MuesliNative --filter DictationStoreTests
-    swift test --package-path native/MuesliNative --filter ConfigStoreTests
+    swift test --package-path native/MeetsNative --filter DictationStoreTests
+    swift test --package-path native/MeetsNative --filter ConfigStoreTests
 
 2. Implement the smallest code changes needed to satisfy those tests.
 
@@ -165,7 +165,7 @@ From `/Users/codex/muesli`:
 
 5. Run the broader package test command when dependency resolution is stable:
 
-    swift test --package-path native/MuesliNative
+    swift test --package-path native/MeetsNative
 
 6. Review the final diff, commit, push, and open a PR with the audit report and
    fix summary.
@@ -190,34 +190,34 @@ clearly and include the focused passing commands that were run.
 
 Validated in this environment:
 
-- `swift build --package-path native/MuesliNative`
-- `swift run --package-path native/MuesliNative muesli-cli spec`
+- `swift build --package-path native/MeetsNative`
+- `swift run --package-path native/MeetsNative meets-cli spec`
 
 ## Idempotence and Recovery
 
 The code changes are additive and safe to re-run. The focused tests can be run
 multiple times without mutating external state beyond files under the app’s test
 temporary directories. If a SwiftPM lock becomes stale again, remove only
-`native/MuesliNative/.build/.lock` after confirming the PID inside it is no
+`native/MeetsNative/.build/.lock` after confirming the PID inside it is no
 longer running.
 
 ## Artifacts and Notes
 
 Important source anchors for the audit:
 
-    native/MuesliNative/Sources/MuesliCore/DictationStore.swift
-    native/MuesliNative/Sources/MuesliNativeApp/MeetingSession.swift
-    native/MuesliNative/Sources/MuesliNativeApp/SystemAudioRecorder.swift
-    native/MuesliNative/Sources/MuesliNativeApp/ConfigStore.swift
-    native/MuesliNative/Sources/MuesliNativeApp/ChatGPTAuthManager.swift
+    native/MeetsNative/Sources/MeetsCore/DictationStore.swift
+    native/MeetsNative/Sources/MeetsNativeApp/MeetingSession.swift
+    native/MeetsNative/Sources/MeetsNativeApp/SystemAudioRecorder.swift
+    native/MeetsNative/Sources/MeetsNativeApp/ConfigStore.swift
+    native/MeetsNative/Sources/MeetsNativeApp/ChatGPTAuthManager.swift
     README.md
 
 ## Interfaces and Dependencies
 
 Do not add new third-party dependencies. Keep all changes inside the existing
 Swift package. Any new helper introduced for meeting chunk collection should use
-plain Swift concurrency and stay in `native/MuesliNative/Sources/MuesliNativeApp`
-unless it is pure storage logic that belongs in `MuesliCore`.
+plain Swift concurrency and stay in `native/MeetsNative/Sources/MeetsNativeApp`
+unless it is pure storage logic that belongs in `MeetsCore`.
 
 Revision note: created this ExecPlan before code edits so the audit fixes can
 be implemented and verified in a disciplined sequence.

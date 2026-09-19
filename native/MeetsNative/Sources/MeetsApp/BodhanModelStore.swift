@@ -16,10 +16,10 @@ enum BodhanModel: String, CaseIterable, Sendable {
     var name: String { (isCore ? "Bodhan Core" : "Bodhan Flex") + (isInt8 ? " INT8" : " FP16") }
     var mixedScript: Bool { !isCore }
     var cacheDirectory: URL {
-        FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".cache/muesli/models/\(rawValue.split(separator: "/").last!)")
+        MeetsPaths.modelCacheDirectoryURL(relativePath: String(rawValue.split(separator: "/").last!))
     }
     var localOverride: URL? {
-        let key = isCore ? "MUESLI_BODHAN_CORE_MODEL_DIR" : "MUESLI_BODHAN_FLEX_MODEL_DIR"
+        let key = isCore ? "MEETS_BODHAN_CORE_MODEL_DIR" : "MEETS_BODHAN_FLEX_MODEL_DIR"
         guard let path = ProcessInfo.processInfo.environment[key], !path.isEmpty else { return nil }
         return URL(fileURLWithPath: path)
     }

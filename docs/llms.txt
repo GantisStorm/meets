@@ -1,47 +1,22 @@
 # Meets
 
-> Local-first AI meeting transcription for macOS.
+> A vibeslopped, meetings-focused fork of Muesli for macOS.
 
-Meets is a free, open-source macOS application — a meetings-only fork of Muesli — that records meetings (mic + system audio) and transcribes them with on-device AI inference. All speech-to-text runs locally on Apple Silicon — no cloud required for core functionality.
+Meets is a native Swift, SwiftUI, and AppKit app maintained by GantisStorm. It records microphone and system audio, transcribes locally, organizes meeting notes, and provides calendar integration, Insights, exports, and a bundled CLI.
 
-## Features
+## Privacy and providers
 
-- **Meeting Recording**: Records mic + system audio, merges them into a timestamped transcript
-- **Live Meeting Transcripts**: Optional low-latency live captions during the meeting
-- **Meeting Notes**: Optional AI-generated structured summaries (ChatGPT subscription, or BYOK OpenAI/OpenRouter, or local Ollama / LM Studio / custom LLM)
-- **Speaker Diarization**: Identifies individual speakers in system audio
-- **Meeting Insights**: Local analytics over your meeting history
-- **Local-First**: Transcription runs entirely on-device via Fluid Audio / CoreML
-- **Privacy**: Audio never leaves your Mac unless you opt into cloud summarization; iCloud sync transfers text and sync metadata, not audio
-- **Free & Open Source**: MIT licensed, no subscriptions, no usage limits
+Speech-to-text runs locally. Optional hosted summaries and cleanup send text and included context to the configured provider. Providers include ChatGPT, OpenAI, OpenRouter, Ollama, LM Studio, custom endpoints, ACP agents, and on-device Apple Intelligence. This fork's Apple Intelligence adapter requires macOS 27+ and a ready system model. Local cleanup models are also supported.
 
-## Technical Details
+Optional iCloud support syncs text and metadata, not audio, and requires a provisioned CloudKit build. Build scripts configure TelemetryDeck routing; unconfigured direct builds disable telemetry. See the README for the complete privacy and deployment limitations.
 
-- **Runtime**: Native Swift/AppKit application (not Electron)
-- **Speech Engine**: Fluid Audio SDK (CoreML, Apple Neural Engine)
-- **Storage**: Local SQLite database at ~/Library/Application Support/Meets/
-- **Audio Capture**: Microphone (You) + system audio (Others) via CoreAudio process tap
-- **Platform**: macOS 14.2+ on Apple Silicon (M1/M2/M3/M4)
+## Availability
 
-## Links
+- Source repository and build instructions: https://github.com/GantisStorm/meets
+- Releases: https://github.com/GantisStorm/meets/releases (no binary releases published yet)
+- Runtime: Apple Silicon, macOS 14.2+; some features require newer macOS.
+- Build: full Xcode 26.6 / Swift 6.3, xcodegen, CMake, complete LocalVQE runtime.
+- License: MIT, with separate dependency and model licenses.
+- Upstream: https://github.com/Muesli-HQ/muesli, originally by Pranav Hari and contributors.
 
-- Website: https://freedspeech.xyz
-- GitHub: https://github.com/Muesli-HQ/muesli
-- Download: https://github.com/Muesli-HQ/muesli/releases/download/v0.8.4/Muesli-0.8.4.dmg
-- Support: https://buymeacoffee.com/phequals7
-- License: MIT
-
-## Architecture
-
-Meets is a menu bar app whose core mode is meeting transcription:
-
-1. **Start Recording**: User starts recording from the menu bar or the meeting hotkey → mic captures "You" audio, system audio captures "Others".
-2. **Transcription**: Audio is transcribed locally with VAD-driven chunk rotation; diarization labels remote speakers; segments are merged by timestamp.
-3. **Notes**: Optional LLM summarization produces structured notes (ChatGPT subscription or BYOK providers).
-4. **Storage**: Transcripts, notes, and recordings are stored in local SQLite.
-
-The app uses Fluid Audio's CoreML models running on the Apple Neural Engine for speech-to-text, minimizing CPU/GPU usage. Optional cloud integration is available for meeting note summarization and transcript cleanup, using bring-your-own-key configuration or a ChatGPT subscription.
-
-## Author
-
-Built by Pranav Hari (@pHequals7).
+The fork retains the upstream git history and copyright notice. It is not an official Muesli release. There is no official Meets Homebrew cask or companion iPhone release from this repository.

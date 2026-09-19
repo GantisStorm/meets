@@ -22,7 +22,7 @@ public enum AppIdentity {
 
     /// Public so App Intents (a separate module from the rest of the app)
     /// can resolve the *running* app identity's data directory — e.g.
-    /// MeetsDev vs Muesli — instead of hardcoding the production default.
+    /// MeetsDev vs Meets — instead of hardcoding the production default.
     public static var supportDirectoryURL: URL {
         MeetsPaths.defaultSupportDirectoryURL(appName: supportDirectoryName)
     }

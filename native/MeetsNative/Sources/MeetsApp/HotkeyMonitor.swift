@@ -438,7 +438,7 @@ final class HotkeyMonitor {
         ]
         let status = InstallEventHandler(
             GetApplicationEventTarget(),
-            muesliRegisteredHotKeyHandler,
+            meetsRegisteredHotKeyHandler,
             eventTypes.count,
             &eventTypes,
             Unmanaged.passUnretained(self).toOpaque(),
@@ -789,7 +789,7 @@ final class HotkeyMonitor {
     }
 }
 
-private func muesliRegisteredHotKeyHandler(
+private func meetsRegisteredHotKeyHandler(
     _ nextHandler: EventHandlerCallRef?,
     _ event: EventRef?,
     _ userData: UnsafeMutableRawPointer?

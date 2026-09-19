@@ -7,22 +7,22 @@
   <meta name="description" content="Meets is a local-first AI meeting transcriber. Free speech, on device, local inference.">
   <meta property="og:title" content="Meets — free speech">
   <meta property="og:description" content="Meets is a local-first AI meeting transcriber. Free speech, on device, local inference.">
-  <meta property="og:image" content="https://freedspeech.xyz/og.png">
+  <meta property="og:image" content="https://gantisstorm.github.io/meets/og.png">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
   <meta property="og:type" content="website">
-  <meta property="og:url" content="https://freedspeech.xyz">
+  <meta property="og:url" content="https://gantisstorm.github.io/meets">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="Meets — free speech">
   <meta name="twitter:description" content="Local-first AI meeting transcriber. Free speech, on device, local inference.">
-  <meta name="twitter:image" content="https://freedspeech.xyz/og.png">
+  <meta name="twitter:image" content="https://gantisstorm.github.io/meets/og.png">
   <meta name="theme-color" content="#111214">
   <meta name="keywords" content="meets, meeting transcription, macOS, speech to text, meetings, local inference, on device, AI transcriber, free, open source, apple silicon, privacy, local-first">
-  <meta name="author" content="Pranav Hari">
+  <meta name="author" content="GantisStorm; fork of Muesli by Pranav Hari and contributors">
   <meta name="robots" content="index, follow">
   <meta name="application-name" content="Meets">
   <meta name="apple-mobile-web-app-title" content="Meets">
-  <link rel="canonical" href="https://freedspeech.xyz">
+  <link rel="canonical" href="https://gantisstorm.github.io/meets">
   <link rel="icon" type="image/png" href="./favicon.png">
   <link rel="apple-touch-icon" href="./icon.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -488,7 +488,7 @@
     "@type": "SoftwareApplication",
     "name": "Meets",
     "description": "Local-first AI meeting transcription for macOS. Free speech, on device, local inference.",
-    "url": "https://freedspeech.xyz",
+    "url": "https://gantisstorm.github.io/meets",
     "applicationCategory": "ProductivityApplication",
     "operatingSystem": "macOS",
     "offers": {
@@ -498,13 +498,11 @@
     },
     "author": {
       "@type": "Person",
-      "name": "Pranav Hari",
-      "url": "https://github.com/pHequals7"
+      "name": "GantisStorm",
+      "url": "https://github.com/GantisStorm"
     },
     "license": "https://opensource.org/licenses/MIT",
-    "downloadUrl": "https://freedspeech.xyz/download/",
-    "softwareVersion": "1.0",
-    "image": "https://freedspeech.xyz/og.png"
+    "image": "https://gantisstorm.github.io/meets/og.png"
   }
   </script>
 </head>
@@ -520,7 +518,7 @@
   </svg>
 
   <nav class="topnav">
-    <a class="gh-stars" href="https://github.com/Muesli-HQ/muesli" target="_blank" rel="noopener">
+    <a class="gh-stars" href="https://github.com/GantisStorm/meets" target="_blank" rel="noopener">
       <span class="gh-label">
         <svg viewBox="0 0 16 16"><path d="M8 .25a.75.75 0 0 1 .673.418l1.882 3.815 4.21.612a.75.75 0 0 1 .416 1.279l-3.046 2.97.719 4.192a.75.75 0 0 1-1.088.791L8 12.347l-3.766 1.98a.75.75 0 0 1-1.088-.79l.72-4.194L.818 6.374a.75.75 0 0 1 .416-1.28l4.21-.611L7.327.668A.75.75 0 0 1 8 .25Z"/></svg>
         <span>star on github</span>
@@ -528,7 +526,7 @@
       <span class="star-count" id="star-count"></span>
     </a>
     <span class="dot">&middot;</span>
-    <a href="https://buymeacoffee.com/phequals7" target="_blank" rel="noopener">support</a>
+    <a href="https://github.com/Muesli-HQ/muesli" target="_blank" rel="noopener">upstream Muesli</a>
   </nav>
 
   <!-- floating quotes (populated by JS) -->
@@ -541,18 +539,9 @@
         <img class="icon" src="./icon.png" alt="Meets" width="72" height="72">
         <h1 class="name">Meets</h1>
         <p class="sub">free speech to text &middot; on-device local inference &middot; auto meeting transcription</p>
-        <a class="get" href="https://freedspeech.xyz/download/">download for macOS</a>
+        <a class="get" href="https://github.com/GantisStorm/meets#build-it">build for macOS</a>
         <div class="install-alt">
-          <span class="install-label">or install with homebrew</span>
-          <span class="command-row">
-            <code id="brew-cmd">brew install --cask muesli</code>
-            <button aria-label="Copy Homebrew install command" title="Copy command" onclick="navigator.clipboard.writeText(document.getElementById('brew-cmd').textContent)">
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <rect x="9" y="9" width="10" height="12" rx="2"></rect>
-                <path d="M15 9V7a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"></path>
-              </svg>
-            </button>
-          </span>
+          <span class="install-label">A meetings-focused fork of Muesli. Source available; no binary release or Homebrew cask yet.</span>
         </div>
         <a class="faq-link" href="#faq">faq below</a>
       </div>
@@ -616,7 +605,7 @@
 
 <script>
 /* ── github stars ── */
-fetch('https://api.github.com/repos/Muesli-HQ/muesli')
+fetch('https://api.github.com/repos/GantisStorm/meets')
   .then(r => r.json())
   .then(d => {
     const el = document.getElementById('star-count');

@@ -12,7 +12,7 @@ struct DictationStoreTests {
     /// Each test gets its own isolated DB — no production data is touched.
     private func makeStore() throws -> DictationStore {
         let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("muesli-test-\(UUID().uuidString).db")
+            .appendingPathComponent("meets-test-\(UUID().uuidString).db")
         let store = DictationStore(databaseURL: url)
         try store.migrateIfNeeded()
         return store
@@ -20,7 +20,7 @@ struct DictationStoreTests {
 
     private func makeLegacyStore() throws -> DictationStore {
         let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("muesli-legacy-test-\(UUID().uuidString).db")
+            .appendingPathComponent("meets-legacy-test-\(UUID().uuidString).db")
         var db: OpaquePointer?
         #expect(sqlite3_open(url.path, &db) == SQLITE_OK)
         defer { sqlite3_close(db) }
@@ -2010,14 +2010,14 @@ struct DictationStoreTests {
         try store.attachMeetingParticipant(
             meetingID: id,
             participant: MeetingParticipantDraft(
-                participantIdentifier: "calendar:pranav@muesli.works",
+                participantIdentifier: "calendar:pranav@meets.works",
                 displayName: "Pranav Hari",
-                emailAddress: "pranav@muesli.works"
+                emailAddress: "pranav@meets.works"
             )
         )
 
         #expect(try store.searchMeetings(query: "Pranav Hari").map(\.id) == [id])
-        #expect(try store.searchMeetings(query: "pranav@muesli.works").map(\.id) == [id])
+        #expect(try store.searchMeetings(query: "pranav@meets.works").map(\.id) == [id])
     }
 
     // MARK: - Meeting ↔ Event links

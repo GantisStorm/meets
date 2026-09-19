@@ -1,3 +1,12 @@
+/*
+ THESIS: Settings reveal the decisions people make often and keep expert depth one deliberate click away, refusing the wall-of-cards layout.
+ OWN-WORLD: Native Mac typography, quiet neutral surfaces, Meets accent for selection, and semantic color only for live status.
+ STORY: Choose a pane, understand its purpose, set the essentials, then expand a clearly summarized group when deeper control is needed.
+ FIRST VIEWPORT: Settings and a right-aligned text switcher lead into a pane introduction, essential controls, and calm disclosure rows at a readable centered width.
+ FORM: Essentials + Advanced, sixth of seven grounded structures; surface seed 33ea9e2e.
+ FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, DESIGN.md, and every shipping raster carrying its provenance
+*/
+
 import AppKit
 import AVFoundation
 import SwiftUI
@@ -50,6 +59,18 @@ enum SettingsPermissionRefreshReason {
 }
 
 struct SettingsView: View {
+    private enum DisclosureSection: Hashable {
+        case generalData
+        case meetingSummaries
+        case transcriptCleanup
+        case meetingNotes
+        case notifications
+        case calendars
+        case syncAndExport
+        case automation
+        case maraudersMap
+    }
+
     private enum PendingDataDestruction {
         case meetings
 
@@ -106,6 +127,7 @@ struct SettingsView: View {
     @State private var acpConfigOptionsCommand = ""
     @State private var acpConfigOptionsLoadTask: Task<Void, Never>?
     @State private var acpOptionsUnavailable = false
+    @State private var expandedSections: Set<DisclosureSection> = []
 
     init(appState: AppState, controller: MeetsController) {
         self.appState = appState
@@ -228,16 +250,15 @@ struct SettingsView: View {
     var body: some View {
             ScrollView {
                 VStack(alignment: .leading, spacing: MeetsTheme.spacing24) {
-                    Text("Settings")
-                        .font(MeetsTheme.title1())
-                        .foregroundStyle(MeetsTheme.textPrimary)
-
-                    settingsPanePicker
+                    settingsHeader
+                    paneIntroduction
                     paneContent
                 }
+                .frame(maxWidth: 920, alignment: .leading)
+                .frame(maxWidth: .infinity, alignment: .top)
                 .padding(.horizontal, MeetsTheme.spacing32)
-            .padding(.top, MeetsTheme.pageTop)
-            .padding(.bottom, MeetsTheme.spacing32)
+                .padding(.top, MeetsTheme.spacing24)
+                .padding(.bottom, MeetsTheme.spacing32)
             }
             .background(MeetsTheme.backgroundBase)
             .onAppear {
@@ -572,43 +593,118 @@ struct SettingsView: View {
         controlWidth rowControlWidth: CGFloat? = nil
     ) -> some View {
         let width = rowControlWidth ?? controlWidth
-        HStack(alignment: .top, spacing: 20) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text(title)
-                    .font(MeetsTheme.body())
-                    .foregroundStyle(MeetsTheme.textPrimary)
-                Text(screenContextDescription(includesScreenOCR: includesScreenOCR))
-                    .font(MeetsTheme.caption())
-                    .foregroundStyle(MeetsTheme.textTertiary)
-                    .lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .layoutPriority(1)
-
-            Spacer(minLength: 20)
-
-            ZStack(alignment: .trailing) {
-                Color.clear.frame(width: width, height: 1)
-                screenContextControl(width: width)
-            }
+        settingsRow(
+            title,
+            description: screenContextDescription(includesScreenOCR: includesScreenOCR),
+            controlWidth: width
+        ) {
+            screenContextControl(width: width)
         }
-        .frame(minHeight: 52)
     }
 
     private let customIndicatorPositionLabel = "Custom (drag to reposition)"
 
+    private var settingsHeader: some View {
+        HStack(alignment: .firstTextBaseline, spacing: MeetsTheme.spacing24) {
+            PageTitle("Settings")
+
+            Spacer(minLength: MeetsTheme.spacing24)
+
+            settingsPanePicker
+        }
+    }
+
     private var settingsPanePicker: some View {
-        HStack {
-            Spacer()
-            Picker("", selection: $selectedPane) {
-                ForEach(SettingsPane.allCases) { pane in
-                    Text(pane.title).tag(pane)
+        HStack(spacing: MeetsTheme.spacing20) {
+            ForEach(SettingsPane.allCases) { pane in
+                Button {
+                    withAnimation(.easeOut(duration: 0.16)) {
+                        selectedPane = pane
+                    }
+                } label: {
+                    Text(pane.title)
+                        .font(.system(size: 13, weight: selectedPane == pane ? .semibold : .medium))
+                        .foregroundStyle(selectedPane == pane ? MeetsTheme.textPrimary : MeetsTheme.textTertiary)
+                        .padding(.vertical, 5)
+                        .overlay(alignment: .bottom) {
+                            Rectangle()
+                                .fill(selectedPane == pane ? MeetsTheme.accent : Color.clear)
+                                .frame(height: 2)
+                        }
                 }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(selectedPane == pane ? .isSelected : [])
             }
-            .labelsHidden()
-            .pickerStyle(.segmented)
-            .frame(width: 760)
-            Spacer()
+        }
+    }
+
+    private var paneIntroduction: some View {
+        VStack(alignment: .leading, spacing: MeetsTheme.spacing8) {
+            HStack(spacing: MeetsTheme.spacing8) {
+                Image(systemName: selectedPaneIcon)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(MeetsTheme.textSecondary)
+                    .frame(width: 20)
+                Text(selectedPane.title)
+                    .font(MeetsTheme.title2())
+                    .foregroundStyle(MeetsTheme.textPrimary)
+            }
+
+            Text(selectedPaneDescription)
+                .font(MeetsTheme.callout())
+                .foregroundStyle(MeetsTheme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.bottom, MeetsTheme.spacing4)
+    }
+
+    private var selectedPaneIcon: String {
+        switch selectedPane {
+        case .general: "gearshape"
+        case .meetings: "person.2.wave.2"
+        case .appearance: "paintbrush"
+        }
+    }
+
+    private var selectedPaneDescription: String {
+        switch selectedPane {
+        case .general:
+            "Startup behavior, permissions, and the meeting data stored on this Mac."
+        case .meetings:
+            "Choose how meetings are captured, transcribed, and turned into useful notes."
+        case .appearance:
+            "Tune Meets’s menu bar and recording controls to fit your workspace."
+        }
+    }
+
+    private var notificationSettingsSummary: String {
+        let scheduled = appState.config.showScheduledMeetingNotifications
+        let detected = appState.config.showMeetingDetectionNotification
+        return switch (scheduled, detected) {
+        case (true, true): "Scheduled and detected meeting alerts are on"
+        case (true, false): "Scheduled meeting alerts are on"
+        case (false, true): "Detected meeting alerts are on"
+        case (false, false): "Meeting alerts are off"
+        }
+    }
+
+    private var calendarSettingsSummary: String {
+        switch appState.calendarAuthorization {
+        case .fullAccess: "Connected · showing \(selectedUpcomingMeetingsWindow.label.lowercased())"
+        case .writeOnly: "Limited calendar access"
+        case .denied: "Calendar access is off"
+        case .unknown: "Calendar access has not been configured"
+        }
+    }
+
+    private var syncAndExportSettingsSummary: String {
+        let export = appState.config.autoExportMarkdownEnabled
+        let sync = appState.config.cloudSyncEnabled
+        return switch (export, sync) {
+        case (true, true): "Automatic export and cloud-folder sync are on"
+        case (true, false): "Automatic export is on"
+        case (false, true): "Cloud-folder sync is on"
+        case (false, false): "Export and cloud-folder sync are off"
         }
     }
 
@@ -625,8 +721,8 @@ struct SettingsView: View {
     }
 
     private var generalSettingsPane: some View {
-        VStack(alignment: .leading, spacing: MeetsTheme.spacing24) {
-            settingsSection("General") {
+        VStack(alignment: .leading, spacing: MeetsTheme.spacing20) {
+            settingsSection("Startup", iconName: "power") {
                 VStack(alignment: .leading, spacing: MeetsTheme.spacing8) {
                     settingsRow(
                         "Launch at login",
@@ -649,11 +745,25 @@ struct SettingsView: View {
                         controller.updateConfig { $0.openDashboardOnLaunch = newValue }
                     }
                 }
+                Divider().background(MeetsTheme.surfaceBorder)
+                settingsRow(
+                    "Setup guide",
+                    description: "Review meeting setup, permissions, transcription, and summaries."
+                ) {
+                    compactActionButton("Onboarding", systemImage: "arrow.up.right.square") {
+                        controller.showOnboarding()
+                    }
+                }
             }
 
             permissionsSection
 
-            settingsSection("Data") {
+            settingsDisclosureSection(
+                "Data Management",
+                summary: "Clear meetings and their stored transcripts, notes, and audio.",
+                icon: "externaldrive",
+                section: .generalData
+            ) {
                 HStack(spacing: MeetsTheme.spacing12) {
                     actionButton("Clear meeting history", role: .destructive) {
                         pendingDataDestruction = .meetings
@@ -704,7 +814,7 @@ struct SettingsView: View {
     }
 
     private var meetingTranscriptionSettingsSection: some View {
-        settingsSection("Transcription") {
+        settingsSection("Capture & Transcription", iconName: "waveform") {
             settingsRow(
                 "Microphone",
                 description: "Only affects Meets. Changes apply immediately.",
@@ -830,6 +940,9 @@ struct SettingsView: View {
                     whisperLanguageMenu
                 }
             }
+
+            Divider().background(MeetsTheme.surfaceBorder)
+            screenContextRow("Meeting context", includesScreenOCR: true)
         }
     }
 
@@ -877,7 +990,12 @@ struct SettingsView: View {
     }
 
     private var meetingSummarySettingsSection: some View {
-        settingsSection("Meeting Summaries") {
+        settingsDisclosureSection(
+            "Meeting Summaries",
+            summary: "\(appState.selectedMeetingSummaryBackend.label) writes notes after each meeting.",
+            icon: "sparkles",
+            section: .meetingSummaries
+        ) {
             settingsRow("Include written notes") {
                 settingsSwitch(isOn: appState.config.includeNotesInSummary) { newValue in
                     controller.updateConfig { $0.includeNotesInSummary = newValue }
@@ -1029,7 +1147,6 @@ struct SettingsView: View {
                     val in controller.updateConfig { $0.customLLMModel = val }
                 }
             } else if appState.selectedMeetingSummaryBackend == .acpAgent {
-                Divider().background(MeetsTheme.surfaceBorder)
                 settingsRow("Command", description: "Runs your installed agent (omp, Claude Code, Codex…) over Agent Client Protocol. No API key needed.", controlWidth: meetingControlWidth) {
                     ACPCommandPicker(
                         appState: appState,
@@ -1076,7 +1193,6 @@ struct SettingsView: View {
 
     @ViewBuilder
     private func customLLMSettingsRows(model: String, onModelChange: @escaping (String) -> Void) -> some View {
-        Divider().background(MeetsTheme.surfaceBorder)
         settingsRow(
             "API Format",
             description: "Request format for your endpoint.",
@@ -1153,7 +1269,14 @@ struct SettingsView: View {
 
     @ViewBuilder
     private var transcriptCleanupSettingsSection: some View {
-        settingsSection("Transcript Cleanup") {
+        settingsDisclosureSection(
+            "Transcript Cleanup",
+            summary: appState.config.enablePostProcessor
+                ? "On · \(selectedCleanupBackend.label)"
+                : "Off · raw transcripts are preserved",
+            icon: "wand.and.stars",
+            section: .transcriptCleanup
+        ) {
             settingsRow(
                 "AI transcript cleanup",
                 description: "Automatically clean filler words and false starts from transcripts."
@@ -1333,26 +1456,23 @@ struct SettingsView: View {
     }
 
     private var meetingsSettingsPane: some View {
-        VStack(alignment: .leading, spacing: MeetsTheme.spacing24) {
+        VStack(alignment: .leading, spacing: MeetsTheme.spacing20) {
             VStack(alignment: .leading, spacing: MeetsTheme.spacing8) {
-                Text("Shortcuts")
-                    .font(.system(size: 11, weight: .semibold))
-                    .textCase(.uppercase)
-                    .foregroundStyle(MeetsTheme.textTertiary)
-                    .padding(.leading, 2)
+                sectionHeading("Recording Shortcut", icon: "command")
                 ShortcutsView(appState: appState, controller: controller).meetingRecordingShortcutSection
             }
             meetingTranscriptionSettingsSection
-
-            settingsSection("Meeting Context") {
-                screenContextRow("Meeting context", includesScreenOCR: true)
-            }
 
             meetingSummarySettingsSection
 
             transcriptCleanupSettingsSection
 
-            settingsSection("Meeting Notes") {
+            settingsDisclosureSection(
+                "Meeting Notes",
+                summary: "Templates and retry behavior for generated notes.",
+                icon: "doc.text",
+                section: .meetingNotes
+            ) {
                 settingsRow(
                     "Default template",
                     description: "Template applied to new meeting summaries.",
@@ -1393,7 +1513,7 @@ struct SettingsView: View {
                 }
             }
 
-            settingsSection("Recording") {
+            settingsSection("Recording", iconName: "record.circle") {
                 settingsRow(
                     "Save meeting recording",
                     description: "Keep the recorded audio after transcription."
@@ -1422,7 +1542,12 @@ struct SettingsView: View {
             }
 
 
-            settingsSection("Meeting Notifications") {
+            settingsDisclosureSection(
+                "Meeting Notifications",
+                summary: notificationSettingsSummary,
+                icon: "bell",
+                section: .notifications
+            ) {
                 settingsRow("Scheduled meetings") {
                     settingsSwitch(isOn: appState.config.showScheduledMeetingNotifications) { newValue in
                         controller.updateConfig { $0.showScheduledMeetingNotifications = newValue }
@@ -1488,7 +1613,12 @@ struct SettingsView: View {
                 }
             }
 
-            settingsSection("Calendars") {
+            settingsDisclosureSection(
+                "Calendars",
+                summary: calendarSettingsSummary,
+                icon: "calendar",
+                section: .calendars
+            ) {
                 calendarSyncRow
                 Divider().background(MeetsTheme.surfaceBorder)
                 HStack(alignment: .top) {
@@ -1535,7 +1665,12 @@ struct SettingsView: View {
                 }
             }
 
-            settingsSection("Sync & Export") {
+            settingsDisclosureSection(
+                "Sync & Export",
+                summary: syncAndExportSettingsSummary,
+                icon: "arrow.triangle.2.circlepath",
+                section: .syncAndExport
+            ) {
                 settingsRow(
                     "Auto-export meetings",
                     description: "Save each completed meeting to the chosen folder in the selected format."
@@ -1670,7 +1805,12 @@ struct SettingsView: View {
                 }
             }
 
-            settingsSection("Advanced") {
+            settingsDisclosureSection(
+                "Automation",
+                summary: appState.config.meetingHookEnabled ? "Post-meeting hook enabled" : "Run an optional script after meetings",
+                icon: "terminal",
+                section: .automation
+            ) {
                 settingsRow(
                     "Enable post-meeting hook",
                     description: "Run a script after each completed meeting.",
@@ -1697,7 +1837,6 @@ struct SettingsView: View {
                     meetingHookTimeoutControl
                 }
             }
-            .padding(.top, MeetsTheme.spacing8)
         }
         .onAppear {
             refreshMeetingCalendarSourcesIfNeeded()
@@ -1863,34 +2002,12 @@ struct SettingsView: View {
     }
 
     private var appearanceSettingsPane: some View {
-        VStack(alignment: .leading, spacing: MeetsTheme.spacing24) {
-            settingsSection("Floating Indicator") {
-                settingsRow("Show floating indicator") {
-                    settingsSwitch(isOn: appState.config.showFloatingIndicator) { newValue in
-                        controller.updateConfig { $0.showFloatingIndicator = newValue }
-                        controller.refreshIndicatorVisibility()
-                    }
-                }
-                Divider().background(MeetsTheme.surfaceBorder)
-                settingsRow("Show hotkey on floating indicator") {
-                    settingsSwitch(isOn: appState.config.showHotkeyOnFloatingIndicator) { newValue in
-                        controller.updateConfig { $0.showHotkeyOnFloatingIndicator = newValue }
-                    }
-                    .disabled(!appState.config.showFloatingIndicator)
-                }
-                settingsRow("Hover style") {
-                    settingsMenu(
-                        selection: appState.config.indicatorHoverStyle.label,
-                        options: IndicatorHoverStyle.allCases.map(\.label)
-                    ) { label in
-                        guard let style = IndicatorHoverStyle.allCases.first(where: { $0.label == label }) else { return }
-                        controller.updateConfig { $0.indicatorHoverStyle = style }
-                    }
-                    .disabled(!appState.config.showFloatingIndicator)
-                }
-                settingsDescription("Classic grows the pill to show the hotkey. Shortcut pill keeps a thin grip and pops a separate label on hover.")
-                Divider().background(MeetsTheme.surfaceBorder)
-                settingsRow("Indicator position") {
+        VStack(alignment: .leading, spacing: MeetsTheme.spacing20) {
+            settingsSection("Recording Indicator", iconName: "capsule") {
+                settingsRow(
+                    "Position",
+                    description: "Shown automatically while a meeting is preparing, recording, or transcribing."
+                ) {
                     let isCustom = appState.config.indicatorAnchor == .custom
                     let selection = isCustom ? customIndicatorPositionLabel : appState.config.indicatorAnchor.label
                     let options = (isCustom ? [customIndicatorPositionLabel] : [])
@@ -1902,12 +2019,12 @@ struct SettingsView: View {
                         if label == customIndicatorPositionLabel { return }
                         guard let anchor = IndicatorAnchor.allCases.first(where: { $0.label == label }) else { return }
                         controller.updateConfig { $0.indicatorAnchor = anchor }
-                        controller.refreshIndicatorVisibility()
+                        controller.refreshIndicatorPresentation()
                     }
                 }
             }
 
-            settingsSection("Appearance") {
+            settingsSection("Appearance", iconName: "paintbrush") {
                 settingsRow("Dark mode") {
                     settingsSwitch(isOn: appState.config.darkMode) { newValue in
                         controller.updateConfig { $0.darkMode = newValue }
@@ -1942,7 +2059,12 @@ struct SettingsView: View {
             }
 
             if appState.config.maraudersMapUnlocked {
-                settingsSection("Marauder\u{2019}s Map") {
+                settingsDisclosureSection(
+                    "Marauder\u{2019}s Map",
+                    summary: "Meeting countdown audio and reset controls.",
+                    icon: "map",
+                    section: .maraudersMap
+                ) {
                     settingsRow("Meeting countdown audio") {
                         maraudersMapControl
                     }
@@ -2396,7 +2518,7 @@ struct SettingsView: View {
     // MARK: - Permissions
 
     private var permissionsSection: some View {
-        settingsSection("Permissions") {
+        settingsSection("Permissions", iconName: "hand.raised") {
             permissionStatusRow(
                 "Microphone",
                 granted: micGranted,
@@ -2618,39 +2740,123 @@ struct SettingsView: View {
 
     // MARK: - Layout Primitives
 
+    private func disclosureBinding(for section: DisclosureSection) -> Binding<Bool> {
+        Binding(
+            get: { expandedSections.contains(section) },
+            set: { isExpanded in
+                if isExpanded {
+                    expandedSections.insert(section)
+                } else {
+                    expandedSections.remove(section)
+                }
+            }
+        )
+    }
+
+    private func defaultSectionIcon(for title: String) -> String {
+        switch title {
+        case "Startup": "power"
+        case "Permissions": "hand.raised"
+        case "Recording": "record.circle"
+        case "Appearance": "paintbrush"
+        default: "slider.horizontal.3"
+        }
+    }
+
+    private func sectionHeading(_ title: String, icon: String) -> some View {
+        HStack(spacing: MeetsTheme.spacing8) {
+            Image(systemName: icon)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(MeetsTheme.textSecondary)
+                .frame(width: 18)
+            Text(title)
+                .font(MeetsTheme.headline())
+                .foregroundStyle(MeetsTheme.textPrimary)
+        }
+    }
+
     @ViewBuilder
     private func settingsSection(
         _ title: String,
-        icon: NSImage? = nil,
+        iconName: String? = nil,
         @ViewBuilder content: () -> some View
     ) -> some View {
-        VStack(alignment: .leading, spacing: MeetsTheme.spacing8) {
-            HStack(spacing: 5) {
-                if let icon {
-                    Image(nsImage: icon)
-                        .renderingMode(.template)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: 12, height: 12)
-                }
-                Text(title)
-                    .font(.system(size: 11, weight: .semibold))
-                    .textCase(.uppercase)
-            }
-            .foregroundStyle(MeetsTheme.textTertiary)
-            .padding(.leading, 2)
+        VStack(alignment: .leading, spacing: 0) {
+            sectionHeading(title, icon: iconName ?? defaultSectionIcon(for: title))
+                .padding(.horizontal, MeetsTheme.spacing20)
+                .padding(.vertical, MeetsTheme.spacing16)
 
-            VStack(alignment: .leading, spacing: 0) {
+            Divider().background(MeetsTheme.surfaceBorder)
+
+            VStack(alignment: .leading, spacing: MeetsTheme.spacing4) {
                 content()
             }
-            .padding(MeetsTheme.spacing16)
-            .background(MeetsTheme.backgroundRaised)
-            .clipShape(RoundedRectangle(cornerRadius: MeetsTheme.cornerMedium))
-            .overlay(
-                RoundedRectangle(cornerRadius: MeetsTheme.cornerMedium)
-                    .strokeBorder(MeetsTheme.surfaceBorder, lineWidth: 1)
-            )
+            .padding(.horizontal, MeetsTheme.spacing20)
+            .padding(.vertical, MeetsTheme.spacing16)
         }
+        .background(MeetsTheme.backgroundRaised)
+        .clipShape(RoundedRectangle(cornerRadius: MeetsTheme.cornerLarge))
+    }
+
+    @ViewBuilder
+    private func settingsDisclosureSection(
+        _ title: String,
+        summary: String,
+        icon: String,
+        section: DisclosureSection,
+        @ViewBuilder content: () -> some View
+    ) -> some View {
+        let isExpanded = disclosureBinding(for: section)
+        VStack(alignment: .leading, spacing: 0) {
+            Button {
+                withAnimation(.easeOut(duration: 0.18)) {
+                    isExpanded.wrappedValue.toggle()
+                }
+            } label: {
+                HStack(spacing: MeetsTheme.spacing12) {
+                    Image(systemName: icon)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(MeetsTheme.textSecondary)
+                        .frame(width: 18)
+
+                    VStack(alignment: .leading, spacing: MeetsTheme.spacing4) {
+                        Text(title)
+                            .font(MeetsTheme.headline())
+                            .foregroundStyle(MeetsTheme.textPrimary)
+                        Text(summary)
+                            .font(MeetsTheme.caption())
+                            .foregroundStyle(MeetsTheme.textTertiary)
+                            .lineLimit(2)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
+                    Spacer(minLength: MeetsTheme.spacing16)
+
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(MeetsTheme.textTertiary)
+                        .rotationEffect(.degrees(isExpanded.wrappedValue ? 90 : 0))
+                }
+                .contentShape(Rectangle())
+                .padding(.horizontal, MeetsTheme.spacing20)
+                .padding(.vertical, MeetsTheme.spacing16)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("\(title), \(summary)")
+            .accessibilityHint(isExpanded.wrappedValue ? "Collapse settings" : "Expand settings")
+
+            if isExpanded.wrappedValue {
+                Divider().background(MeetsTheme.surfaceBorder)
+                VStack(alignment: .leading, spacing: MeetsTheme.spacing4) {
+                    content()
+                }
+                .padding(.horizontal, MeetsTheme.spacing20)
+                .padding(.vertical, MeetsTheme.spacing16)
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
+        .background(MeetsTheme.backgroundRaised)
+        .clipShape(RoundedRectangle(cornerRadius: MeetsTheme.cornerLarge))
     }
 
     /// Standardized row: label on left, control on right.
@@ -2658,20 +2864,20 @@ struct SettingsView: View {
     @ViewBuilder
     private func settingsRow(_ label: String, controlWidth rowControlWidth: CGFloat? = nil, @ViewBuilder control: () -> some View) -> some View {
         let width = rowControlWidth ?? controlWidth
-        HStack(alignment: .center) {
+        HStack(alignment: .center, spacing: MeetsTheme.spacing20) {
             Text(label)
                 .font(MeetsTheme.body())
                 .foregroundStyle(MeetsTheme.textPrimary)
                 .layoutPriority(1)
-            Spacer(minLength: 20)
+            Spacer(minLength: MeetsTheme.spacing12)
             ZStack(alignment: .trailing) {
-                // Invisible spacer forces the ZStack to exactly controlWidth
                 Color.clear.frame(width: width, height: 1)
                 control()
                     .frame(maxWidth: width)
             }
         }
-        .frame(minHeight: 32)
+        .padding(.vertical, MeetsTheme.spacing12)
+        .frame(minHeight: 44)
     }
 
     @ViewBuilder
@@ -2682,42 +2888,54 @@ struct SettingsView: View {
         @ViewBuilder control: () -> some View
     ) -> some View {
         let width = rowControlWidth ?? controlWidth
-        HStack(alignment: .center, spacing: 20) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(label)
-                    .font(MeetsTheme.body())
-                    .foregroundStyle(MeetsTheme.textPrimary)
-                Text(description)
-                    .font(MeetsTheme.caption())
-                    .foregroundStyle(MeetsTheme.textTertiary)
-                    .fixedSize(horizontal: false, vertical: true)
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .center, spacing: MeetsTheme.spacing20) {
+                settingsRowLabel(label, description: description)
+                    .layoutPriority(1)
+
+                Spacer(minLength: MeetsTheme.spacing12)
+
+                control()
+                    .frame(width: width, alignment: .trailing)
             }
-            .layoutPriority(1)
 
-            Spacer(minLength: 0)
-
-            control()
-                .frame(width: width, alignment: .trailing)
+            VStack(alignment: .leading, spacing: MeetsTheme.spacing12) {
+                settingsRowLabel(label, description: description)
+                control()
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+            }
         }
-        .frame(minHeight: 44)
+        .padding(.vertical, MeetsTheme.spacing12)
+        .frame(minHeight: 52)
+    }
+
+    private func settingsRowLabel(_ label: String, description: String) -> some View {
+        VStack(alignment: .leading, spacing: MeetsTheme.spacing4) {
+            Text(label)
+                .font(MeetsTheme.body())
+                .foregroundStyle(MeetsTheme.textPrimary)
+            Text(description)
+                .font(MeetsTheme.caption())
+                .foregroundStyle(MeetsTheme.textTertiary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 
     private func settingsDescription(_ text: String) -> some View {
-        // No horizontal padding: the section card already insets content by
-        // 16pt. (Padding here double-indents captions vs row labels.)
         Text(text)
             .font(MeetsTheme.caption())
             .foregroundStyle(MeetsTheme.textTertiary)
-            .padding(.top, -4)
-            .padding(.bottom, MeetsTheme.spacing8)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.top, MeetsTheme.spacing4)
+            .padding(.bottom, MeetsTheme.spacing12)
     }
 
     private func settingsOutcome(_ text: String, isError: Bool) -> some View {
         Text(text)
             .font(MeetsTheme.caption())
             .foregroundStyle(isError ? MeetsTheme.recording : MeetsTheme.textSecondary)
-            .padding(.top, -4)
-            .padding(.bottom, MeetsTheme.spacing8)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.vertical, MeetsTheme.spacing8)
     }
 
     // MARK: - Controls

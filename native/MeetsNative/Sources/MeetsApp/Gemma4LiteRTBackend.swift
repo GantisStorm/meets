@@ -3,11 +3,11 @@ import MeetsCore
 import CLiteRTLM
 
 enum Gemma4LiteRTLogging {
-    static let profilePathEnvVar = "MUESLI_GEMMA4_LITERT_PROFILE_PATH"
+    static let profilePathEnvVar = "MEETS_GEMMA4_LITERT_PROFILE_PATH"
     private static let profileLock = NSLock()
 
     static var isEnabled: Bool {
-        ProcessInfo.processInfo.environment["MUESLI_DEBUG_GEMMA4_LITERT_LOGS"] == "1"
+        ProcessInfo.processInfo.environment["MEETS_DEBUG_GEMMA4_LITERT_LOGS"] == "1"
     }
 
     static func log(_ message: String) {
@@ -104,15 +104,15 @@ enum Gemma4LiteRTModel: String, CaseIterable, Identifiable, Sendable {
 }
 
 enum Gemma4LiteRTModelStore {
-    static let modelPathEnvVar = "MUESLI_GEMMA4_LITERT_MODEL_PATH"
-    static let promptEnvVar = "MUESLI_GEMMA4_LITERT_PROMPT"
-    static let cacheDirEnvVar = "MUESLI_GEMMA4_LITERT_CACHE_DIR"
-    static let backendEnvVar = "MUESLI_GEMMA4_LITERT_BACKEND"
-    static let mtpEnvVar = "MUESLI_GEMMA4_LITERT_MTP"
+    static let modelPathEnvVar = "MEETS_GEMMA4_LITERT_MODEL_PATH"
+    static let promptEnvVar = "MEETS_GEMMA4_LITERT_PROMPT"
+    static let cacheDirEnvVar = "MEETS_GEMMA4_LITERT_CACHE_DIR"
+    static let backendEnvVar = "MEETS_GEMMA4_LITERT_BACKEND"
+    static let mtpEnvVar = "MEETS_GEMMA4_LITERT_MTP"
     // Preserve the original E2B constants as source-compatible defaults.
     static let repoID = Gemma4LiteRTModel.e2b.repoID
     static let modelFilename = Gemma4LiteRTModel.e2b.filename
-    static let cacheRelativePath = ".cache/muesli/models/\(Gemma4LiteRTModel.e2b.cacheDirectoryName)"
+    static let cacheRelativePath = ".cache/meets/models/\(Gemma4LiteRTModel.e2b.cacheDirectoryName)"
     static let expectedModelByteCount = Gemma4LiteRTModel.e2b.expectedByteCount
     static let minimumDownloadedModelSizeBytes = Gemma4LiteRTModel.e2b.minimumDownloadedSizeBytes
     static let downloadURL = Gemma4LiteRTModel.e2b.downloadURL
@@ -129,8 +129,10 @@ enum Gemma4LiteRTModelStore {
         for model: Gemma4LiteRTModel = .e2b,
         fileManager: FileManager = .default
     ) -> URL {
-        fileManager.homeDirectoryForCurrentUser
-            .appendingPathComponent(".cache/muesli/models/\(model.cacheDirectoryName)", isDirectory: true)
+        MeetsPaths.modelCacheDirectoryURL(
+            relativePath: model.cacheDirectoryName,
+            fileManager: fileManager
+        )
     }
 
     static func managedModelURL(

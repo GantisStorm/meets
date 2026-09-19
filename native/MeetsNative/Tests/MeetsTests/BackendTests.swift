@@ -51,7 +51,7 @@ struct Nemotron35ModelStoreTests {
 
     @Test("app and CLI use the same Nemotron cache")
     func sharedCachePath() {
-        #expect(Nemotron35ModelStore.cacheRelativePath == ".cache/muesli/models/nemotron35-multilingual-2240ms")
+        #expect(Nemotron35ModelStore.cacheRelativePath == ".cache/meets/models/nemotron35-multilingual-2240ms")
         #expect(Nemotron35ModelStore.cacheDirectory().path.hasSuffix(Nemotron35ModelStore.cacheRelativePath))
         #expect(Nemotron35ModelStore.requiredFileRelativePath == "encoder.mlmodelc/coremldata.bin")
     }
@@ -135,7 +135,7 @@ struct Gemma4LiteRTTranscriberTests {
     @Test("gemma4 model store uses env override and detects local file")
     func gemma4ModelStoreEnvOverride() throws {
         let dir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("muesli-gemma4-store-test-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("meets-gemma4-store-test-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
 
@@ -150,7 +150,7 @@ struct Gemma4LiteRTTranscriberTests {
     @Test("gemma4 override directory is not treated as a model file")
     func gemma4ModelStoreRejectsDirectoryOverride() throws {
         let dir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("muesli-gemma4-directory-test-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("meets-gemma4-directory-test-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let sentinelURL = dir.appendingPathComponent("keep-me.txt")
         try Data("keep".utf8).write(to: sentinelURL)
@@ -169,7 +169,7 @@ struct Gemma4LiteRTTranscriberTests {
     @Test("gemma4 delete removes only explicit model override file")
     func gemma4DeleteRespectsModelOverride() throws {
         let dir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("muesli-gemma4-delete-test-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("meets-gemma4-delete-test-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
 
@@ -188,17 +188,17 @@ struct Gemma4LiteRTTranscriberTests {
 
     @Test("gemma4 default paths use managed model cache")
     func gemma4DefaultPathsUseManagedCache() {
-        #expect(Gemma4LiteRTModelStore.cacheRelativePath == ".cache/muesli/models/gemma-4-e2b-litert-lm")
-        #expect(Gemma4LiteRTModelStore.managedModelURL().path.hasSuffix("/.cache/muesli/models/gemma-4-e2b-litert-lm/\(Gemma4LiteRTModelStore.modelFilename)"))
-        #expect(Gemma4LiteRTModelStore.managedLiteRTCacheDirectory().path.hasSuffix("/.cache/muesli/models/gemma-4-e2b-litert-lm/litert-cache"))
-        #expect(Gemma4LiteRTModelStore.managedModelURL(for: .e4b).path.hasSuffix("/.cache/muesli/models/gemma-4-e4b-litert-lm/\(Gemma4LiteRTModel.e4b.filename)"))
-        #expect(Gemma4LiteRTModelStore.managedLiteRTCacheDirectory(for: .e4b).path.hasSuffix("/.cache/muesli/models/gemma-4-e4b-litert-lm/litert-cache"))
+        #expect(Gemma4LiteRTModelStore.cacheRelativePath == ".cache/meets/models/gemma-4-e2b-litert-lm")
+        #expect(Gemma4LiteRTModelStore.managedModelURL().path.hasSuffix("/.cache/meets/models/gemma-4-e2b-litert-lm/\(Gemma4LiteRTModelStore.modelFilename)"))
+        #expect(Gemma4LiteRTModelStore.managedLiteRTCacheDirectory().path.hasSuffix("/.cache/meets/models/gemma-4-e2b-litert-lm/litert-cache"))
+        #expect(Gemma4LiteRTModelStore.managedModelURL(for: .e4b).path.hasSuffix("/.cache/meets/models/gemma-4-e4b-litert-lm/\(Gemma4LiteRTModel.e4b.filename)"))
+        #expect(Gemma4LiteRTModelStore.managedLiteRTCacheDirectory(for: .e4b).path.hasSuffix("/.cache/meets/models/gemma-4-e4b-litert-lm/litert-cache"))
     }
 
     @Test("gemma4 managed download validation rejects tiny files")
     func gemma4ManagedDownloadValidationRejectsTinyFiles() throws {
         let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("muesli-gemma4-small-\(UUID().uuidString).litertlm")
+            .appendingPathComponent("meets-gemma4-small-\(UUID().uuidString).litertlm")
         try Data([0x4c, 0x54, 0x4d]).write(to: url)
         defer { try? FileManager.default.removeItem(at: url) }
 
@@ -218,7 +218,7 @@ struct Gemma4LiteRTTranscriberTests {
     @Test("gemma4 managed download validation rejects directories")
     func gemma4ManagedDownloadValidationRejectsDirectories() throws {
         let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("muesli-gemma4-download-directory-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("meets-gemma4-download-directory-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: url) }
 
@@ -400,7 +400,7 @@ struct Gemma4LiteRTTranscriberTests {
     @available(macOS 15, *)
     @Test("gemma4 user message puts Google's ASR instruction before audio")
     func gemma4UserMessageContainsPromptThenAudio() throws {
-        let wavURL = URL(fileURLWithPath: "/tmp/muesli-gemma4-sample.wav")
+        let wavURL = URL(fileURLWithPath: "/tmp/meets-gemma4-sample.wav")
         let messageJSON = try Gemma4LiteRTTranscriber.userMessageJSONString(wavURL: wavURL)
         let data = try #require(messageJSON.data(using: .utf8))
         let message = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
@@ -416,7 +416,7 @@ struct Gemma4LiteRTTranscriberTests {
     @Test("gemma4 rejects audio longer than Google's 30 second limit")
     func gemma4RejectsLongAudio() throws {
         let samples = [Float](repeating: 0, count: 31 * Int(WavWriter.sampleRate))
-        let wavURL = try WavWriter.writeTemporaryWAV(samples: samples, directoryName: "muesli-gemma4-duration-test")
+        let wavURL = try WavWriter.writeTemporaryWAV(samples: samples, directoryName: "meets-gemma4-duration-test")
         defer { try? FileManager.default.removeItem(at: wavURL) }
 
         #expect(throws: Gemma4LiteRTTranscriber.TranscriberError.self) {
@@ -428,8 +428,8 @@ struct Gemma4LiteRTTranscriberTests {
     @Test("gemma4 optional runtime smoke test")
     func gemma4OptionalRuntimeSmoke() async throws {
         let environment = ProcessInfo.processInfo.environment
-        guard environment["MUESLI_GEMMA4_LITERT_RUNTIME_SMOKE"] == "1",
-              let samplePath = environment["MUESLI_GEMMA4_LITERT_SAMPLE_WAV"] else {
+        guard environment["MEETS_GEMMA4_LITERT_RUNTIME_SMOKE"] == "1",
+              let samplePath = environment["MEETS_GEMMA4_LITERT_SAMPLE_WAV"] else {
             return
         }
 

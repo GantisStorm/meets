@@ -83,7 +83,7 @@ enum MeetingAecProcessorSelection {
     case dtlnOnly
 
     static var environmentDefault: MeetingAecProcessorSelection {
-        switch ProcessInfo.processInfo.environment["MUESLI_AEC_PROCESSOR"]?.lowercased() {
+        switch ProcessInfo.processInfo.environment["MEETS_AEC_PROCESSOR"]?.lowercased() {
         case "dtln":
             return .dtlnOnly
         case "localvqe-strict":

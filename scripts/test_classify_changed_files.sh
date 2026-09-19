@@ -290,7 +290,7 @@ for metadata in docs/appcast.xml docs/appcast-preprod.xml docs/index.html docs/l
     scripts/verify_update_flow.sh \
     scripts/classify_changed_files.sh \
     assets/AppIcon.icns \
-    docs/download/Muesli.dmg \
+    docs/download/Meets.dmg \
     .github/workflows/ci.yml \
     tools/unknown-helper.sh; do
     run_gate_case mixed "$metadata"$'\n'"$native_path" true
@@ -298,7 +298,7 @@ for metadata in docs/appcast.xml docs/appcast-preprod.xml docs/index.html docs/l
   done
 done
 run_gate_case metadata_batch $'docs/appcast.xml\ndocs/index.html\ndocs/llms.txt\nREADME.md' false
-run_gate_case download_artifact "docs/download/Muesli.dmg" true
+run_gate_case download_artifact "docs/download/Meets.dmg" true
 run_gate_case empty_fails_closed "" true
 
 echo "classifier tests passed"

@@ -155,7 +155,7 @@ struct MeetingNeuralAecTests {
         var error = [CChar](repeating: 0, count: 512)
         let context = meets_localvqe_create(
             modelURL.path,
-            "/tmp/muesli-missing-localvqe-\(UUID().uuidString).dylib",
+            "/tmp/meets-missing-localvqe-\(UUID().uuidString).dylib",
             2,
             &error,
             Int32(error.count)
@@ -321,7 +321,7 @@ struct MeetingNeuralAecTests {
           <key>CFBundleExecutable</key>
           <string>TestApp</string>
           <key>CFBundleIdentifier</key>
-          <string>com.muesli.tests.MeetingAec</string>
+          <string>com.meets.tests.MeetingAec</string>
           <key>CFBundleName</key>
           <string>TestApp</string>
         </dict>

@@ -71,7 +71,7 @@ Language default: **auto-detect** (the `101`/auto sentinel). A language picker i
 
 ## 4. Files to touch (integration surface)
 
-All paths under `native/MuesliNative/Sources/MuesliNativeApp/` unless noted. Line numbers are approximate as of this branch.
+All paths under `native/MeetsNative/Sources/MeetsNativeApp/` unless noted. Line numbers are approximate as of this branch.
 
 ### 4.1 `Models.swift`
 - Add a `BackendOption`:
@@ -86,7 +86,7 @@ All paths under `native/MuesliNative/Sources/MuesliNativeApp/` unless noted. Lin
   )
   ```
 - Add it to `all` as a normal Models tab card, not to `experimental`.
-- Extend `isAvailableLocally(...)` (the `switch` near line ~173) with a `case "nemotron35":` checking `.cache/muesli/models/nemotron35-multilingual-2240ms/encoder.mlmodelc/coremldata.bin`.
+- Extend `isAvailableLocally(...)` (the `switch` near line ~173) with a `case "nemotron35":` checking `.cache/meets/models/nemotron35-multilingual-2240ms/encoder.mlmodelc/coremldata.bin`.
 
 ### 4.2 New backend file `Nemotron35StreamingBackend.swift`
 Implement a dedicated 3.5 backend actor, then change:
@@ -95,7 +95,7 @@ Implement a dedicated 3.5 backend actor, then change:
 - **Vocab/blank**: read from `config.json` if present; otherwise set `vocabSize`/`blankTokenId` from the bundle (13087 multilingual or 2828 Latin-pruned). Do **not** hardcode 1024.
 - **Tokenizer/decode**: the EN path maps `tokenizer.json {id:piece}` and replaces `▁`. The 3.5 bundle ships `vocab.json` (likely `{piece: id}` or an array) + SentencePiece `tokenizer.model`. Implement decode from `vocab.json` (id→piece) with `▁`→space. Native punctuation means **drop** any punctuation-stripping. Strip the per-language tag suffix the model can emit at utterance end (see model card — VERIFY token format).
 - **Chunk geometry**: set `chunkSamples`, mel-frame counts, `encoderOutputFrames` from the `multilingual/2240ms` metadata. (560ms EN values do **not** transfer.)
-- **Download**: point `cacheDir` to `.cache/muesli/models/nemotron35-multilingual-2240ms` and the HF tree/resolve URLs to the new repo + the `multilingual/2240ms` subfolder. Reuse the existing `downloadDirectory`/`downloadWithRetry` helpers verbatim.
+- **Download**: point `cacheDir` to `.cache/meets/models/nemotron35-multilingual-2240ms` and the HF tree/resolve URLs to the new repo + the `multilingual/2240ms` subfolder. Reuse the existing `downloadDirectory`/`downloadWithRetry` helpers verbatim.
 
 ### 4.3 `TranscriptionRuntime.swift`
 - Add a lazy `_nemotron35Transcriber: Any?` + accessor mirroring `nemotronTranscriber` (lines ~19–39).
@@ -105,12 +105,12 @@ Implement a dedicated 3.5 backend actor, then change:
 
 ### 4.4 `StreamingDictationController.swift`
 - The `NemotronStreamingTranscribing` protocol uses neutral `RNNTStreamState`.
-- `MuesliController` chooses the streaming controller only for `backend == "nemotron35"` and passes the 3.5 chunk size.
+- `MeetsController` chooses the streaming controller only for `backend == "nemotron35"` and passes the 3.5 chunk size.
 
 ### 4.5 `ModelsView.swift`
 - The new option appears in `all` as a normal Models tab card, not under `experimental`. Verify the download/progress UI keys off `backend`/`model` correctly.
 
-### 4.6 Tests — `Tests/MuesliTests/`
+### 4.6 Tests — `Tests/MeetsTests/`
 - `ModelsTests.swift`: assert the new option exists, has `backend == "nemotron35"`, correct model id, and is in `all` but not `experimental`.
 - `BackendTests.swift` / `TranscriptionRuntimeTests.swift`: extend any `switch backend` exhaustiveness/coverage tests.
 - `NemotronStreamingTests.swift`: add a sibling suite for the new backend's pure helpers (token decode, language-input construction, state init shapes). Guard CoreML-dependent tests behind model availability as the existing suite does.
@@ -146,7 +146,7 @@ These are the items I could not confirm from this environment. Pull them from th
 1. (Mac, HF access) Inspect repo → fill in all §5 unknowns.
 2. Add `Models.swift` entry + `isAvailableLocally` + tests for those (cheap, no model needed).
 3. Implement `Nemotron35StreamingBackend.swift` against verified shapes; unit-test pure helpers.
-4. Wire `TranscriptionRuntime` + `StreamingDictationController`/`MuesliController` routing.
+4. Wire `TranscriptionRuntime` + `StreamingDictationController`/`MeetsController` routing.
 5. `./scripts/dev-test.sh` → download model → real handsfree dictation in 2–3 languages.
 6. Update `CLAUDE.md` (model count 7→8, Known Limitations) + this Context note.
 7. PR.

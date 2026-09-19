@@ -7,11 +7,12 @@ VERSION=""
 SHORT_VERSION=""
 ARTIFACT_VERSION=""
 DMG_PATH=""
-APP_NAME="Muesli"
-EXPECTED_FEED_URL="https://muesli-hq.github.io/muesli/appcast.xml"
+APP_NAME="Meets"
+EXPECTED_FEED_URL="https://gantisstorm.github.io/meets/appcast.xml"
 SKIP_DMG=0
 REQUIRE_NOTARIZED=0
 REQUIRE_RELEASE_NOTES=0
+APPCAST_EMPTY=0
 
 usage() {
   cat >&2 <<'USAGE'
@@ -25,8 +26,8 @@ Options:
   --short-version <version> Require the latest short/display version. Defaults to --version.
   --artifact-version <ver>  Version string used in the DMG filename. Defaults to --version.
   --appcast <path>          Appcast XML path. Defaults to docs/appcast.xml.
-  --dmg <path>              DMG path. Defaults to dist-release/Muesli-<version>.dmg.
-  --app-name <name>         App bundle/update artifact name. Defaults to Muesli.
+  --dmg <path>              DMG path. Defaults to dist-release/Meets-<version>.dmg.
+  --app-name <name>         App bundle/update artifact name. Defaults to Meets.
   --feed-url <url>          Expected SUFeedURL. Defaults to the production appcast.
   --skip-dmg                Only validate appcast metadata. Suitable for CI.
   --require-release-notes   Require item-level release notes in the appcast.
@@ -97,7 +98,7 @@ if [[ ! -f "$APPCAST" ]]; then
   exit 1
 fi
 
-if ! APPCAST_METADATA="$(python3 - "$APPCAST" "$VERSION" "$SHORT_VERSION" "$ARTIFACT_VERSION" "$APP_NAME" "$REQUIRE_RELEASE_NOTES" <<'PY'
+if ! APPCAST_METADATA="$(python3 - "$APPCAST" "$VERSION" "$SHORT_VERSION" "$ARTIFACT_VERSION" "$APP_NAME" "$REQUIRE_RELEASE_NOTES" "$SKIP_DMG" "$DMG_PATH" "$REQUIRE_NOTARIZED" <<'PY'
 import base64
 import re
 import shlex
@@ -110,6 +111,12 @@ expected_short_version = sys.argv[3]
 artifact_version = sys.argv[4]
 app_name = sys.argv[5]
 require_release_notes = sys.argv[6] == "1"
+allow_empty = (
+    sys.argv[7] == "1"
+    and not any((expected_version, expected_short_version, artifact_version, sys.argv[8]))
+    and not require_release_notes
+    and sys.argv[9] != "1"
+)
 sparkle_ns = "http://www.andymatuschak.org/xml-namespaces/sparkle"
 
 try:
@@ -118,12 +125,17 @@ except ET.ParseError as exc:
     raise SystemExit(f"ERROR: appcast XML is not well-formed: {exc}")
 
 root = tree.getroot()
+if root.tag != "rss" or root.get("version") != "2.0":
+    raise SystemExit("ERROR: appcast must be RSS 2.0")
 channel = root.find("channel")
 if channel is None:
     raise SystemExit("ERROR: appcast is missing channel")
 
 items = channel.findall("item")
 if not items:
+    if allow_empty and channel.findtext("title") and channel.findtext("link"):
+        print("APPCAST_EMPTY=1")
+        raise SystemExit(0)
     raise SystemExit("ERROR: appcast has no update items")
 
 latest = items[0]
@@ -150,7 +162,7 @@ if not signature:
     raise SystemExit("ERROR: latest appcast enclosure is missing sparkle:edSignature")
 
 expected_artifact_version = artifact_version or version
-expected_url = f"https://github.com/Muesli-HQ/muesli/releases/download/v{expected_artifact_version}/{app_name}-{expected_artifact_version}.dmg"
+expected_url = f"https://github.com/GantisStorm/meets/releases/download/v{expected_artifact_version}/{app_name}-{expected_artifact_version}.dmg"
 if url != expected_url:
     raise SystemExit(f"ERROR: latest appcast URL is {url!r}, expected {expected_url!r}")
 
@@ -202,6 +214,11 @@ fi
 # The Python emitter shell-quotes every value with shlex.quote before printing
 # KEY=value lines, so eval only imports validated scalar appcast metadata.
 eval "$APPCAST_METADATA"
+
+if [[ "${APPCAST_EMPTY:-0}" == "1" ]]; then
+  echo "Appcast OK: no releases published; metadata-only validation."
+  exit 0
+fi
 
 echo "Appcast OK: v${APPCAST_VERSION}"
 if [[ "$REQUIRE_RELEASE_NOTES" == "1" ]]; then
@@ -255,7 +272,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-HDIUTIL_ATTACH_LOG="$(mktemp -t muesli-hdiutil-attach.XXXXXX.log)"
+HDIUTIL_ATTACH_LOG="$(mktemp -t meets-hdiutil-attach.XXXXXX.log)"
 if ! ATTACH_OUTPUT="$(hdiutil attach "$DMG_PATH" -nobrowse -readonly 2>"$HDIUTIL_ATTACH_LOG")"; then
   cat "$HDIUTIL_ATTACH_LOG" >&2
   echo "ERROR: Could not mount DMG: $DMG_PATH" >&2
@@ -298,7 +315,7 @@ fi
 echo "Bundle metadata OK."
 
 # SwiftPM-built bundles place Sparkle.framework under Contents/MacOS; the
-# xcodebuild path (native/MuesliXcode) stages frameworks under
+# xcodebuild path (native/MeetsXcode) stages frameworks under
 # Contents/Frameworks. Accept either layout.
 SPARKLE_FRAMEWORK="$APP_PATH/Contents/MacOS/Sparkle.framework"
 if [[ ! -d "$SPARKLE_FRAMEWORK" ]]; then
@@ -316,7 +333,7 @@ if [[ -z "$SPARKLE_UPDATER_PATH" || ! -d "$SPARKLE_UPDATER_PATH" ]]; then
 fi
 echo "Sparkle installer helper OK."
 
-SWIFT_VERIFY_FILE="$(mktemp -t muesli-ed25519-verify.XXXXXX.swift)"
+SWIFT_VERIFY_FILE="$(mktemp -t meets-ed25519-verify.XXXXXX.swift)"
 cat > "$SWIFT_VERIFY_FILE" <<'SWIFT'
 import CryptoKit
 import Foundation

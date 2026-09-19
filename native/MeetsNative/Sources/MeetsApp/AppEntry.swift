@@ -10,13 +10,13 @@ public enum MeetsAppEntry {
     public static func run() {
         #if DEBUG
         // Exercise the actual actor preparation path, including scheduled warmup.
-        if #available(macOS 15, *), ProcessInfo.processInfo.environment["MUESLI_BODHAN_PREPARE_BENCH"] == "1",
-           let audio = ProcessInfo.processInfo.environment["MUESLI_BODHAN_BENCH_AUDIO"],
-           let output = ProcessInfo.processInfo.environment["MUESLI_BODHAN_BENCH_OUTPUT"] {
+        if #available(macOS 15, *), ProcessInfo.processInfo.environment["MEETS_BODHAN_PREPARE_BENCH"] == "1",
+           let audio = ProcessInfo.processInfo.environment["MEETS_BODHAN_BENCH_AUDIO"],
+           let output = ProcessInfo.processInfo.environment["MEETS_BODHAN_BENCH_OUTPUT"] {
             Task.detached {
                 do {
                     let transcriber = BodhanTranscriber()
-                    let model = ProcessInfo.processInfo.environment["MUESLI_BODHAN_BENCH_MODEL"] ?? BodhanModel.flex.rawValue
+                    let model = ProcessInfo.processInfo.environment["MEETS_BODHAN_BENCH_MODEL"] ?? BodhanModel.flex.rawValue
                     let start = Date()
                     try await transcriber.prepare(modelID: model, progress: { _, status in
                         if let status { fputs("[bodhan-prepare-check] \(status)\n", stderr) }
@@ -40,9 +40,9 @@ public enum MeetsAppEntry {
             }
             dispatchMain()
         }
-        if #available(macOS 15, *), let root = ProcessInfo.processInfo.environment["MUESLI_BODHAN_BENCH_ROOT"],
-           let audio = ProcessInfo.processInfo.environment["MUESLI_BODHAN_BENCH_AUDIO"],
-           let output = ProcessInfo.processInfo.environment["MUESLI_BODHAN_BENCH_OUTPUT"] {
+        if #available(macOS 15, *), let root = ProcessInfo.processInfo.environment["MEETS_BODHAN_BENCH_ROOT"],
+           let audio = ProcessInfo.processInfo.environment["MEETS_BODHAN_BENCH_AUDIO"],
+           let output = ProcessInfo.processInfo.environment["MEETS_BODHAN_BENCH_OUTPUT"] {
             do {
                 let runtime = try BodhanCoreML(root: URL(fileURLWithPath: root))
                 let data = try Data(contentsOf: URL(fileURLWithPath: audio))
@@ -50,12 +50,12 @@ public enum MeetsAppEntry {
                 let samples = data.withUnsafeBytes { Array($0.bindMemory(to: Float.self)) }
                 var results: [BodhanCoreML.Result] = []
                 try runtime.warmupEncoderShapes()
-                let lengths = ProcessInfo.processInfo.environment["MUESLI_BODHAN_BENCH_LENGTHS"]?
+                let lengths = ProcessInfo.processInfo.environment["MEETS_BODHAN_BENCH_LENGTHS"]?
                     .split(separator: ",").compactMap { Double($0) } ?? []
                 for index in 0..<(lengths.isEmpty ? 3 : lengths.count) {
                     let input = lengths.isEmpty ? samples : Array(samples.prefix(Int(lengths[index]*16000)))
                     results.append(try runtime.transcribe(samples: input, language: "hi",
-                        mixedScript: ProcessInfo.processInfo.environment["MUESLI_BODHAN_BENCH_MIXED"] == "1"))
+                        mixedScript: ProcessInfo.processInfo.environment["MEETS_BODHAN_BENCH_MIXED"] == "1"))
                 }
                 try JSONEncoder().encode(results).write(to: URL(fileURLWithPath: output), options: .atomic)
             } catch {

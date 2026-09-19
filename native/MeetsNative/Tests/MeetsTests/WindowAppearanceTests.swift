@@ -178,8 +178,8 @@ struct WindowAppearanceTests {
     )
     func dashboardWiresProductionSidebarAndCompactMeetingComposition() {
         let supportDirectory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("muesli-window-test-\(UUID().uuidString)", isDirectory: true)
-        let databaseURL = supportDirectory.appendingPathComponent("muesli.db")
+            .appendingPathComponent("meets-window-test-\(UUID().uuidString)", isDirectory: true)
+        let databaseURL = supportDirectory.appendingPathComponent("meets.db")
         let store = DictationStore(databaseURL: databaseURL)
         try? store.migrateIfNeeded()
         let controller = MeetsController(

@@ -197,8 +197,6 @@ struct DashboardRootView: View {
                 )
             case .meetings:
                 MeetingsView(appState: appState, controller: controller)
-            case .dictionary:
-                DictionaryView(appState: appState, controller: controller)
             case .models:
                 ModelsView(appState: appState, controller: controller)
             case .settings:

@@ -5,7 +5,7 @@ import Testing
 @Suite("MeetingMediaSignalFilter")
 struct MeetingMediaSignalFilterTests {
     private let now = Date(timeIntervalSince1970: 1_800_000_000)
-    private let selfBundleID = "com.muesli.app"
+    private let selfBundleID = "com.meets.app"
 
     private func audioProcess(
         bundleID: String,
@@ -38,13 +38,13 @@ struct MeetingMediaSignalFilterTests {
         return resolver
     }
 
-    @Test("Muesli dictation mic does not satisfy calendar meeting activity")
-    func muesliDictationMicDoesNotSatisfyCalendarMeetingActivity() {
+    @Test("Meets dictation mic does not satisfy calendar meeting activity")
+    func meetsDictationMicDoesNotSatisfyCalendarMeetingActivity() {
         let media = MeetingMediaSignalFilter.apply(
             deviceMicActive: true,
             cameraActive: false,
             audioInputProcesses: [
-                audioProcess(bundleID: selfBundleID, appName: "Muesli"),
+                audioProcess(bundleID: selfBundleID, appName: "Meets"),
             ],
             sensorAttributions: sensorAttributions(micBundleIDs: [selfBundleID]),
             selfBundleID: selfBundleID
@@ -70,13 +70,13 @@ struct MeetingMediaSignalFilterTests {
         #expect(candidate == nil)
     }
 
-    @Test("external meeting mic still counts when Muesli is also using input")
+    @Test("external meeting mic still counts when Meets is also using input")
     func externalMeetingMicStillCountsWhenMeetsIsAlsoUsingInput() {
         let media = MeetingMediaSignalFilter.apply(
             deviceMicActive: true,
             cameraActive: false,
             audioInputProcesses: [
-                audioProcess(bundleID: selfBundleID, appName: "Muesli"),
+                audioProcess(bundleID: selfBundleID, appName: "Meets"),
                 audioProcess(bundleID: "com.microsoft.teams2", appName: "Teams", isRunningOutput: true),
             ],
             sensorAttributions: sensorAttributions(micBundleIDs: [selfBundleID, "com.microsoft.teams2"]),
@@ -103,8 +103,8 @@ struct MeetingMediaSignalFilterTests {
         #expect(candidate?.sourceBundleID == "com.microsoft.teams2")
     }
 
-    @Test("Muesli camera does not satisfy calendar meeting activity")
-    func muesliCameraDoesNotSatisfyCalendarMeetingActivity() {
+    @Test("Meets camera does not satisfy calendar meeting activity")
+    func meetsCameraDoesNotSatisfyCalendarMeetingActivity() {
         let media = MeetingMediaSignalFilter.apply(
             deviceMicActive: false,
             cameraActive: true,
@@ -160,7 +160,7 @@ struct MeetingMediaSignalFilterTests {
         #expect(media.audioInputProcesses.isEmpty)
     }
 
-    @Test("authoritative Muesli audio ownership filters a missing sensor attribution")
+    @Test("authoritative Meets audio ownership filters a missing sensor attribution")
     func selfAudioOwnershipFiltersUnattributedDeviceMic() {
         let media = MeetingMediaSignalFilter.apply(
             deviceMicActive: true,
@@ -175,7 +175,7 @@ struct MeetingMediaSignalFilterTests {
         #expect(media.hasMicOrCameraSignal == false)
     }
 
-    @Test("external attribution survives simultaneous Muesli audio ownership")
+    @Test("external attribution survives simultaneous Meets audio ownership")
     func externalAttributionSurvivesSelfAudioOwnership() {
         let media = MeetingMediaSignalFilter.apply(
             deviceMicActive: true,
@@ -190,13 +190,13 @@ struct MeetingMediaSignalFilterTests {
         #expect(media.hasMicOrCameraSignal == true)
     }
 
-    @Test("self helper audio input is treated as Muesli")
-    func selfHelperAudioInputIsTreatedAsMuesli() {
+    @Test("self helper audio input is treated as Meets")
+    func selfHelperAudioInputIsTreatedAsMeets() {
         let media = MeetingMediaSignalFilter.apply(
             deviceMicActive: true,
             cameraActive: false,
             audioInputProcesses: [
-                audioProcess(bundleID: "\(selfBundleID).helper", appName: "Muesli Helper"),
+                audioProcess(bundleID: "\(selfBundleID).helper", appName: "Meets Helper"),
             ],
             sensorAttributions: sensorAttributions(),
             selfBundleID: selfBundleID

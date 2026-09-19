@@ -7,7 +7,7 @@ import Testing
 struct MeetingParticipantStoreTests {
     private func makeStore() throws -> DictationStore {
         let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("muesli-participants-\(UUID().uuidString).db")
+            .appendingPathComponent("meets-participants-\(UUID().uuidString).db")
         let store = DictationStore(databaseURL: url)
         try store.migrateIfNeeded()
         return store

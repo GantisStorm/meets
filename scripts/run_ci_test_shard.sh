@@ -18,18 +18,10 @@ case "${shard}" in
   core)
     filters=(
       ConfigStoreTests
+      ACPClientTests
+      AppleIntelligenceBackendTests
+      DashboardPresentationReadinessTests
       DictationStoreTests
-      ComputerUseExecutorTests
-      ComputerUseObservationCaptureTests
-      ComputerUseObservationTests
-      ComputerUsePlannerModelTests
-      ComputerUsePlannerRequestTests
-      ComputerUsePlannerResponseTests
-      ComputerUsePlannerRuntimeTests
-      ComputerUseRunDiagnosticsTests
-      ComputerUseToolRegistryTests
-      ComputerUseTraceFormatterTests
-      MuesliCKSyncEngineTests
       MeetsCLITests
       ChatGPTAuthTests
       ChatGPTResponsesTransportTests
@@ -37,8 +29,6 @@ case "${shard}" in
       OpenRouterAuthTests
       SettingsPermissionRefreshReasonTests
       InteractionPermissionMonitorTests
-      AccessibilityPermissionGuideTests
-      DictationTestLifecycleTests
       OnboardingFlowTests
       OnboardingProgressTests
       FloatingIndicatorVisibilityTests
@@ -56,8 +46,6 @@ case "${shard}" in
       BodhanBackendTests
       BodhanArtifactValidationTests
       BodhanLifecycleTests
-      DictationBackendPreparationTests
-      ContributionMilestoneTests
     )
     ;;
   dictation-transcription)
@@ -65,19 +53,8 @@ case "${shard}" in
       FluidAudioTranscriberTests
       AppleSpeechAnalyzerBackendTests
       BackendCoverageTests
-      FillerWordFilterTests
       JaroWinklerTests
       CustomWordMatcherApplyTests
-      StreamingDictationControllerTests
-      DeltaPasteTests
-      TranscriptAccumulationTests
-      StreamingDictationControllerLifecycleTests
-      DictationAttributionPolicyTests
-      NemotronDictationModePolicyTests
-      Nemotron35StreamStateTests
-      Nemotron35BackendMetadataTests
-      Nemotron35LanguageTests
-      WhisperKitLanguageTests
       SpeechSegmentTests
       SpeechTranscriptionResultTests
       TranscriptionCoordinatorTests
@@ -85,24 +62,10 @@ case "${shard}" in
       DiarizerRuntimePolicyTests
       DiarizerPreloadDiagnosticsTests
       DiarizerPreloadCoordinationTests
-      PasteControllerTests
-      DictationPasteSpacingPolicyTests
-      DictationPasteSpacingTests
-      QuilTransformationTests
-      QuilAvailabilityGateTests
-      QuilDirectAudioTests
       BackendOptionTests
-      OpenAIDictationProviderTests
-      OpenRouterTranscriptionClientTests
       SummaryModelPresetTests
       HotkeyMonitorTests
-      PushToTalkEnablementPolicyTests
-      ShortcutFeatureEnablementPolicyTests
-      InteractiveAudioSessionOwnershipTests
-      DictationStateTests
       HotkeyConfigTests
-      DictationStateIdleTests
-      DictationCorrectionMonitorTests
       Nemotron35ModelStoreTests
     )
     ;;
@@ -113,7 +76,6 @@ case "${shard}" in
       MicrophoneActivityMonitorTests
       MeetingCaptureLifecycleTests
       AudioQueueInputRecorderTests
-      FallbackStreamingDictationRecorderTests
       MeetingCaptureShutdownTests
       MeetingMonitoringModePolicyTests
       MeetingAudioRecoveryDeadlinesTests
@@ -126,7 +88,6 @@ case "${shard}" in
       DictationAudioRouteControllerTests
       MeetingContactIdentityTests
       MeetingContactResolverTests
-      MeetingDetectorTests
       MeetingParticipantStoreTests
       MeetingProcessingStageTests
       MeetingRecordingWriterTests
@@ -168,8 +129,8 @@ if [[ "${shard}" == meetings ]]; then
   # test, rather than weakening their deadlines or changing production QoS.
   args+=(--no-parallel)
 fi
-if [[ -n "${MUESLI_SWIFTPM_SCRATCH_PATH:-}" ]]; then
-  args+=(--scratch-path "${MUESLI_SWIFTPM_SCRATCH_PATH}")
+if [[ -n "${MEETS_SWIFTPM_SCRATCH_PATH:-}" ]]; then
+  args+=(--scratch-path "${MEETS_SWIFTPM_SCRATCH_PATH}")
 fi
 for filter in "${filters[@]}"; do
   args+=(--filter "${filter}")

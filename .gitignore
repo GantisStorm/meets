@@ -67,10 +67,10 @@ dist-native/
 native/MeetsNative/.build/
 native/MeetsNative/.build-direct/
 native/MeetsNative/.xcodebuild/
-native/MuesliNative/LocalVQE/lib/
+native/MeetsNative/LocalVQE/lib/
 
 # Generated Xcode project (regenerate with `xcodegen generate` from project.yml)
-native/MuesliXcode/*.xcodeproj/
+native/MeetsXcode/*.xcodeproj/
 build/
 dist/
 output/
@@ -106,7 +106,7 @@ scripts/setup_no_torch_env.sh
 requirements-no-torch.txt
 requirements-no-torch-dev.txt
 research/
-assets/muesli_app_icon_traced*.svg
+assets/meets_app_icon_traced*.svg
 assets/menu_mic_template.png
 context.md
 

@@ -3,7 +3,7 @@
 # Keep the public GitHub transition behind both release-metadata gates. This is
 # deliberately a small sourceable function so CI can prove a failed appcast
 # validation never reaches publication without exercising signing/notarization.
-muesli_require_release_publication_ready() {
+meets_require_release_publication_ready() {
   local metadata_validated="${1:-0}"
   local metadata_pr_url="${2:-}"
 

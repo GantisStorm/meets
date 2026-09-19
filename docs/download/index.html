@@ -3,9 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Downloading Meets</title>
+  <title>Build Meets from source</title>
   <meta name="robots" content="noindex">
-  <meta http-equiv="refresh" content="5; url=https://github.com/Muesli-HQ/muesli/releases/latest">
   <style>
     :root {
       color-scheme: dark;
@@ -69,38 +68,11 @@
 <body>
   <main>
     <img src="../icon.png" alt="Meets">
-    <h1>Preparing the latest Meets download</h1>
-    <p id="status">Looking up the latest signed macOS release...</p>
-    <p>If the download does not start, <a id="fallback" href="https://github.com/Muesli-HQ/muesli/releases/latest">open the latest release</a>.</p>
+    <h1>Meets is available as source</h1>
+    <p>No binary release has been published for this fork yet.</p>
+    <p><a href="https://github.com/GantisStorm/meets#build-it">Build Meets on your Mac</a> or check <a href="https://github.com/GantisStorm/meets/releases">Releases</a> for future downloads.</p>
   </main>
 
-  <script>
-    const fallbackUrl = "https://github.com/Muesli-HQ/muesli/releases/latest";
-    const status = document.getElementById("status");
-    const fallback = document.getElementById("fallback");
 
-    async function redirectToLatestDownload() {
-      try {
-        const response = await fetch("../appcast.xml", { cache: "no-store" });
-        if (!response.ok) throw new Error(`appcast ${response.status}`);
-
-        const appcast = await response.text();
-        const xml = new DOMParser().parseFromString(appcast, "application/xml");
-        const enclosure = xml.querySelector("item enclosure[url]");
-        const url = enclosure?.getAttribute("url");
-
-        if (!url) throw new Error("missing latest release URL");
-
-        status.textContent = "Redirecting to the latest signed DMG...";
-        fallback.href = url;
-        window.location.replace(url);
-      } catch (error) {
-        status.textContent = "Could not resolve the direct DMG automatically. Opening the latest release page instead...";
-        window.location.replace(fallbackUrl);
-      }
-    }
-
-    redirectToLatestDownload();
-  </script>
 </body>
 </html>

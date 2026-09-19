@@ -50,7 +50,7 @@ enum LocalVQEModelStore {
     }
 
     static func resolveModelURL(downloadIfMissing: Bool = true) async throws -> URL {
-        if let override = ProcessInfo.processInfo.environment["MUESLI_LOCALVQE_MODEL_PATH"],
+        if let override = ProcessInfo.processInfo.environment["MEETS_LOCALVQE_MODEL_PATH"],
            !override.isEmpty {
             let url = URL(fileURLWithPath: override)
             guard FileManager.default.fileExists(atPath: url.path) else { throw LocalVQEError.modelMissing(url) }
@@ -108,7 +108,7 @@ enum LocalVQEModelStore {
 }
 
 enum LocalVQELibraryLocator {
-    static func resolve(explicitPath: String? = ProcessInfo.processInfo.environment["MUESLI_LOCALVQE_LIBRARY_PATH"]) throws -> URL {
+    static func resolve(explicitPath: String? = ProcessInfo.processInfo.environment["MEETS_LOCALVQE_LIBRARY_PATH"]) throws -> URL {
         if let explicitPath, !explicitPath.isEmpty {
             let url = URL(fileURLWithPath: explicitPath)
             guard FileManager.default.fileExists(atPath: url.path) else { throw LocalVQEError.libraryMissing([url]) }

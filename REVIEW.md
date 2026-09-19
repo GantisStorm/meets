@@ -1,7 +1,7 @@
-# Muesli Review Standards
+# Meets Review Standards
 
 This document is advisory. It captures review priorities and recurring bug
-patterns in Muesli, but it is not exhaustive. Reviewers should still flag new
+patterns in Meets, but it is not exhaustive. Reviewers should still flag new
 correctness, privacy, performance, lifecycle, release, and UX risks even if they
 are not named here.
 
@@ -11,7 +11,7 @@ sensitive macOS audio app while avoiding noise around explicit product choices.
 
 ## Review Philosophy
 
-Muesli is a local-first macOS app for dictation, meeting recording, transcription,
+Meets is a local-first macOS app for dictation, meeting recording, transcription,
 and automation. Most serious regressions in this codebase are lifecycle bugs, not
 syntax bugs: UI stalls, SwiftUI invalidation loops, stale async callbacks, audio
 session races, passive detection false positives, memory growth, and permission

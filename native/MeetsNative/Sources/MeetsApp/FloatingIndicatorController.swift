@@ -132,6 +132,10 @@ enum MeetingIndicatorState: Equatable {
     case preparing
     case recording
     case transcribing
+
+    var presentsRecordingIndicator: Bool {
+        self != .idle
+    }
 }
 
 @MainActor
@@ -354,12 +358,14 @@ final class FloatingIndicatorController: NSObject {
             isHovered = false
         }
         preservesCollapsedLeftEdge = state == .idle && isHovered
-        if !config.showFloatingIndicator && state == .idle {
+        // This is an active meeting HUD, not an idle launcher. Keep recording
+        // controls and processing status visible, then leave the desktop clean.
+        if !state.presentsRecordingIndicator {
             close()
             return
         }
         if panel == nil {
-            createPanel(config: config)
+            createPanel(config: config, initialState: state)
         }
         guard let panel, let contentView, let iconLabel, let textLabel else { return }
 
@@ -477,7 +483,7 @@ final class FloatingIndicatorController: NSObject {
         }
     }
 
-    func ensureVisible(config: AppConfig) {
+    func refreshPresentation(config: AppConfig) {
         setState(state, config: config)
     }
 
@@ -1180,9 +1186,12 @@ final class FloatingIndicatorController: NSObject {
         }
     }
 
-    private func createPanel(config: AppConfig) {
+    private func createPanel(
+        config: AppConfig,
+        initialState: MeetingIndicatorState = .preparing
+    ) {
         let panel = InteractiveFloatingPanel(
-            contentRect: frameForState(.idle, config: config),
+            contentRect: frameForState(initialState, config: config),
             styleMask: .borderless,
             backing: .buffered,
             defer: false

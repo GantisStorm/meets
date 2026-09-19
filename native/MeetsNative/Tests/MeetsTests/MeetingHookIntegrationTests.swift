@@ -157,7 +157,7 @@ struct MeetingHookIntegrationTests {
 
     private func makeStore() throws -> DictationStore {
         let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("muesli-hook-integration-\(UUID().uuidString).db")
+            .appendingPathComponent("meets-hook-integration-\(UUID().uuidString).db")
         let store = DictationStore(databaseURL: url)
         try store.migrateIfNeeded()
         return store
@@ -165,7 +165,7 @@ struct MeetingHookIntegrationTests {
 
     private func makeTemporaryDirectory() -> URL {
         let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("muesli-hook-support-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("meets-hook-support-\(UUID().uuidString)", isDirectory: true)
         try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
     }

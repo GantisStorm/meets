@@ -62,7 +62,7 @@ struct AudioFileImportControllerTests {
         #expect(file.fileFormat.sampleRate == 16000)
     }
 
-    @Test("convertToWAV handles already normalized Muesli WAV")
+    @Test("convertToWAV handles already normalized Meets WAV")
     func convertToWAVHandlesAlreadyNormalizedWAV() async throws {
         let sourceURL = try createTestAudioFile(duration: 1.0, sampleRate: 16000, channels: 1)
         defer { try? FileManager.default.removeItem(at: sourceURL) }

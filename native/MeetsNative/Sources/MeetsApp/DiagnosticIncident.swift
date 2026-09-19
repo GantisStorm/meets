@@ -29,7 +29,7 @@ enum DiagnosticIncidentKind: String, Codable, CaseIterable, Sendable {
     }
 
     func telemetryErrorID(signature: String) -> String {
-        "Muesli.Diagnostic.\(rawValue).\(signature)"
+        "Meets.Diagnostic.\(rawValue).\(signature)"
     }
 }
 
@@ -218,7 +218,7 @@ struct DiagnosticIncident: Codable, Equatable, Identifiable, Sendable {
     }
 
     var githubIssueURL: URL? {
-        var components = URLComponents(string: "https://github.com/Muesli-HQ/muesli/issues/new")
+        var components = URLComponents(string: "https://github.com/GantisStorm/meets/issues/new")
         components?.queryItems = [
             URLQueryItem(name: "title", value: issueTitle),
             URLQueryItem(name: "body", value: issueBody),
@@ -226,6 +226,6 @@ struct DiagnosticIncident: Codable, Equatable, Identifiable, Sendable {
         return components?.url
     }
 
-    static let githubIssueFallbackURL = URL(string: "https://github.com/Muesli-HQ/muesli/issues/new")!
+    static let githubIssueFallbackURL = URL(string: "https://github.com/GantisStorm/meets/issues/new")!
 
 }

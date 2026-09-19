@@ -1,6 +1,6 @@
 import Foundation
 
-/// A third-party ASR model whose transport is owned by Muesli.
+/// A third-party ASR model whose transport is owned by Meets.
 public struct ManagedASRModelPlan: Sendable {
     private struct CompletionMarker: Codable {
         struct File: Codable {
@@ -15,7 +15,7 @@ public struct ManagedASRModelPlan: Sendable {
     }
 
     private static let completionMarkerName = ".meets-managed-model-complete.json"
-    private static let downloadStateName = ".muesli-download-state.json"
+    private static let downloadStateName = ".meets-download-state.json"
     private static let legacyManifestVersion = "legacy-local-v1"
 
     public let modelID: String
@@ -23,7 +23,7 @@ public struct ManagedASRModelPlan: Sendable {
     public let revision: String
     public let cacheDirectory: URL
     public let selections: [HuggingFaceModelSelection]
-    /// Optional immutable Muesli mirror used before Hugging Face discovery.
+    /// Optional immutable Meets mirror used before Hugging Face discovery.
     public let mirror: MeetsModelMirror?
     /// Every inner group is an either/or requirement; every group must be satisfied.
     public let requiredArtifactAlternatives: [[String]]
@@ -68,7 +68,7 @@ public struct ManagedASRModelPlan: Sendable {
     }
 
     /// True for either a marker-validated managed download or a complete cache
-    /// created by a Muesli version that predates managed completion markers.
+    /// created by a Meets version that predates managed completion markers.
     /// Legacy recognition is refused when resumable state or partial files are
     /// present, so interrupted managed downloads cannot masquerade as installs.
     public func isAvailableLocally(fileManager: FileManager = .default) -> Bool {
@@ -220,7 +220,7 @@ public enum ManagedASRModelPlans {
             repository: "FluidInference/parakeet-tdt-0.6b-v2-coreml",
             directoryName: "parakeet-tdt-0.6b-v2",
             required: required,
-            mirror: MeetsModelMirror(manifestURL: URL(string: "https://assets.muesli.works/models/fluidaudio/parakeet-tdt-0.6b-v2/legacy-local-v1/manifest.json")!),
+            mirror: MeetsModelMirror(manifestURL: URL(string: "https://assets.meets.works/models/fluidaudio/parakeet-tdt-0.6b-v2/legacy-local-v1/manifest.json")!),
             modelsRoot: modelsRoot
         )
     }
@@ -354,10 +354,10 @@ public enum ManagedASRModelPlans {
     }
 
     private static func upstreamMirror(_ path: String) -> MeetsModelMirror {
-        MeetsModelMirror(manifestURL: URL(string: "https://assets.muesli.works/\(path)")!)
+        MeetsModelMirror(manifestURL: URL(string: "https://assets.meets.works/\(path)")!)
     }
 
-    /// Only variants that Muesli has copied and checksum-pinned in R2 are
+    /// Only variants that Meets has copied and checksum-pinned in R2 are
     /// eligible for the first-party transport. Unknown WhisperKit paths keep
     /// using the normal Hugging Face discovery flow.
     private static func whisperKitMirror(fullName: String) -> MeetsModelMirror? {

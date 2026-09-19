@@ -22,7 +22,7 @@ while IFS= read -r file; do
       docs_only=false
       ;;
 
-    assets/sponsors/*|assets/repository-open-graph*|assets/muesli-readme-og.jpg|assets/muesli-github-ss.png)
+    assets/sponsors/*|assets/repository-open-graph*)
       site_or_metadata=true
       ;;
 

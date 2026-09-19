@@ -196,7 +196,7 @@ final class OpenRouterAuthManager {
         }
     }
 
-    /// Removes only Muesli's local credential. The user-controlled key remains
+    /// Removes only Meets's local credential. The user-controlled key remains
     /// active at OpenRouter until the user deletes it from OpenRouter's key page.
     func signOut() throws {
         do {

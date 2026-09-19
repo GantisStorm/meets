@@ -1,15 +1,15 @@
-# Muesli CLI Contract
+# Meets CLI Contract
 
 ## Commands
 
-- `muesli-cli spec`
-- `muesli-cli info`
-- `muesli-cli transcribe <file> [--format text|json|markdown] [--model parakeet-v3|parakeet-v2] [--summarize] [--save-meeting] [--title TITLE] [--output PATH]`
-- `muesli-cli meetings list [--limit N] [--folder-id ID]`
-- `muesli-cli meetings get <id>`
-- `muesli-cli meetings update-notes <id> (--stdin | --file <path>)`
-- `muesli-cli dictations list [--limit N]`
-- `muesli-cli dictations get <id>`
+- `meets-cli spec`
+- `meets-cli info`
+- `meets-cli transcribe <file> [--format text|json|markdown] [--model parakeet-v3|parakeet-v2] [--summarize] [--save-meeting] [--title TITLE] [--output PATH]`
+- `meets-cli meetings list [--limit N] [--folder-id ID]`
+- `meets-cli meetings get <id>`
+- `meets-cli meetings update-notes <id> (--stdin | --file <path>)`
+- `meets-cli dictations list [--limit N]`
+- `meets-cli dictations get <id>`
 
 ## Output shape
 
@@ -19,12 +19,12 @@ Success envelope:
 ```json
 {
   "ok": true,
-  "command": "muesli-cli meetings get",
+  "command": "meets-cli meetings get",
   "data": {},
   "meta": {
     "schemaVersion": 1,
     "generatedAt": "2026-03-17T00:00:00Z",
-    "dbPath": "/Users/example/Library/Application Support/Muesli/muesli.db",
+    "dbPath": "/Users/example/Library/Application Support/Meets/meets.db",
     "warnings": []
   }
 }
@@ -34,11 +34,11 @@ Failure envelope:
 ```json
 {
   "ok": false,
-  "command": "muesli-cli meetings get 999",
+  "command": "meets-cli meetings get 999",
   "error": {
     "code": "not_found",
     "message": "No meeting exists with id 999.",
-    "fix": "Run `muesli-cli meetings list` to find a valid ID."
+    "fix": "Run `meets-cli meetings list` to find a valid ID."
   },
   "meta": {
     "schemaVersion": 1,
@@ -111,7 +111,7 @@ Transcribe behavior:
 
 - `transcribe <file>` for raw local transcription
 - `transcribe <file> --format json` when structured metadata is needed
-- `transcribe <file> --save-meeting` when the imported audio should appear in Muesli
+- `transcribe <file> --save-meeting` when the imported audio should appear in Meets
 - `list` to discover IDs
 - `get` to fetch full text
 - external summarize/analyze in the coding agent

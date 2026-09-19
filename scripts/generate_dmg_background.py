@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Generate DMG background images for Muesli installer.
+Generate DMG background images for Meets installer.
 Produces:
   scripts/assets/dmg-background.png     — 1080x760px  (1x)
   scripts/assets/dmg-background@2x.png  — 2160x1520px (Retina)
@@ -36,7 +36,7 @@ F_TEXT_SEMIBOLD = [
 ]
 
 # ---------------------------------------------------------------------------
-# Colour palette (Muesli Design System)
+# Colour palette (Meets Design System)
 # ---------------------------------------------------------------------------
 C_BASE    = (0x11, 0x12, 0x14, 255)   # --bg-deep
 C_SURFACE = (0x26, 0x28, 0x30, 255)   # --surface-primary
@@ -47,7 +47,7 @@ C_SUBTEXT = (255, 255, 255, 205)       # rgba(255,255,255,0.80)
 C_OVERLAY = (255, 255, 255, 61)        # rgba(255,255,255,0.24) — divider
 
 RENDER_SCALE = 4
-APP_DISPLAY_NAME = os.environ.get("MUESLI_DMG_APP_NAME", "Muesli")
+APP_DISPLAY_NAME = os.environ.get("MEETS_DMG_APP_NAME", "Meets")
 
 
 def rgba(c, a: int):
@@ -136,7 +136,7 @@ def _cubic_bezier(x0, y0, cx1, cy1, cx2, cy2, x1, y1, steps=80):
 
 def draw_arrow(canvas: Image.Image, S: int):
     """
-    Directional cubic Bézier arrow from Muesli box to Applications box.
+    Directional cubic Bézier arrow from Meets box to Applications box.
     Keep it simple so the installer reads as a clear drag gesture.
     Coordinates in 1x (1080×760) space; scaled by S.
     """
@@ -291,7 +291,7 @@ def generate():
 
     # 5. Icon columns
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    icon_path = os.path.normpath(os.path.join(script_dir, "assets", "muesli_app_icon.png"))
+    icon_path = os.path.normpath(os.path.join(script_dir, "assets", "meets_app_icon.png"))
 
     icon_cy = 315 * S
     draw_icon_column(img, cx=260 * S, cy=icon_cy, label=APP_DISPLAY_NAME,

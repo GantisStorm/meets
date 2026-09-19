@@ -881,7 +881,7 @@ actor TranscriptionCoordinator {
                 segments: text.isEmpty ? [] : [SpeechSegment(start: 0, end: 0, text: text)]
             )
         } else {
-            throw NSError(domain: "Muesli", code: 1, userInfo: [
+            throw NSError(domain: "Meets", code: 1, userInfo: [
                 NSLocalizedDescriptionKey: "Qwen3 ASR requires macOS 15 or later.",
             ])
         }
@@ -939,7 +939,7 @@ actor TranscriptionCoordinator {
                 segments: text.isEmpty ? [] : [SpeechSegment(start: 0, end: 0, text: text)]
             )
         } else {
-            throw NSError(domain: "Muesli", code: 1, userInfo: [
+            throw NSError(domain: "Meets", code: 1, userInfo: [
                 NSLocalizedDescriptionKey: "Cohere Transcribe requires macOS 15 or later.",
             ])
         }
@@ -962,7 +962,7 @@ actor TranscriptionCoordinator {
                 segments: text.isEmpty ? [] : [SpeechSegment(start: 0, end: 0, text: text)]
             )
         } else {
-            throw NSError(domain: "Muesli", code: 1, userInfo: [
+            throw NSError(domain: "Meets", code: 1, userInfo: [
                 NSLocalizedDescriptionKey: "Bodhan requires macOS 15 or later.",
             ])
         }
@@ -982,7 +982,7 @@ actor TranscriptionCoordinator {
                 segments: text.isEmpty ? [] : [SpeechSegment(start: 0, end: 0, text: text)]
             )
         } else {
-            throw NSError(domain: "Muesli", code: 1, userInfo: [
+            throw NSError(domain: "Meets", code: 1, userInfo: [
                 NSLocalizedDescriptionKey: "Nemotron 3.5 requires macOS 15 or later.",
             ])
         }

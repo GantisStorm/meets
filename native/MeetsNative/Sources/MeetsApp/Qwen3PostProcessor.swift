@@ -2,8 +2,8 @@ import Foundation
 import LLM
 
 enum Qwen3PostProcessorLogging {
-    private static let verboseEnv = "MUESLI_DEBUG_POSTPROC_LOGS"
-    private static let pairLogEnv = "MUESLI_LOG_POSTPROC_PAIRS"
+    private static let verboseEnv = "MEETS_DEBUG_POSTPROC_LOGS"
+    private static let pairLogEnv = "MEETS_LOG_POSTPROC_PAIRS"
 
     static var isVerboseEnabled: Bool {
         let raw = ProcessInfo.processInfo.environment[verboseEnv]?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
@@ -170,8 +170,8 @@ enum Qwen3PostProcessorOutputCleaner {
 
 enum Qwen3PostProcessorConfig {
     // Local development override — takes precedence over the UI-selected model when set.
-    static let envOverride = "MUESLI_QWEN3_POSTPROC_GGUF"
-    static let legacyDirectoryEnvOverride = "MUESLI_QWEN3_POSTPROC_DIR"
+    static let envOverride = "MEETS_QWEN3_POSTPROC_GGUF"
+    static let legacyDirectoryEnvOverride = "MEETS_QWEN3_POSTPROC_DIR"
     // Dictation-only cleanup cap. Keep bounded to avoid slow local inference; long dictations may be truncated by LLM.swift.
     static let maxContextTokens: Int32 = 1024
     static let quilMaxContextTokens: Int32 = 4096

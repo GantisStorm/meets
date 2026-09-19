@@ -106,7 +106,7 @@ struct OnboardingView: View {
     ) {
         self.controller = controller
         self.appState = appState
-        // Muesli is meetings-only. Older profiles may carry dictation,
+        // Meets is meetings-only. Older profiles may carry dictation,
         // voice-note, or combined use cases; onboarding always proceeds with
         // the meetings capability so the step list and completion are stable.
         let resolvedUseCase = OnboardingUseCase.meetings

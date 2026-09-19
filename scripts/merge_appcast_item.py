@@ -26,7 +26,7 @@ def appcast_items(document: minidom.Document) -> list[minidom.Element]:
 
 
 def canonical_enclosure_url(version: str) -> str:
-    return f"https://github.com/Muesli-HQ/muesli/releases/download/v{version}/Muesli-{version}.dmg"
+    return f"https://github.com/GantisStorm/meets/releases/download/v{version}/Meets-{version}.dmg"
 
 
 def full_enclosures(item: minidom.Element) -> list[minidom.Element]:

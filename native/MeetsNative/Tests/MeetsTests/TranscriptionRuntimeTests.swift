@@ -545,8 +545,8 @@ struct Qwen3PostProcessingOutputCleanerTests {
     @available(macOS 15, *)
     @Test("local cleanup keeps the captured configuration across model switches")
     func localCleanupKeepsCapturedConfigurationAcrossModelSwitches() async {
-        let configurableURL = URL(fileURLWithPath: "/tmp/muesli-configurable-cleanup-test.gguf")
-        let s1MiniURL = URL(fileURLWithPath: "/tmp/muesli-s1-mini-cleanup-test.gguf")
+        let configurableURL = URL(fileURLWithPath: "/tmp/meets-configurable-cleanup-test.gguf")
+        let s1MiniURL = URL(fileURLWithPath: "/tmp/meets-s1-mini-cleanup-test.gguf")
         let configurable = Qwen3PostProcessor.Configuration(
             modelURL: configurableURL,
             systemPrompt: "Configurable prompt",
@@ -593,7 +593,7 @@ struct Qwen3PostProcessingOutputCleanerTests {
     @Test("effective local generation configuration preserves the token budget")
     func effectiveConfigurationPreservesTokenBudget() {
         let configuration = Qwen3PostProcessor.Configuration(
-            modelURL: URL(fileURLWithPath: "/tmp/muesli-quill-budget-test.gguf"),
+            modelURL: URL(fileURLWithPath: "/tmp/meets-quill-budget-test.gguf"),
             systemPrompt: "Configurable prompt",
             inputFormat: .configurable,
             maxTokenCount: Qwen3PostProcessorConfig.quilMaxContextTokens
@@ -631,18 +631,18 @@ struct Qwen3PostProcessingOutputCleanerTests {
     @Test("hosted cleanup sanitizer preserves dictated labels and quotes")
     func hostedCleanupSanitizerPreservesLabelsAndQuotes() {
         let raw = """
-        Subject: "Muesli launch notes"
+        Subject: "Meets launch notes"
 
         Body: Ask Priyanka to review the "AI Models" settings copy.
         """
 
         let cleaned = TranscriptCleanupClient.cleanOutput(raw)
 
-        #expect(cleaned.contains(#"Subject: "Muesli launch notes""#))
+        #expect(cleaned.contains(#"Subject: "Meets launch notes""#))
         #expect(cleaned.contains(#"Body: Ask Priyanka to review the "AI Models" settings copy."#))
         #expect(!Qwen3PostProcessorOutputCleaner.shouldFallbackToInput(
             cleaned: cleaned,
-            input: #"Subject quote Muesli launch notes body ask Priyanka to review the quote AI Models quote settings copy"#
+            input: #"Subject quote Meets launch notes body ask Priyanka to review the quote AI Models quote settings copy"#
         ))
     }
 }

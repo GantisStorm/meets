@@ -7,7 +7,7 @@ enum ContributionMilestoneAction: String, CaseIterable {
     var supportURL: URL? {
         switch self {
         case .githubStar:
-            return URL(string: "https://github.com/Muesli-HQ/muesli")!
+            return URL(string: "https://github.com/GantisStorm/meets")!
         case .buyMeCoffee:
             return URL(string: "https://buymeacoffee.com/phequals7")!
         }

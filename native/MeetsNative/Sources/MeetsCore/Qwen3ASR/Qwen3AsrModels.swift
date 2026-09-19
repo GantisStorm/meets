@@ -24,7 +24,7 @@ public enum MeetsQwen3AsrVariant: String, CaseIterable, Sendable {
     /// Int8 quantized weights. Half the RAM (~900 MB), same quality.
     case int8
 
-    /// On-disk cache folder name (matches the layout Muesli's managed downloader uses).
+    /// On-disk cache folder name (matches the layout Meets's managed downloader uses).
     public var folderName: String {
         switch self {
         case .f32: return "qwen3-asr-0.6b/f32"

@@ -28,7 +28,7 @@ public enum Nemotron35ModelStoreError: Error, LocalizedError {
 public enum Nemotron35ModelStore {
     public static let repoID = "FluidInference/Nemotron-3.5-ASR-Streaming-Multilingual-0.6b-CoreML"
     public static let variantPath = "multilingual/2240ms"
-    public static let cacheRelativePath = ".cache/muesli/models/nemotron35-multilingual-2240ms"
+    public static let cacheRelativePath = ".cache/meets/models/nemotron35-multilingual-2240ms"
     public static let requiredFileRelativePath = "encoder.mlmodelc/coremldata.bin"
     public static let requiredFileRelativePaths = [
         "encoder.mlmodelc/analytics/coremldata.bin",
@@ -52,8 +52,10 @@ public enum Nemotron35ModelStore {
     ]
 
     public static func cacheDirectory(fileManager: FileManager = .default) -> URL {
-        fileManager.homeDirectoryForCurrentUser
-            .appendingPathComponent(cacheRelativePath, isDirectory: true)
+        MeetsPaths.modelCacheDirectoryURL(
+            relativePath: "nemotron35-multilingual-2240ms",
+            fileManager: fileManager
+        )
     }
 
     public static func revisionFileURL(fileManager: FileManager = .default) -> URL {

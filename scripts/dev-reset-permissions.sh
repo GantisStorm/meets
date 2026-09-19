@@ -4,18 +4,18 @@ set -euo pipefail
 # Reset macOS TCC permissions for the dev app bundle without touching app data.
 #
 # Default behavior:
-# - Resets all permissions for com.muesli.dev using tccutil
-# - Refuses to run while MuesliDev appears to be running unless forced
+# - Resets all permissions for com.meets.dev using tccutil
+# - Refuses to run while MeetsDev appears to be running unless forced
 # - Prints the manual next steps required to re-grant permissions
 #
 # Usage:
 #   ./scripts/dev-reset-permissions.sh
-#   ./scripts/dev-reset-permissions.sh --bundle-id com.muesli.dev
+#   ./scripts/dev-reset-permissions.sh --bundle-id com.meets.dev
 #   ./scripts/dev-reset-permissions.sh --dry-run
 
-BUNDLE_ID="${MUESLI_DEV_BUNDLE_ID:-com.muesli.dev}"
-APP_PROCESS_NAME="${MUESLI_DEV_PROCESS_NAME:-MuesliDev}"
-APP_BUNDLE_PATH="${MUESLI_DEV_APP_PATH:-/Applications/MuesliDev.app}"
+BUNDLE_ID="${MEETS_DEV_BUNDLE_ID:-com.meets.dev}"
+APP_PROCESS_NAME="${MEETS_DEV_PROCESS_NAME:-MeetsDev}"
+APP_BUNDLE_PATH="${MEETS_DEV_APP_PATH:-/Applications/MeetsDev.app}"
 DRY_RUN=0
 FORCE=0
 

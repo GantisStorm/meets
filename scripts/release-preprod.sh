@@ -8,14 +8,14 @@ set -euo pipefail
 # landing page, llms.txt, or Homebrew tap.
 #
 # It builds:
-#   - App name: MuesliPreprod
-#   - Bundle ID: com.muesli.preprod
-#   - Support dir: ~/Library/Application Support/MuesliPreprod
-#   - Sparkle feed: https://muesli-hq.github.io/muesli/appcast-preprod.xml
+#   - App name: MeetsPreprod
+#   - Bundle ID: com.meets.preprod
+#   - Support dir: ~/Library/Application Support/MeetsPreprod
+#   - Sparkle feed: https://gantisstorm.github.io/meets/appcast-preprod.xml
 #
 # Required signing environment:
-#   MUESLI_PROVISIONING_PROFILE=/path/to/com.muesli.preprod.profile
-#   MUESLI_SIGN_IDENTITY="Developer ID Application: ... (TEAMID)"
+#   MEETS_PROVISIONING_PROFILE=/path/to/com.meets.preprod.profile
+#   MEETS_SIGN_IDENTITY="Developer ID Application: ... (TEAMID)"
 #
 # Usage: ./scripts/release-preprod.sh [version]
 #   e.g. ./scripts/release-preprod.sh 0.6.3-preprod.1
@@ -24,44 +24,44 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 source "$ROOT/scripts/meets_spm_cache.sh"
-source "$ROOT/scripts/muesli_telemetry_channels.sh"
+source "$ROOT/scripts/meets_telemetry_channels.sh"
 
 PACKAGE_DIR="$ROOT/native/MeetsNative"
 SWIFTPM_SCRATCH_PATH=""
 SWIFT_TEST_ARGS=(--package-path "$PACKAGE_DIR")
 BUILD_ENV=()
-# Pin the compile path to the xcodebuild path (native/MuesliXcode), which is
+# Pin the compile path to the xcodebuild path (native/MeetsXcode), which is
 # the only path that generates Contents/Resources/Metadata.appintents and
 # therefore the only path where Shortcuts/Siri actions ship. Production/
-# notarized builds must never silently pick up a MUESLI_USE_XCODE_BUILD=0
+# notarized builds must never silently pick up a MEETS_USE_XCODE_BUILD=0
 # override from the ambient environment; to cut an emergency SwiftPM-only
 # release, edit this pin deliberately. Requires xcodegen on the release host.
-BUILD_ENV+=(MUESLI_USE_XCODE_BUILD=1)
+BUILD_ENV+=(MEETS_USE_XCODE_BUILD=1)
 # The preprod channel is intentionally shared across worktrees. Do not run this
 # script concurrently from multiple worktrees unless you set an isolated
-# MUESLI_SWIFTPM_SCRATCH_PATH or MUESLI_SWIFTPM_SCRATCH_CHANNEL.
-if ! muesli_spm_scratch_disabled; then
+# MEETS_SWIFTPM_SCRATCH_PATH or MEETS_SWIFTPM_SCRATCH_CHANNEL.
+if ! meets_spm_scratch_disabled; then
   SWIFTPM_SCRATCH_PATH="$(meets_resolve_spm_scratch_path preprod)"
   SWIFT_TEST_ARGS+=(--scratch-path "$SWIFTPM_SCRATCH_PATH")
-  BUILD_ENV+=(MUESLI_SWIFTPM_SCRATCH_PATH="$SWIFTPM_SCRATCH_PATH")
+  BUILD_ENV+=(MEETS_SWIFTPM_SCRATCH_PATH="$SWIFTPM_SCRATCH_PATH")
   # Keep the xcodebuild cache under the same scratch root so an isolated
-  # MUESLI_SWIFTPM_SCRATCH_PATH also isolates concurrent DerivedData.
-  BUILD_ENV+=(MUESLI_XCODEBUILD_DERIVED_DATA="$SWIFTPM_SCRATCH_PATH/xcodebuild")
+  # MEETS_SWIFTPM_SCRATCH_PATH also isolates concurrent DerivedData.
+  BUILD_ENV+=(MEETS_XCODEBUILD_DERIVED_DATA="$SWIFTPM_SCRATCH_PATH/xcodebuild")
 else
-  BUILD_ENV+=(MUESLI_DISABLE_SWIFTPM_SCRATCH_PATH=1)
+  BUILD_ENV+=(MEETS_DISABLE_SWIFTPM_SCRATCH_PATH=1)
 fi
-PROFILE_NAME="${MUESLI_NOTARY_PROFILE:-MuesliNotary}"
-SIGN_IDENTITY="${MUESLI_SIGN_IDENTITY:-Developer ID Application: Pranav Hari Guruvayurappan (58W55QJ567)}"
-PROVISIONING_PROFILE="${MUESLI_PROVISIONING_PROFILE:-}"
-APP_NAME="MuesliPreprod"
-BUNDLE_ID="com.muesli.preprod"
-SUPPORT_DIR_NAME="MuesliPreprod"
-PREPROD_FEED_URL="https://muesli-hq.github.io/muesli/appcast-preprod.xml"
+PROFILE_NAME="${MEETS_NOTARY_PROFILE:-MeetsNotary}"
+SIGN_IDENTITY="${MEETS_SIGN_IDENTITY:-Developer ID Application: Pranav Hari Guruvayurappan (58W55QJ567)}"
+PROVISIONING_PROFILE="${MEETS_PROVISIONING_PROFILE:-}"
+APP_NAME="MeetsPreprod"
+BUNDLE_ID="com.meets.preprod"
+SUPPORT_DIR_NAME="MeetsPreprod"
+PREPROD_FEED_URL="https://gantisstorm.github.io/meets/appcast-preprod.xml"
 OUTPUT_DIR="$ROOT/dist-preprod"
 INSTALL_DIR="$OUTPUT_DIR/install-root"
 APP_DIR="$INSTALL_DIR/${APP_NAME}.app"
 APPCAST_PATH="$ROOT/docs/appcast-preprod.xml"
-GENERATE_APPCAST="$(muesli_spm_artifacts_dir "$PACKAGE_DIR" "$SWIFTPM_SCRATCH_PATH")/sparkle/Sparkle/bin/generate_appcast"
+GENERATE_APPCAST="$(meets_spm_artifacts_dir "$PACKAGE_DIR" "$SWIFTPM_SCRATCH_PATH")/sparkle/Sparkle/bin/generate_appcast"
 UPDATE_APPCAST_RELEASE_NOTES="$ROOT/scripts/update_appcast_release_notes.py"
 VERIFY_DIR=""
 MOUNT_POINT=""
@@ -126,8 +126,8 @@ if [[ ! -f "$UPDATE_APPCAST_RELEASE_NOTES" ]]; then
 fi
 
 if [[ -z "$PROVISIONING_PROFILE" ]]; then
-  echo "ERROR: preprod release builds require MUESLI_PROVISIONING_PROFILE." >&2
-  echo "Use the provisioning profile for bundle ID $BUNDLE_ID with CloudKit container iCloud.com.mueslihq.muesli." >&2
+  echo "ERROR: preprod release builds require MEETS_PROVISIONING_PROFILE." >&2
+  echo "Use the provisioning profile for bundle ID $BUNDLE_ID with CloudKit container iCloud.com.meets.app." >&2
   exit 1
 fi
 
@@ -157,7 +157,7 @@ Pre-production build for validating the Sparkle update flow before a stable rele
 3. Launch ${APP_NAME} from Applications
 
 ### Notes
-- Installs alongside production Muesli.
+- Installs alongside production Meets.
 - Stores data separately in \`~/Library/Application Support/${SUPPORT_DIR_NAME}/\`.
 - Uses the pre-production Sparkle feed: \`${PREPROD_FEED_URL}\`.
 - Does not update the production appcast, public download page, or Homebrew tap.
@@ -185,22 +185,22 @@ echo "  Tests passed."
 # --- Step 2: Build and sign ---
 echo "[2/11] Building and signing..."
 PREPROD_BUILD_ENV=(
-  MUESLI_INSTALL_DIR="$INSTALL_DIR"
+  MEETS_INSTALL_DIR="$INSTALL_DIR"
   "${BUILD_ENV[@]}"
-  MUESLI_BUILD_VERSION="$VERSION"
-  MUESLI_BUNDLE_VERSION="$SPARKLE_BUILD_VERSION"
-  MUESLI_SHORT_VERSION="$VERSION"
-  MUESLI_APP_NAME="$APP_NAME"
-  MUESLI_APP_BUNDLE_NAME="${APP_NAME}.app"
-  MUESLI_BUNDLE_ID="$BUNDLE_ID"
-  MUESLI_DISPLAY_NAME="$APP_NAME"
-  MUESLI_SUPPORT_DIR_NAME="$SUPPORT_DIR_NAME"
-  MUESLI_SPARKLE_FEED_URL="$PREPROD_FEED_URL"
-  MUESLI_TELEMETRYDECK_APP_ID="$MUESLI_TELEMETRYDECK_PREPROD_APP_ID"
-  MUESLI_TELEMETRY_CHANNEL="preprod"
-  MUESLI_SIGN_IDENTITY="$SIGN_IDENTITY"
-  MUESLI_PROVISIONING_PROFILE="$PROVISIONING_PROFILE"
-  MUESLI_ICLOUD_CONTAINER_ENVIRONMENT="Production"
+  MEETS_BUILD_VERSION="$VERSION"
+  MEETS_BUNDLE_VERSION="$SPARKLE_BUILD_VERSION"
+  MEETS_SHORT_VERSION="$VERSION"
+  MEETS_APP_NAME="$APP_NAME"
+  MEETS_APP_BUNDLE_NAME="${APP_NAME}.app"
+  MEETS_BUNDLE_ID="$BUNDLE_ID"
+  MEETS_DISPLAY_NAME="$APP_NAME"
+  MEETS_SUPPORT_DIR_NAME="$SUPPORT_DIR_NAME"
+  MEETS_SPARKLE_FEED_URL="$PREPROD_FEED_URL"
+  MEETS_TELEMETRYDECK_APP_ID="$MEETS_TELEMETRYDECK_PREPROD_APP_ID"
+  MEETS_TELEMETRY_CHANNEL="preprod"
+  MEETS_SIGN_IDENTITY="$SIGN_IDENTITY"
+  MEETS_PROVISIONING_PROFILE="$PROVISIONING_PROFILE"
+  MEETS_ICLOUD_CONTAINER_ENVIRONMENT="Production"
 )
 echo "  Bundle ID: $BUNDLE_ID"
 echo "  Profile:   $PROVISIONING_PROFILE"
@@ -278,7 +278,7 @@ STAPLE_RESULT=$(xcrun stapler validate "$MOUNT_POINT/${APP_NAME}.app" 2>&1)
   "$MOUNT_POINT/${APP_NAME}.app" \
   Production \
   "$BUNDLE_ID" \
-  iCloud.com.mueslihq.muesli \
+  iCloud.com.meets.app \
   production
 hdiutil detach "$MOUNT_POINT" -quiet 2>/dev/null
 MOUNT_POINT=""
@@ -364,7 +364,7 @@ HOSTED_APP_SPCTL=$(spctl -a -vv "$HOSTED_MOUNT_POINT/${APP_NAME}.app" 2>&1)
   "$HOSTED_MOUNT_POINT/${APP_NAME}.app" \
   Production \
   "$BUNDLE_ID" \
-  iCloud.com.mueslihq.muesli \
+  iCloud.com.meets.app \
   production
 hdiutil detach "$HOSTED_MOUNT_POINT" -quiet 2>/dev/null
 HOSTED_MOUNT_POINT=""
@@ -386,7 +386,7 @@ echo "  Hosted asset verified and prerelease published."
 echo "[11/11] Updating preprod appcast..."
 "$GENERATE_APPCAST" "$OUTPUT_DIR" -o "$APPCAST_PATH"
 
-perl -0pi -e 's{https://muesli-hq\.github\.io/muesli/(MuesliPreprod-([0-9][0-9A-Za-z\.\-]*)\.dmg)}{"https://github.com/Muesli-HQ/muesli/releases/download/v$2/$1"}ge' "$APPCAST_PATH"
+perl -0pi -e 's{https://gantisstorm\.github\.io/meets/(MeetsPreprod-([0-9][0-9A-Za-z\.\-]*)\.dmg)}{"https://github.com/GantisStorm/meets/releases/download/v$2/$1"}ge' "$APPCAST_PATH"
 perl -0pi -e 's{^\h*<enclosure\b[^>]*\bsparkle:deltaFrom="[^"]*"[^>]*/>\n}{}mg' "$APPCAST_PATH"
 perl -0pi -e 's{^\h*<sparkle:deltas>\s*</sparkle:deltas>\n}{}mg' "$APPCAST_PATH"
 python3 - "$APPCAST_PATH" "$SPARKLE_BUILD_VERSION" "$VERSION" <<'PY'

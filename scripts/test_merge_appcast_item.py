@@ -9,7 +9,7 @@ from merge_appcast_item import merge_appcast_item
 HEADER = """<?xml version="1.0" standalone="yes"?>
 <rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
     <channel>
-        <title>Muesli</title>
+        <title>Meets</title>
         <!-- Items are added by generate_appcast or the release script -->
 """
 FOOTER = """    </channel>
@@ -19,14 +19,14 @@ HISTORICAL_ITEM = """        <item>
             <title>0.7.1</title>
             <description><![CDATA[historical notes must remain exact]]></description>
             <sparkle:version>0.7.1</sparkle:version>
-            <enclosure url="https://github.com/Muesli-HQ/muesli/releases/download/v0.7.1/Muesli-0.7.1.dmg" length="42" sparkle:edSignature="historical-signature"/>
+            <enclosure url="https://github.com/GantisStorm/meets/releases/download/v0.7.1/Meets-0.7.1.dmg" length="42" sparkle:edSignature="historical-signature"/>
         </item>
 """
 GENERATED_ITEM = """        <item>
             <title>0.8.2</title>
             <description><![CDATA[new release notes]]></description>
             <sparkle:version>0.8.2</sparkle:version>
-            <enclosure url="https://muesli-hq.github.io/muesli/Muesli-0.8.2.dmg" length="84" sparkle:edSignature="new-signature"/>
+            <enclosure url="https://gantisstorm.github.io/meets/Meets-0.8.2.dmg" length="84" sparkle:edSignature="new-signature"/>
             <sparkle:deltas>
                 <enclosure url="unused.delta" sparkle:deltaFrom="0.7.1"/>
             </sparkle:deltas>
@@ -51,7 +51,7 @@ class MergeAppcastItemTests(unittest.TestCase):
             self.assertEqual(result.count("<item>"), 2)
             self.assertLess(result.index("<title>0.8.2</title>"), result.index("<title>0.7.1</title>"))
             self.assertIn(
-                "https://github.com/Muesli-HQ/muesli/releases/download/v0.8.2/Muesli-0.8.2.dmg",
+                "https://github.com/GantisStorm/meets/releases/download/v0.8.2/Meets-0.8.2.dmg",
                 result,
             )
             self.assertIn('sparkle:edSignature="new-signature"', result)
@@ -80,8 +80,8 @@ class MergeAppcastItemTests(unittest.TestCase):
             generated = root / "generated.xml"
             output = root / "output.xml"
             legacy_item = HISTORICAL_ITEM.replace(
-                "https://github.com/Muesli-HQ/muesli/releases/download/v0.7.1/Muesli-0.7.1.dmg",
-                "https://pHequals7.github.io/muesli/Muesli-0.7.1.dmg",
+                "https://github.com/GantisStorm/meets/releases/download/v0.7.1/Meets-0.7.1.dmg",
+                "https://pHequals7.github.io/meets/Meets-0.7.1.dmg",
             )
             existing.write_text(HEADER + legacy_item + FOOTER, encoding="utf-8")
             generated.write_text(HEADER + GENERATED_ITEM + FOOTER, encoding="utf-8")

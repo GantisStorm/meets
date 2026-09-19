@@ -93,7 +93,7 @@ enum BodhanLanguage: String, CaseIterable, Codable, Sendable {
 }
 
 enum BodhanLogging {
-    private static let verboseEnv = "MUESLI_DEBUG_BODHAN_LOGS"
+    private static let verboseEnv = "MEETS_DEBUG_BODHAN_LOGS"
 
     static var isVerboseEnabled: Bool {
         let raw = ProcessInfo.processInfo.environment[verboseEnv]?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
@@ -298,7 +298,7 @@ actor BodhanTranscriber {
             "audioSeconds": audioSeconds, "tokens": result.tokens, "language": result.language,
             "decoderRuntime": result.decoderRuntime,
             "encoderAsset": result.encoderAsset, "decoderWeightPrecision": result.decoderWeightPrecision,
-            "encoderPolicy": result.encoderPolicy, "decoderAsset": result.decoderRuntime == "mlx" ? "decoder.safetensors" : (ProcessInfo.processInfo.environment["MUESLI_BODHAN_DECODER_ASSET"] ?? "decoder"),
+            "encoderPolicy": result.encoderPolicy, "decoderAsset": result.decoderRuntime == "mlx" ? "decoder.safetensors" : (ProcessInfo.processInfo.environment["MEETS_BODHAN_DECODER_ASSET"] ?? "decoder"),
             "threadQoS": result.threadQoS, "thermalState": result.thermalState,
             "lowPowerMode": result.lowPowerMode, "onMainThread": result.onMainThread,
             "encoderSpecialized": result.encoderSpecialized,

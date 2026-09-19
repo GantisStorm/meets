@@ -2,7 +2,7 @@
 
 ## Objective
 
-Add OpenRouter as an opt-in hosted dictation provider while keeping Muesli local by default and leaving meeting transcription unchanged.
+Add OpenRouter as an opt-in hosted dictation provider while keeping Meets local by default and leaving meeting transcription unchanged.
 
 ## Transport decision
 
@@ -32,7 +32,7 @@ Add OpenRouter as an opt-in hosted dictation provider while keeping Muesli local
 - Provider/config suite: 6 tests passed.
 - Full native suite: 1,943 tests across 173 suites passed.
 - Changed-file classification, CI shard assignment, update-flow verification with DMG skipped, and `git diff --check` passed.
-- Dev lane B was rebuilt through the canonical shared SwiftPM cache, installed with bundle ID `com.muesli.dev.b`, and launched. Both the source and installed LocalVQE runtimes passed completeness validation.
+- Dev lane B was rebuilt through the canonical shared SwiftPM cache, installed with bundle ID `com.meets.dev.b`, and launched. Both the source and installed LocalVQE runtimes passed completeness validation.
 - Three consecutive Dev B dictations using `fish-audio/transcribe-1` completed through OpenRouter with HTTP 200 responses; no local fallback ran.
 
 ## Review follow-up

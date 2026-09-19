@@ -237,7 +237,7 @@ public final class DictationStore {
             db: db
         )
         // Clean up legacy pre-meeting tables and sync columns from databases
-        // created by earlier Muesli versions.
+        // created by earlier Meets versions.
         for table in ["dictations", "computer_use_traces", "cloud_sync_state", "local_migrations"] {
             _ = sqlite3_exec(db, "DROP TABLE IF EXISTS \(table)", nil, nil, nil)
         }

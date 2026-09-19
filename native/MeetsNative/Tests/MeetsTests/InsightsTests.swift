@@ -7,7 +7,7 @@ import Testing
 struct InsightsTests {
     private func makeStore() throws -> DictationStore {
         let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("muesli-insights-test-\(UUID().uuidString).db")
+            .appendingPathComponent("meets-insights-test-\(UUID().uuidString).db")
         let store = DictationStore(databaseURL: url)
         try store.migrateIfNeeded()
         return store
@@ -42,7 +42,7 @@ struct InsightsTests {
     @Test("share image write failures return inline feedback")
     func shareImageWriteFailure() throws {
         let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("muesli-share-write-failure-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("meets-share-write-failure-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
 

@@ -17,7 +17,7 @@ final class MicrophoneActivityMonitor {
     private var generation = 0
     private var started = false
 
-    init(queue: DispatchQueue = DispatchQueue(label: "com.muesli.meeting-mic-activity"),
+    init(queue: DispatchQueue = DispatchQueue(label: "com.meets.meeting-mic-activity"),
          observer: MicrophoneActivityObserving? = nil) {
         self.queue = queue
         self.observer = observer ?? CoreAudioMicrophoneActivityObserver(queue: queue)

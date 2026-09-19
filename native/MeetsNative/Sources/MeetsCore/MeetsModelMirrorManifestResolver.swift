@@ -1,6 +1,6 @@
 import Foundation
 
-/// A pinned, public Muesli model manifest hosted at the trusted asset origin.
+/// A pinned, public Meets model manifest hosted at the trusted asset origin.
 ///
 /// The manifest is immutable for a released app build. It supplies the exact
 /// files, sizes, and checksums used by the existing resumable downloader.
@@ -12,7 +12,7 @@ public struct MeetsModelMirror: Hashable, Sendable {
     }
 }
 
-/// Errors raised while validating a Muesli-hosted model manifest.
+/// Errors raised while validating a Meets-hosted model manifest.
 public enum MeetsModelMirrorManifestError: Error, LocalizedError, Sendable {
     case untrustedManifestURL(URL)
     case invalidHTTPStatus(Int, URL)
@@ -45,7 +45,7 @@ public enum MeetsModelMirrorManifestError: Error, LocalizedError, Sendable {
     }
 }
 
-/// Resolves Muesli's immutable R2-backed model manifests into downloader manifests.
+/// Resolves Meets's immutable R2-backed model manifests into downloader manifests.
 ///
 /// This deliberately accepts only the production asset origin and objects below
 /// the manifest's own `files/` directory. A malformed remote manifest therefore
@@ -53,7 +53,7 @@ public enum MeetsModelMirrorManifestError: Error, LocalizedError, Sendable {
 public final class MeetsModelMirrorManifestResolver: @unchecked Sendable {
     public static let shared = MeetsModelMirrorManifestResolver()
 
-    private static let assetHost = "assets.muesli.works"
+    private static let assetHost = "assets.meets.works"
     private let session: URLSession
 
     public init(configuration: URLSessionConfiguration = .default) {
@@ -92,7 +92,7 @@ public final class MeetsModelMirrorManifestResolver: @unchecked Sendable {
         } catch {
             throw MeetsModelMirrorManifestError.invalidManifest(mirror.manifestURL)
         }
-        guard payload.format == "muesli-r2-model-manifest-v1" else {
+        guard payload.format == "meets-r2-model-manifest-v1" else {
             throw MeetsModelMirrorManifestError.unexpectedFormat(payload.format)
         }
         guard payload.modelID == modelID else {

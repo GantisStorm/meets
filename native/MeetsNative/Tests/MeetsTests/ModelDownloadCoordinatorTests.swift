@@ -414,11 +414,11 @@ struct ModelDownloadCoordinatorTests {
         #expect(tracker.requestCount == 1)
     }
 
-    @Test("Muesli mirror manifests become checksum-validated downloader manifests")
-    func muesliMirrorManifestResolution() async throws {
+    @Test("Meets mirror manifests become checksum-validated downloader manifests")
+    func meetsMirrorManifestResolution() async throws {
         let data = Data("mirror".utf8)
         let manifestData = try JSONSerialization.data(withJSONObject: [
-            "format": "muesli-r2-model-manifest-v1",
+            "format": "meets-r2-model-manifest-v1",
             "modelID": "acme/asr",
             "version": "mirror-v1",
             "files": [[
@@ -429,7 +429,7 @@ struct ModelDownloadCoordinatorTests {
             ]],
         ])
         ModelDownloadTestURLProtocol.install { request in
-            #expect(request.url?.host == "assets.muesli.works")
+            #expect(request.url?.host == "assets.meets.works")
             #expect(request.url?.lastPathComponent == "manifest.json")
             return ModelDownloadTestURLProtocol.Response(data: manifestData)
         }
@@ -438,18 +438,18 @@ struct ModelDownloadCoordinatorTests {
         let resolver = MeetsModelMirrorManifestResolver(configuration: makeSessionConfiguration())
         let manifest = try await resolver.resolve(
             modelID: "acme/asr",
-            mirror: MeetsModelMirror(manifestURL: try #require(URL(string: "https://assets.muesli.works/models/acme/asr/mirror-v1/manifest.json")))
+            mirror: MeetsModelMirror(manifestURL: try #require(URL(string: "https://assets.meets.works/models/acme/asr/mirror-v1/manifest.json")))
         )
 
         #expect(manifest.id == "acme/asr")
         #expect(manifest.version == "mirror-v1")
         #expect(manifest.files.map(\.relativePath) == ["models/model.bin"])
-        #expect(manifest.files[0].remoteURL.absoluteString == "https://assets.muesli.works/models/acme/asr/mirror-v1/files/models/model.bin")
+        #expect(manifest.files[0].remoteURL.absoluteString == "https://assets.meets.works/models/acme/asr/mirror-v1/files/models/model.bin")
         #expect(manifest.files[0].sha256 == sha256(data))
     }
 
-    @Test("Muesli mirror manifests reject an untrusted origin")
-    func muesliMirrorManifestRejectsUntrustedOrigin() async throws {
+    @Test("Meets mirror manifests reject an untrusted origin")
+    func meetsMirrorManifestRejectsUntrustedOrigin() async throws {
         let resolver = MeetsModelMirrorManifestResolver(configuration: makeSessionConfiguration())
 
         await #expect(throws: MeetsModelMirrorManifestError.self) {
@@ -460,9 +460,9 @@ struct ModelDownloadCoordinatorTests {
         }
     }
 
-    @Test("Muesli mirror manifests reject unsafe entries")
-    func muesliMirrorManifestRejectsUnsafeEntries() async throws {
-        let manifestURL = try #require(URL(string: "https://assets.muesli.works/models/acme/asr/mirror-v1/manifest.json"))
+    @Test("Meets mirror manifests reject unsafe entries")
+    func meetsMirrorManifestRejectsUnsafeEntries() async throws {
+        let manifestURL = try #require(URL(string: "https://assets.meets.works/models/acme/asr/mirror-v1/manifest.json"))
         let validSHA256 = String(repeating: "a", count: 64)
         let cases: [(name: String, files: [[String: Any]])] = [
             (
@@ -513,7 +513,7 @@ struct ModelDownloadCoordinatorTests {
 
         for testCase in cases {
             let manifestData = try JSONSerialization.data(withJSONObject: [
-                "format": "muesli-r2-model-manifest-v1",
+                "format": "meets-r2-model-manifest-v1",
                 "modelID": "acme/asr",
                 "version": "mirror-v1",
                 "files": testCase.files,
@@ -532,13 +532,13 @@ struct ModelDownloadCoordinatorTests {
         }
     }
 
-    @Test("managed downloads prefer the Muesli mirror without contacting Hugging Face")
+    @Test("managed downloads prefer the Meets mirror without contacting Hugging Face")
     func managedDownloadPrefersMeetsMirror() async throws {
         let root = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
         let data = Data("mirror".utf8)
         let manifestData = try JSONSerialization.data(withJSONObject: [
-            "format": "muesli-r2-model-manifest-v1",
+            "format": "meets-r2-model-manifest-v1",
             "modelID": "acme/asr",
             "version": "mirror-v1",
             "files": [[
@@ -550,10 +550,10 @@ struct ModelDownloadCoordinatorTests {
         ])
         ModelDownloadTestURLProtocol.install { request in
             guard let url = request.url else { fatalError("Expected request URL") }
-            if url.host == "assets.muesli.works", url.lastPathComponent == "manifest.json" {
+            if url.host == "assets.meets.works", url.lastPathComponent == "manifest.json" {
                 return ModelDownloadTestURLProtocol.Response(data: manifestData)
             }
-            if url.host == "assets.muesli.works", url.path.hasSuffix("/files/model.bin") {
+            if url.host == "assets.meets.works", url.path.hasSuffix("/files/model.bin") {
                 return ModelDownloadTestURLProtocol.Response(data: data)
             }
             Issue.record("Mirror-backed download unexpectedly requested \(url.absoluteString)")
@@ -567,7 +567,7 @@ struct ModelDownloadCoordinatorTests {
             cacheDirectory: root.appendingPathComponent("model", isDirectory: true),
             selections: [HuggingFaceModelSelection(includedPaths: ["model.bin"])],
             requiredArtifactAlternatives: [["model.bin"]],
-            mirror: MeetsModelMirror(manifestURL: try #require(URL(string: "https://assets.muesli.works/models/acme/asr/mirror-v1/manifest.json")))
+            mirror: MeetsModelMirror(manifestURL: try #require(URL(string: "https://assets.meets.works/models/acme/asr/mirror-v1/manifest.json")))
         )
         let directory = try await ManagedASRModelDownloader.downloadIfNeeded(
             plan,
@@ -581,7 +581,7 @@ struct ModelDownloadCoordinatorTests {
         #expect(plan.isComplete())
     }
 
-    @Test("managed downloads fall back to Hugging Face when the Muesli mirror is unavailable")
+    @Test("managed downloads fall back to Hugging Face when the Meets mirror is unavailable")
     func managedDownloadFallsBackWhenMeetsMirrorFails() async throws {
         let root = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -594,7 +594,7 @@ struct ModelDownloadCoordinatorTests {
         ]])
         ModelDownloadTestURLProtocol.install { request in
             guard let url = request.url else { fatalError("Expected request URL") }
-            if url.host == "assets.muesli.works" {
+            if url.host == "assets.meets.works" {
                 return ModelDownloadTestURLProtocol.Response(statusCode: 503)
             }
             if url.path.contains("/tree/") {
@@ -614,7 +614,7 @@ struct ModelDownloadCoordinatorTests {
             cacheDirectory: root.appendingPathComponent("model", isDirectory: true),
             selections: [HuggingFaceModelSelection(includedPaths: ["model.bin"])],
             requiredArtifactAlternatives: [["model.bin"]],
-            mirror: MeetsModelMirror(manifestURL: try #require(URL(string: "https://assets.muesli.works/models/acme/asr/mirror-v1/manifest.json")))
+            mirror: MeetsModelMirror(manifestURL: try #require(URL(string: "https://assets.meets.works/models/acme/asr/mirror-v1/manifest.json")))
         )
         let directory = try await ManagedASRModelDownloader.downloadIfNeeded(
             plan,
@@ -636,7 +636,7 @@ struct ModelDownloadCoordinatorTests {
         let fallbackOnlyData = Data("fallback-only".utf8)
         let mirrorOnlyData = Data("mirror-only".utf8)
         let mirrorManifest = try JSONSerialization.data(withJSONObject: [
-            "format": "muesli-r2-model-manifest-v1",
+            "format": "meets-r2-model-manifest-v1",
             "modelID": "acme/asr",
             "version": "mirror-v1",
             "files": [
@@ -667,13 +667,13 @@ struct ModelDownloadCoordinatorTests {
         ]])
         ModelDownloadTestURLProtocol.install { request in
             guard let url = request.url else { fatalError("Expected request URL") }
-            if url.host == "assets.muesli.works", url.lastPathComponent == "manifest.json" {
+            if url.host == "assets.meets.works", url.lastPathComponent == "manifest.json" {
                 return ModelDownloadTestURLProtocol.Response(data: mirrorManifest)
             }
-            if url.host == "assets.muesli.works", url.path.hasSuffix("/files/a-mirror-only.bin") {
+            if url.host == "assets.meets.works", url.path.hasSuffix("/files/a-mirror-only.bin") {
                 return ModelDownloadTestURLProtocol.Response(data: mirrorOnlyData)
             }
-            if url.host == "assets.muesli.works", url.path.hasSuffix("/files/model.bin") {
+            if url.host == "assets.meets.works", url.path.hasSuffix("/files/model.bin") {
                 return ModelDownloadTestURLProtocol.Response(statusCode: 400)
             }
             if url.path.contains("/tree/") {
@@ -697,7 +697,7 @@ struct ModelDownloadCoordinatorTests {
             cacheDirectory: root.appendingPathComponent("model", isDirectory: true),
             selections: [HuggingFaceModelSelection(includedPaths: ["model.bin", "fallback-only.bin"])],
             requiredArtifactAlternatives: [["model.bin"]],
-            mirror: MeetsModelMirror(manifestURL: try #require(URL(string: "https://assets.muesli.works/models/acme/asr/mirror-v1/manifest.json")))
+            mirror: MeetsModelMirror(manifestURL: try #require(URL(string: "https://assets.meets.works/models/acme/asr/mirror-v1/manifest.json")))
         )
         let staleFallbackPartialURL = plan.cacheDirectory.appendingPathComponent("fallback-only.bin.part")
         try FileManager.default.createDirectory(at: plan.cacheDirectory, withIntermediateDirectories: true)
@@ -726,7 +726,7 @@ struct ModelDownloadCoordinatorTests {
         let reusedData = Data("reused mirror artifact".utf8)
         let mirrorData = Data("mirror model".utf8)
         let mirrorManifest = try JSONSerialization.data(withJSONObject: [
-            "format": "muesli-r2-model-manifest-v1",
+            "format": "meets-r2-model-manifest-v1",
             "modelID": "acme/asr",
             "version": "mirror-v1",
             "files": [
@@ -746,10 +746,10 @@ struct ModelDownloadCoordinatorTests {
         ])
         ModelDownloadTestURLProtocol.install { request in
             guard let url = request.url else { fatalError("Expected request URL") }
-            if url.host == "assets.muesli.works", url.lastPathComponent == "manifest.json" {
+            if url.host == "assets.meets.works", url.lastPathComponent == "manifest.json" {
                 return ModelDownloadTestURLProtocol.Response(data: mirrorManifest)
             }
-            if url.host == "assets.muesli.works", url.path.hasSuffix("/files/model.bin") {
+            if url.host == "assets.meets.works", url.path.hasSuffix("/files/model.bin") {
                 return ModelDownloadTestURLProtocol.Response(statusCode: 503)
             }
             if url.path.contains("/tree/") {
@@ -766,7 +766,7 @@ struct ModelDownloadCoordinatorTests {
             cacheDirectory: root.appendingPathComponent("model", isDirectory: true),
             selections: [HuggingFaceModelSelection(includedPaths: ["model.bin"])],
             requiredArtifactAlternatives: [["model.bin"]],
-            mirror: MeetsModelMirror(manifestURL: try #require(URL(string: "https://assets.muesli.works/models/acme/asr/mirror-v1/manifest.json")))
+            mirror: MeetsModelMirror(manifestURL: try #require(URL(string: "https://assets.meets.works/models/acme/asr/mirror-v1/manifest.json")))
         )
         let reusedURL = plan.cacheDirectory.appendingPathComponent("a-reused.bin")
         try FileManager.default.createDirectory(at: plan.cacheDirectory, withIntermediateDirectories: true)
@@ -793,7 +793,7 @@ struct ModelDownloadCoordinatorTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let mirrorData = Data("mirror model".utf8)
         let mirrorManifest = try JSONSerialization.data(withJSONObject: [
-            "format": "muesli-r2-model-manifest-v1",
+            "format": "meets-r2-model-manifest-v1",
             "modelID": "acme/asr",
             "version": "mirror-v1",
             "files": [[
@@ -805,13 +805,13 @@ struct ModelDownloadCoordinatorTests {
         ])
         ModelDownloadTestURLProtocol.install { request in
             guard let url = request.url else { fatalError("Expected request URL") }
-            if url.host == "assets.muesli.works", url.lastPathComponent == "manifest.json" {
+            if url.host == "assets.meets.works", url.lastPathComponent == "manifest.json" {
                 return ModelDownloadTestURLProtocol.Response(data: mirrorManifest)
             }
             // A restored, verified mirror file needs no second transfer. If
             // the interrupted Hugging Face cache were used instead, both
             // origins are deliberately unavailable and this retry would fail.
-            if url.host == "assets.muesli.works" || url.path.contains("/tree/") {
+            if url.host == "assets.meets.works" || url.path.contains("/tree/") {
                 return ModelDownloadTestURLProtocol.Response(statusCode: 503)
             }
             Issue.record("Unexpected interrupted-fallback request \(url.absoluteString)")
@@ -825,7 +825,7 @@ struct ModelDownloadCoordinatorTests {
             cacheDirectory: root.appendingPathComponent("model", isDirectory: true),
             selections: [HuggingFaceModelSelection(includedPaths: ["model.bin"])],
             requiredArtifactAlternatives: [["model.bin"]],
-            mirror: MeetsModelMirror(manifestURL: try #require(URL(string: "https://assets.muesli.works/models/acme/asr/mirror-v1/manifest.json")))
+            mirror: MeetsModelMirror(manifestURL: try #require(URL(string: "https://assets.meets.works/models/acme/asr/mirror-v1/manifest.json")))
         )
         let interruptedFallback = root.appendingPathComponent(
             ".model.meets-mirror-fallback-interrupted",
@@ -839,7 +839,7 @@ struct ModelDownloadCoordinatorTests {
             to: plan.cacheDirectory.appendingPathComponent("model.bin.part")
         )
         try Data("{}".utf8).write(
-            to: plan.cacheDirectory.appendingPathComponent(".muesli-download-state.json")
+            to: plan.cacheDirectory.appendingPathComponent(".meets-download-state.json")
         )
 
         let directory = try await ManagedASRModelDownloader.downloadIfNeeded(
@@ -864,7 +864,7 @@ struct ModelDownloadCoordinatorTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let data = Data("shared model".utf8)
         let mirrorManifest = try JSONSerialization.data(withJSONObject: [
-            "format": "muesli-r2-model-manifest-v1",
+            "format": "meets-r2-model-manifest-v1",
             "modelID": "acme/asr",
             "version": "mirror-v1",
             "files": [[
@@ -877,7 +877,7 @@ struct ModelDownloadCoordinatorTests {
         let mirrorManifestTracker = DownloadTestTracker()
         ModelDownloadTestURLProtocol.install { request in
             guard let url = request.url else { fatalError("Expected request URL") }
-            if url.host == "assets.muesli.works", url.lastPathComponent == "manifest.json" {
+            if url.host == "assets.meets.works", url.lastPathComponent == "manifest.json" {
                 return ModelDownloadTestURLProtocol.Response(
                     data: mirrorManifest,
                     chunkSize: 1,
@@ -885,7 +885,7 @@ struct ModelDownloadCoordinatorTests {
                     tracker: mirrorManifestTracker
                 )
             }
-            if url.host == "assets.muesli.works", url.path.hasSuffix("/files/model.bin") {
+            if url.host == "assets.meets.works", url.path.hasSuffix("/files/model.bin") {
                 return ModelDownloadTestURLProtocol.Response(data: data)
             }
             Issue.record("Unexpected shared-operation request \(url.absoluteString)")
@@ -899,7 +899,7 @@ struct ModelDownloadCoordinatorTests {
             cacheDirectory: root.appendingPathComponent("model", isDirectory: true),
             selections: [HuggingFaceModelSelection(includedPaths: ["model.bin"])],
             requiredArtifactAlternatives: [["model.bin"]],
-            mirror: MeetsModelMirror(manifestURL: try #require(URL(string: "https://assets.muesli.works/models/acme/asr/mirror-v1/manifest.json")))
+            mirror: MeetsModelMirror(manifestURL: try #require(URL(string: "https://assets.meets.works/models/acme/asr/mirror-v1/manifest.json")))
         )
         let resolver = HuggingFaceModelManifestResolver(configuration: makeSessionConfiguration())
         let mirrorResolver = MeetsModelMirrorManifestResolver(configuration: makeSessionConfiguration())
@@ -936,7 +936,7 @@ struct ModelDownloadCoordinatorTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let data = Data(repeating: 0x42, count: 512 * 1024)
         let mirrorManifest = try JSONSerialization.data(withJSONObject: [
-            "format": "muesli-r2-model-manifest-v1",
+            "format": "meets-r2-model-manifest-v1",
             "modelID": "owner-cancellation",
             "version": "mirror-v1",
             "files": [[
@@ -949,10 +949,10 @@ struct ModelDownloadCoordinatorTests {
         let modelTracker = DownloadTestTracker()
         ModelDownloadTestURLProtocol.install { request in
             guard let url = request.url else { fatalError("Expected request URL") }
-            if url.host == "assets.muesli.works", url.lastPathComponent == "manifest.json" {
+            if url.host == "assets.meets.works", url.lastPathComponent == "manifest.json" {
                 return ModelDownloadTestURLProtocol.Response(data: mirrorManifest)
             }
-            if url.host == "assets.muesli.works", url.path.hasSuffix("/files/model.bin") {
+            if url.host == "assets.meets.works", url.path.hasSuffix("/files/model.bin") {
                 return ModelDownloadTestURLProtocol.Response(
                     data: data,
                     chunkSize: 4 * 1024,
@@ -971,7 +971,7 @@ struct ModelDownloadCoordinatorTests {
             cacheDirectory: root.appendingPathComponent("model", isDirectory: true),
             selections: [HuggingFaceModelSelection(includedPaths: ["model.bin"])],
             requiredArtifactAlternatives: [["model.bin"]],
-            mirror: MeetsModelMirror(manifestURL: try #require(URL(string: "https://assets.muesli.works/models/acme/asr/mirror-v1/manifest.json")))
+            mirror: MeetsModelMirror(manifestURL: try #require(URL(string: "https://assets.meets.works/models/acme/asr/mirror-v1/manifest.json")))
         )
         let resolver = HuggingFaceModelManifestResolver(configuration: makeSessionConfiguration())
         let mirrorResolver = MeetsModelMirrorManifestResolver(configuration: makeSessionConfiguration())
@@ -1021,7 +1021,7 @@ struct ModelDownloadCoordinatorTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let data = Data(repeating: 0x7F, count: 512 * 1024)
         let mirrorManifest = try JSONSerialization.data(withJSONObject: [
-            "format": "muesli-r2-model-manifest-v1",
+            "format": "meets-r2-model-manifest-v1",
             "modelID": "cancel-and-immediate-retry",
             "version": "mirror-v1",
             "files": [[
@@ -1034,10 +1034,10 @@ struct ModelDownloadCoordinatorTests {
         let modelTracker = DownloadTestTracker()
         ModelDownloadTestURLProtocol.install { request in
             guard let url = request.url else { fatalError("Expected request URL") }
-            if url.host == "assets.muesli.works", url.lastPathComponent == "manifest.json" {
+            if url.host == "assets.meets.works", url.lastPathComponent == "manifest.json" {
                 return ModelDownloadTestURLProtocol.Response(data: mirrorManifest)
             }
-            if url.host == "assets.muesli.works", url.path.hasSuffix("/files/model.bin") {
+            if url.host == "assets.meets.works", url.path.hasSuffix("/files/model.bin") {
                 return ModelDownloadTestURLProtocol.Response(
                     data: data,
                     chunkSize: 4 * 1024,
@@ -1056,7 +1056,7 @@ struct ModelDownloadCoordinatorTests {
             cacheDirectory: root.appendingPathComponent("model", isDirectory: true),
             selections: [HuggingFaceModelSelection(includedPaths: ["model.bin"])],
             requiredArtifactAlternatives: [["model.bin"]],
-            mirror: MeetsModelMirror(manifestURL: try #require(URL(string: "https://assets.muesli.works/models/acme/asr/mirror-v1/manifest.json")))
+            mirror: MeetsModelMirror(manifestURL: try #require(URL(string: "https://assets.meets.works/models/acme/asr/mirror-v1/manifest.json")))
         )
         let resolver = HuggingFaceModelManifestResolver(configuration: makeSessionConfiguration())
         let mirrorResolver = MeetsModelMirrorManifestResolver(configuration: makeSessionConfiguration())
@@ -1099,7 +1099,7 @@ struct ModelDownloadCoordinatorTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let data = Data(repeating: 0x7F, count: 512 * 1024)
         let mirrorManifest = try JSONSerialization.data(withJSONObject: [
-            "format": "muesli-r2-model-manifest-v1",
+            "format": "meets-r2-model-manifest-v1",
             "modelID": "cancel-and-wait-retry",
             "version": "mirror-v1",
             "files": [[
@@ -1112,10 +1112,10 @@ struct ModelDownloadCoordinatorTests {
         let modelTracker = DownloadTestTracker()
         ModelDownloadTestURLProtocol.install { request in
             guard let url = request.url else { fatalError("Expected request URL") }
-            if url.host == "assets.muesli.works", url.lastPathComponent == "manifest.json" {
+            if url.host == "assets.meets.works", url.lastPathComponent == "manifest.json" {
                 return ModelDownloadTestURLProtocol.Response(data: mirrorManifest)
             }
-            if url.host == "assets.muesli.works", url.path.hasSuffix("/files/model.bin") {
+            if url.host == "assets.meets.works", url.path.hasSuffix("/files/model.bin") {
                 return ModelDownloadTestURLProtocol.Response(
                     data: data,
                     chunkSize: 4 * 1024,
@@ -1134,7 +1134,7 @@ struct ModelDownloadCoordinatorTests {
             cacheDirectory: root.appendingPathComponent("model", isDirectory: true),
             selections: [HuggingFaceModelSelection(includedPaths: ["model.bin"])],
             requiredArtifactAlternatives: [["model.bin"]],
-            mirror: MeetsModelMirror(manifestURL: try #require(URL(string: "https://assets.muesli.works/models/acme/asr/mirror-v1/manifest.json")))
+            mirror: MeetsModelMirror(manifestURL: try #require(URL(string: "https://assets.meets.works/models/acme/asr/mirror-v1/manifest.json")))
         )
         let resolver = HuggingFaceModelManifestResolver(configuration: makeSessionConfiguration())
         let mirrorResolver = MeetsModelMirrorManifestResolver(configuration: makeSessionConfiguration())
@@ -1173,7 +1173,7 @@ struct ModelDownloadCoordinatorTests {
         let mirrorTracker = DownloadTestTracker()
         let fallbackTracker = DownloadTestTracker()
         ModelDownloadTestURLProtocol.install { request in
-            if request.url?.host == "assets.muesli.works" {
+            if request.url?.host == "assets.meets.works" {
                 return ModelDownloadTestURLProtocol.Response(
                     data: Data(repeating: 0x7B, count: 512 * 1024),
                     chunkSize: 128,
@@ -1193,7 +1193,7 @@ struct ModelDownloadCoordinatorTests {
             cacheDirectory: root.appendingPathComponent("model", isDirectory: true),
             selections: [HuggingFaceModelSelection(includedPaths: ["model.bin"])],
             requiredArtifactAlternatives: [["model.bin"]],
-            mirror: MeetsModelMirror(manifestURL: try #require(URL(string: "https://assets.muesli.works/models/acme/asr/mirror-v1/manifest.json")))
+            mirror: MeetsModelMirror(manifestURL: try #require(URL(string: "https://assets.meets.works/models/acme/asr/mirror-v1/manifest.json")))
         )
         let coordinator = makeCoordinator()
         let task = Task {
@@ -1244,7 +1244,7 @@ struct ModelDownloadCoordinatorTests {
 
         #expect(!plan.isComplete())
         #expect(plan.isAvailableLocally())
-        let partialState = plan.cacheDirectory.appendingPathComponent(".muesli-download-state.json")
+        let partialState = plan.cacheDirectory.appendingPathComponent(".meets-download-state.json")
         try Data("{}".utf8).write(to: partialState)
         #expect(!plan.isAvailableLocally())
         try FileManager.default.removeItem(at: partialState)
@@ -1270,23 +1270,23 @@ struct ModelDownloadCoordinatorTests {
         #expect(plan.selections[0].includedPaths.contains("vocab.json"))
 
         let parakeet = ManagedASRModelPlans.parakeetV2(modelsRoot: root)
-        #expect(parakeet.mirror?.manifestURL.absoluteString == "https://assets.muesli.works/models/fluidaudio/parakeet-tdt-0.6b-v2/legacy-local-v1/manifest.json")
+        #expect(parakeet.mirror?.manifestURL.absoluteString == "https://assets.meets.works/models/fluidaudio/parakeet-tdt-0.6b-v2/legacy-local-v1/manifest.json")
 
         let parakeetV3 = ManagedASRModelPlans.parakeetV3(modelsRoot: root)
-        #expect(parakeetV3.mirror?.manifestURL.absoluteString == "https://assets.muesli.works/models/fluidaudio/parakeet-tdt-0.6b-v3/legacy-local-v1/manifest.json")
+        #expect(parakeetV3.mirror?.manifestURL.absoluteString == "https://assets.meets.works/models/fluidaudio/parakeet-tdt-0.6b-v3/legacy-local-v1/manifest.json")
 
         let unified = ManagedASRModelPlans.parakeetUnified(modelsRoot: root)
-        #expect(unified.mirror?.manifestURL.absoluteString == "https://assets.muesli.works/models/fluidaudio/parakeet-unified-en-0.6b/legacy-local-v1/manifest.json")
+        #expect(unified.mirror?.manifestURL.absoluteString == "https://assets.meets.works/models/fluidaudio/parakeet-unified-en-0.6b/legacy-local-v1/manifest.json")
 
         let whisper = ManagedASRModelPlans.whisperKit(modelName: "tiny", downloadRoot: root)
         #expect(whisper.selections[0].includedPaths.contains("AudioEncoder.mlmodelc"))
         #expect(whisper.selections[0].includedPaths.contains("config.json"))
         #expect(whisper.selections[0].includedPaths.contains("generation_config.json"))
         #expect(!whisper.selections[0].includedPaths.contains("AudioEncoder.mlpackage"))
-        #expect(whisper.mirror?.manifestURL.absoluteString == "https://assets.muesli.works/models/whisperkit/openai_whisper-tiny/legacy-local-v1/manifest.json")
+        #expect(whisper.mirror?.manifestURL.absoluteString == "https://assets.meets.works/models/whisperkit/openai_whisper-tiny/legacy-local-v1/manifest.json")
     }
 
-    @Test("supported WhisperKit variants have immutable Muesli mirrors")
+    @Test("supported WhisperKit variants have immutable Meets mirrors")
     func mirroredWhisperKitVariants() {
         let expectedPaths = [
             "tiny": "openai_whisper-tiny",
@@ -1299,7 +1299,7 @@ struct ModelDownloadCoordinatorTests {
 
         for (modelName, remoteDirectory) in expectedPaths {
             let plan = ManagedASRModelPlans.whisperKit(modelName: modelName)
-            #expect(plan.mirror?.manifestURL.absoluteString == "https://assets.muesli.works/models/whisperkit/\(remoteDirectory)/legacy-local-v1/manifest.json")
+            #expect(plan.mirror?.manifestURL.absoluteString == "https://assets.meets.works/models/whisperkit/\(remoteDirectory)/legacy-local-v1/manifest.json")
         }
 
         #expect(ManagedASRModelPlans.whisperKit(modelName: "distil-large-v3").mirror == nil)
@@ -1877,7 +1877,7 @@ struct ModelDownloadCoordinatorTests {
         defer { try? FileManager.default.removeItem(at: directory) }
         try Data("he".utf8).write(to: directory.appendingPathComponent("model.bin.part"))
         let state = Data("{\"modelID\":\"etag\",\"version\":\"1\",\"etags\":{\"model.bin\":\"old-etag\"}}".utf8)
-        try state.write(to: directory.appendingPathComponent(".muesli-download-state.json"))
+        try state.write(to: directory.appendingPathComponent(".meets-download-state.json"))
         let manifest = ModelDownloadManifest(
             id: "etag",
             version: "1",
@@ -2066,7 +2066,7 @@ struct ModelDownloadCoordinatorTests {
 
     private func makeTemporaryDirectory() throws -> URL {
         let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("muesli-download-tests", isDirectory: true)
+            .appendingPathComponent("meets-download-tests", isDirectory: true)
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         return directory

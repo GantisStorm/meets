@@ -335,10 +335,10 @@ struct BackendOption: Equatable {
             ? preferred : onboardingDefault
     }
 
-    /// Resolve once per launch, including the optional `MUESLI_DEBUG_OS_VERSION=14.8`
+    /// Resolve once per launch, including the optional `MEETS_DEBUG_OS_VERSION=14.8`
     /// UI preview. This does not override native API availability checks.
     static let currentOSVersion: OperatingSystemVersion = {
-        if let raw = ProcessInfo.processInfo.environment["MUESLI_DEBUG_OS_VERSION"] {
+        if let raw = ProcessInfo.processInfo.environment["MEETS_DEBUG_OS_VERSION"] {
             let parts = raw.split(separator: ".").compactMap { Int($0) }
             if parts.count >= 2 {
                 return OperatingSystemVersion(majorVersion: parts[0], minorVersion: parts[1], patchVersion: 0)
@@ -1389,8 +1389,7 @@ struct PostProcessorOption: Identifiable, Equatable {
     }
 
     var cacheDirectory: URL {
-        FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".cache/muesli/models/postproc-\(id)", isDirectory: true)
+        MeetsPaths.modelCacheDirectoryURL(relativePath: "postproc-\(id)")
     }
 
     var modelURL: URL {
@@ -1607,6 +1606,9 @@ struct AppConfig: Codable {
     var darkMode: Bool = true
     var launchAtLogin: Bool = false
     var openDashboardOnLaunch: Bool = true
+    // Legacy idle-launcher preferences remain Codable so older configuration
+    // files round-trip safely. The meetings-only recording indicator ignores
+    // them and is presented solely from active meeting state.
     var showFloatingIndicator: Bool = true
     var showHotkeyOnFloatingIndicator: Bool = false
     var indicatorHoverStyle: IndicatorHoverStyle = .classic
@@ -1645,9 +1647,7 @@ struct AppConfig: Codable {
     var onboardingUseCase: String = OnboardingUseCase.meetings.rawValue
     var userName: String = ""
     var customMeetingTemplates: [CustomMeetingTemplate] = []
-    var customWords: [CustomWord] = [
-        CustomWord(word: "muesli", replacement: "muesli"),
-    ]
+    var customWords: [CustomWord] = []
     var enableAutomaticDiagnosticIssuePrompts: Bool = false
     var folderOrder: [Int64] = []
     var soundEnabled: Bool = true

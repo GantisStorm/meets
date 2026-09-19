@@ -2,7 +2,7 @@ import AppKit
 import EventKit
 import SwiftUI
 
-/// Calendar accounts remain owned by macOS; Muesli only selects which calendars to use.
+/// Calendar accounts remain owned by macOS; Meets only selects which calendars to use.
 @MainActor
 enum CalendarIntegration {
     static let calendarIcon: NSImage = {
@@ -71,7 +71,7 @@ struct CalendarAccessControl: View {
                 .buttonStyle(.borderedProminent)
                 .disabled(requesting)
                 if status != .notDetermined {
-                    Text("Allow Muesli full Calendar access in Privacy & Security to show your meetings.")
+                    Text("Allow Meets full Calendar access in Privacy & Security to show your meetings.")
                         .font(.caption)
                         .foregroundStyle(MeetsTheme.textSecondary)
                 }

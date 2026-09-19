@@ -155,14 +155,6 @@ public final class MeetsController: NSObject {
     /// in the separate MeetsAppShell executable module, not this library.
     public static weak var current: MeetsController?
 
-    private static let maxDismissedDictionarySuggestionKeys = 200
-    private static let maxDictionarySuggestions = 50
-    private static let maxDictionarySuggestionPromptQueue = 10
-    private static let dictionarySuggestionLogger = Logger(subsystem: "com.meets.native", category: "DictionarySuggestion")
-    private static let pendingDictionaryCorrectionAccessibilityEnableKey = "dictionaryCorrectionPrompts.pendingAccessibilityEnable"
-    private static let pendingDictionaryCorrectionAccessibilityRequestedAtKey = "dictionaryCorrectionPrompts.pendingAccessibilityRequestedAt"
-    private static let pendingDictionaryCorrectionAccessibilityRequestProcessIDKey = "dictionaryCorrectionPrompts.pendingAccessibilityRequestProcessID"
-    private static let dictionaryCorrectionAccessibilityIntentTimeout: TimeInterval = 24 * 60 * 60
     private static let pendingScreenContextEnableKey = "settings.pendingScreenContextEnable"
     private static let pendingScreenContextRequestedAtKey = "settings.pendingScreenContextRequestedAt"
     private static let screenContextGrantIntentTimeout: TimeInterval = 15 * 60
@@ -441,7 +433,6 @@ public final class MeetsController: NSObject {
         } catch {
             fputs("[meets] startup error: \(error)\n", stderr)
         }
-        migrateLegacyDatabaseIfNeeded()
         recoverStaleLiveMeetings()
         normalizeMeetingTranscriptionSelectionForAvailability()
         SoundController.prewarmLifecycleSounds()
@@ -777,12 +768,8 @@ public final class MeetsController: NSObject {
         return snapshot.replacing(calendarStats: calendarStats)
     }
 
-    func refreshIndicatorVisibility() {
-        if config.showFloatingIndicator {
-            indicator.ensureVisible(config: config)
-        } else {
-            indicator.closeIfIdle()
-        }
+    func refreshIndicatorPresentation() {
+        indicator.refreshPresentation(config: config)
         indicator.refreshMeetingTranscriptPreference(config: config)
     }
 
@@ -793,7 +780,7 @@ public final class MeetsController: NSObject {
         historyWindowController?.applyThemeAppearance()
         historyWindowController?.reload()
         preferencesWindowController?.refresh()
-        refreshIndicatorVisibility()
+        refreshIndicatorPresentation()
         syncAppState()
     }
 
@@ -847,64 +834,6 @@ public final class MeetsController: NSObject {
         let persisted = Set(config.hiddenCalendarEventIDs)
         if appState.hiddenCalendarEventIDs != persisted {
             appState.hiddenCalendarEventIDs = persisted
-        }
-    }
-
-    /// One-time migration: the pre-rebrand app stored its database under
-    /// "Library/Application Support/Muesli". After the support directory
-    /// moved to "Meets", a fresh empty DB was created there. If the active
-    /// DB has no meetings but the legacy one does, adopt the legacy file so
-    /// the user's recordings/insights survive the rename.
-    private func migrateLegacyDatabaseIfNeeded() {
-        let fm = FileManager.default
-        let activeURL = dictationStore.resolvedDatabaseURL
-        // Same-directory filename rename: Meets/muesli.db -> Meets/meets.db.
-        if !fm.fileExists(atPath: activeURL.path) {
-            let legacyFileURL = activeURL.deletingLastPathComponent()
-                .appendingPathComponent("muesli.db")
-            if fm.fileExists(atPath: legacyFileURL.path) {
-                try? fm.moveItem(at: legacyFileURL, to: activeURL)
-                for ext in ["-wal", "-shm"] {
-                    let sidecar = URL(fileURLWithPath: legacyFileURL.path + ext)
-                    if fm.fileExists(atPath: sidecar.path) {
-                        try? fm.moveItem(at: sidecar, to: URL(fileURLWithPath: activeURL.path + ext))
-                    }
-                }
-            }
-        }
-        guard fm.fileExists(atPath: activeURL.path) else {
-            // Fresh install with no active DB — nothing to migrate.
-            return
-        }
-        let activeHasMeetings: Bool
-        do {
-            let store = DictationStore(databaseURL: activeURL)
-            activeHasMeetings = (try? store.meetingCounts())?.total ?? 0 > 0
-        }
-        if activeHasMeetings { return }
-
-        let legacyDir = fm.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Application Support", isDirectory: true)
-            .appendingPathComponent("Muesli", isDirectory: true)
-        let legacyURL = legacyDir.appendingPathComponent("muesli.db")
-        guard fm.fileExists(atPath: legacyURL.path) else { return }
-        guard let legacyCount = try? DictationStore(databaseURL: legacyURL).meetingCounts(),
-              legacyCount.total > 0 else { return }
-
-        // Adopt: replace the empty active DB with the legacy one (plus its
-        // sidecar files) so no data is stranded by the rename.
-        do {
-            try fm.removeItem(at: activeURL)
-            try fm.copyItem(at: legacyURL, to: activeURL)
-            for ext in ["-wal", "-shm"] {
-                let sidecar = URL(fileURLWithPath: legacyURL.path + ext)
-                if fm.fileExists(atPath: sidecar.path) {
-                    try? fm.copyItem(at: sidecar, to: URL(fileURLWithPath: activeURL.path + ext))
-                }
-            }
-            fputs("[muesli-native] migrated legacy Muesli database (\(legacyCount.total) meetings) to Meets support directory\n", stderr)
-        } catch {
-            fputs("[meets] legacy database migration failed: \(error)\n", stderr)
         }
     }
 
@@ -1095,7 +1024,7 @@ public final class MeetsController: NSObject {
                     try await AppleSpeechAnalyzerTranscriber.shared.prepareSelectedLanguage(
                         AppleSpeechLanguageOption.requestedLocale(for: language))
                 } catch {
-                    fputs("[muesli-native] Apple Speech selection preparation failed: \(error)\n", stderr)
+                    fputs("[meets] Apple Speech selection preparation failed: \(error)\n", stderr)
                 }
             }
         }
@@ -2145,7 +2074,7 @@ public final class MeetsController: NSObject {
             }
         }
 
-        // Run one initial reconciliation so changes made while Muesli was not
+        // Run one initial reconciliation so changes made while Meets was not
         // running are reflected without waiting for another EventKit change.
         Task { @MainActor in
             await self.refreshEventKitCalendars()
@@ -2402,21 +2331,6 @@ public final class MeetsController: NSObject {
                 self?.showPendingMeetingCompletionNotificationIfPossible()
             }
         )
-    }
-
-    func addCustomWord(_ word: CustomWord) {
-        updateConfig { $0.customWords.append(word) }
-    }
-
-    func updateCustomWord(_ word: CustomWord) {
-        updateConfig { config in
-            guard let index = config.customWords.firstIndex(where: { $0.id == word.id }) else { return }
-            config.customWords[index] = word
-        }
-    }
-
-    func removeCustomWord(id: UUID) {
-        updateConfig { $0.customWords.removeAll { $0.id == id } }
     }
 
     @discardableResult
@@ -4310,7 +4224,7 @@ public final class MeetsController: NSObject {
             informativeText = "Quitting now will cancel the meeting recording before it has been saved."
         case .recording:
             messageText = "Meeting recording in progress"
-            informativeText = "Quitting now will stop the meeting recording and the current transcript may be lost. Stop the recording first if you want Muesli to save notes."
+            informativeText = "Quitting now will stop the meeting recording and the current transcript may be lost. Stop the recording first if you want Meets to save notes."
         case .processing:
             messageText = "Meeting transcription in progress"
             informativeText = "Quitting now will interrupt transcription and the meeting notes may not be saved."
@@ -7006,16 +6920,6 @@ public final class MeetsController: NSObject {
         )
     }
 
-    func serializedCustomWords() -> [[String: Any]] {
-        config.customWords.map { word in
-            var dict: [String: Any] = ["word": word.word]
-            if let replacement = word.replacement {
-                dict["replacement"] = replacement
-            }
-            dict["matchingThreshold"] = word.matchingThreshold
-            return dict
-        }
-    }
 }
 
 func selectCurrentOrNearbyCachedCalendarEvent(
@@ -7046,4 +6950,3 @@ func selectCurrentOrNearbyCachedCalendarEvent(
             )
         }
 }
-

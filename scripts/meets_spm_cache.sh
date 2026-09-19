@@ -1,24 +1,24 @@
 #!/usr/bin/env bash
 
-# Shared SwiftPM scratch-path resolution for local Muesli builds.
+# Shared SwiftPM scratch-path resolution for local Meets builds.
 #
 # Resolution precedence, unless disabled:
-#   1. MUESLI_SWIFTPM_SCRATCH_PATH, when explicitly set
-#   2. MUESLI_EXTERNAL_SPM_CACHE_ROOT/<channel>, when that root exists
+#   1. MEETS_SWIFTPM_SCRATCH_PATH, when explicitly set
+#   2. MEETS_EXTERNAL_SPM_CACHE_ROOT/<channel>, when that root exists
 #   3. ~/Library/Caches/meets-spm/<channel>
 #
-# MUESLI_DISABLE_SWIFTPM_SCRATCH_PATH=1 takes precedence over all other path
+# MEETS_DISABLE_SWIFTPM_SCRATCH_PATH=1 takes precedence over all other path
 # settings and lets SwiftPM use the package-local .build directory.
 
-[[ -n "${_MUESLI_SPM_CACHE_LOADED:-}" ]] && return 0
-_MUESLI_SPM_CACHE_LOADED=1
+[[ -n "${_MEETS_SPM_CACHE_LOADED:-}" ]] && return 0
+_MEETS_SPM_CACHE_LOADED=1
 
 meets_spm_scratch_disabled() {
-  [[ "${MUESLI_DISABLE_SWIFTPM_SCRATCH_PATH:-0}" == "1" ]]
+  [[ "${MEETS_DISABLE_SWIFTPM_SCRATCH_PATH:-0}" == "1" ]]
 }
 
 meets_default_spm_cache_root() {
-  local external_root="${MUESLI_EXTERNAL_SPM_CACHE_ROOT:-}"
+  local external_root="${MEETS_EXTERNAL_SPM_CACHE_ROOT:-}"
   if [[ -n "$external_root" && -d "$external_root" ]]; then
     printf '%s\n' "$external_root"
   else
@@ -28,12 +28,12 @@ meets_default_spm_cache_root() {
 
 meets_resolve_spm_scratch_path() {
   local channel="${1:-dev}"
-  if [[ -n "${MUESLI_SWIFTPM_SCRATCH_PATH:-}" ]]; then
-    printf '%s\n' "$MUESLI_SWIFTPM_SCRATCH_PATH"
+  if [[ -n "${MEETS_SWIFTPM_SCRATCH_PATH:-}" ]]; then
+    printf '%s\n' "$MEETS_SWIFTPM_SCRATCH_PATH"
     return 0
   fi
-  if [[ -n "${MUESLI_SWIFTPM_SCRATCH_CHANNEL:-}" ]]; then
-    channel="$MUESLI_SWIFTPM_SCRATCH_CHANNEL"
+  if [[ -n "${MEETS_SWIFTPM_SCRATCH_CHANNEL:-}" ]]; then
+    channel="$MEETS_SWIFTPM_SCRATCH_CHANNEL"
   fi
   printf '%s/%s\n' "$(meets_default_spm_cache_root)" "$channel"
 }

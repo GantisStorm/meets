@@ -1,5 +1,5 @@
 {
-  "name": "Muesli",
+  "name": "Meets",
   "user": "ubuntu",
   "install": "./scripts/cloud-agent-install.sh"
 }

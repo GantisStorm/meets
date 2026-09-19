@@ -254,7 +254,7 @@ private struct DownloadFileKey: Hashable, Sendable {
     let relativePath: String
 }
 
-/// Shared resumable downloader for Muesli-owned model artifacts.
+/// Shared resumable downloader for Meets-owned model artifacts.
 public actor ModelDownloadCoordinator {
     /// The process-wide coordinator used by model backends and the UI.
     public static let shared = ModelDownloadCoordinator()
@@ -831,7 +831,9 @@ public actor ModelDownloadCoordinator {
         }
     }
 
-    private func stateURL(for directory: URL) -> URL { directory.appendingPathComponent(".muesli-download-state.json") }
+    private func stateURL(for directory: URL) -> URL {
+        directory.appendingPathComponent(".meets-download-state.json")
+    }
 
     private func loadState(for directory: URL, manifest: ModelDownloadManifest, jobKey: DownloadJobKey) -> PersistedDownloadState {
         guard let data = try? Data(contentsOf: stateURL(for: directory)),

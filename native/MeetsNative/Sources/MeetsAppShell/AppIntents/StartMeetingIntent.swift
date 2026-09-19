@@ -5,7 +5,7 @@ import MeetsApp
 struct StartMeetingIntent: AppIntent {
     static var title: LocalizedStringResource = "Start Meeting Recording"
     static var description = IntentDescription("Starts a Meets meeting recording, capturing mic and system audio.")
-    // Ask the system to launch Muesli before performing so the in-process
+    // Ask the system to launch Meets before performing so the in-process
     // controller exists; without this a closed app makes the wait time out.
     static var openAppWhenRun: Bool { true }
 

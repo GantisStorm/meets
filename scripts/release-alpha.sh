@@ -25,34 +25,34 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 source "$ROOT/scripts/meets_spm_cache.sh"
-source "$ROOT/scripts/muesli_telemetry_channels.sh"
+source "$ROOT/scripts/meets_telemetry_channels.sh"
 PACKAGE_DIR="$ROOT/native/MeetsNative"
 SWIFTPM_SCRATCH_PATH=""
 SWIFT_TEST_ARGS=(--package-path "$PACKAGE_DIR")
 BUILD_ENV=()
-# Pin the compile path to the xcodebuild path (native/MuesliXcode), which is
+# Pin the compile path to the xcodebuild path (native/MeetsXcode), which is
 # the only path that generates Contents/Resources/Metadata.appintents and
 # therefore the only path where Shortcuts/Siri actions ship. Production/
-# notarized builds must never silently pick up a MUESLI_USE_XCODE_BUILD=0
+# notarized builds must never silently pick up a MEETS_USE_XCODE_BUILD=0
 # override from the ambient environment; to cut an emergency SwiftPM-only
 # release, edit this pin deliberately. Requires xcodegen on the release host.
-BUILD_ENV+=(MUESLI_USE_XCODE_BUILD=1)
+BUILD_ENV+=(MEETS_USE_XCODE_BUILD=1)
 # The alpha channel is intentionally shared across worktrees. Do not run this
 # script concurrently from multiple worktrees unless you set an isolated
-# MUESLI_SWIFTPM_SCRATCH_PATH or MUESLI_SWIFTPM_SCRATCH_CHANNEL.
-if ! muesli_spm_scratch_disabled; then
+# MEETS_SWIFTPM_SCRATCH_PATH or MEETS_SWIFTPM_SCRATCH_CHANNEL.
+if ! meets_spm_scratch_disabled; then
   SWIFTPM_SCRATCH_PATH="$(meets_resolve_spm_scratch_path alpha)"
   SWIFT_TEST_ARGS+=(--scratch-path "$SWIFTPM_SCRATCH_PATH")
-  BUILD_ENV+=(MUESLI_SWIFTPM_SCRATCH_PATH="$SWIFTPM_SCRATCH_PATH")
+  BUILD_ENV+=(MEETS_SWIFTPM_SCRATCH_PATH="$SWIFTPM_SCRATCH_PATH")
   # Keep the xcodebuild cache under the same scratch root so an isolated
-  # MUESLI_SWIFTPM_SCRATCH_PATH also isolates concurrent DerivedData.
-  BUILD_ENV+=(MUESLI_XCODEBUILD_DERIVED_DATA="$SWIFTPM_SCRATCH_PATH/xcodebuild")
+  # MEETS_SWIFTPM_SCRATCH_PATH also isolates concurrent DerivedData.
+  BUILD_ENV+=(MEETS_XCODEBUILD_DERIVED_DATA="$SWIFTPM_SCRATCH_PATH/xcodebuild")
 else
-  BUILD_ENV+=(MUESLI_DISABLE_SWIFTPM_SCRATCH_PATH=1)
+  BUILD_ENV+=(MEETS_DISABLE_SWIFTPM_SCRATCH_PATH=1)
 fi
-PROFILE_NAME="${MUESLI_NOTARY_PROFILE:-MuesliNotary}"
-SIGN_IDENTITY="${MUESLI_SIGN_IDENTITY:-Developer ID Application: Pranav Hari Guruvayurappan (58W55QJ567)}"
-APP_DIR="/Applications/MuesliCanary.app"
+PROFILE_NAME="${MEETS_NOTARY_PROFILE:-MeetsNotary}"
+SIGN_IDENTITY="${MEETS_SIGN_IDENTITY:-Developer ID Application: Pranav Hari Guruvayurappan (58W55QJ567)}"
+APP_DIR="/Applications/MeetsCanary.app"
 OUTPUT_DIR="$ROOT/dist-release"
 HOSTED_MOUNT_POINT=""
 VERIFY_DIR=""
@@ -110,31 +110,31 @@ if [[ -n "$(git status --porcelain)" ]]; then
 fi
 
 TAG="v${VERSION}"
-RELEASE_TITLE="MuesliCanary ${VERSION}"
-DMG_PATH="$OUTPUT_DIR/MuesliCanary-${VERSION}.dmg"
+RELEASE_TITLE="MeetsCanary ${VERSION}"
+DMG_PATH="$OUTPUT_DIR/MeetsCanary-${VERSION}.dmg"
 
 RELEASE_NOTES="$(cat <<EOF
-## MuesliCanary ${VERSION}
+## MeetsCanary ${VERSION}
 
 Alpha build — signed and notarized, but not yet stable.
-Installs as **MuesliCanary** alongside your existing Muesli install.
+Installs as **MeetsCanary** alongside your existing Meets install.
 
 ### Install
-1. Download \`MuesliCanary-${VERSION}.dmg\`
-2. Open the DMG and drag MuesliCanary to Applications
-3. Launch MuesliCanary from Applications
+1. Download \`MeetsCanary-${VERSION}.dmg\`
+2. Open the DMG and drag MeetsCanary to Applications
+3. Launch MeetsCanary from Applications
 
 ### Notes
-- Stores data separately in \`~/Library/Application Support/MuesliCanary/\`
-- Raw ASR + post-processed pairs logged to \`MuesliCanary/postproc-pairs.jsonl\`
-- Sparkle is disabled; use MuesliPreprod for updater-flow testing
+- Stores data separately in \`~/Library/Application Support/MeetsCanary/\`
+- Raw ASR + post-processed pairs logged to \`MeetsCanary/postproc-pairs.jsonl\`
+- Sparkle is disabled; use MeetsPreprod for updater-flow testing
 
 ### Not linked from the main site
-Download from [GitHub Releases](https://github.com/Muesli-HQ/muesli/releases).
+Download from [GitHub Releases](https://github.com/GantisStorm/meets/releases).
 EOF
 )"
 
-echo "=== MuesliCanary Alpha v${VERSION} ==="
+echo "=== MeetsCanary Alpha v${VERSION} ==="
 echo ""
 
 mkdir -p "$OUTPUT_DIR"
@@ -153,15 +153,15 @@ echo "  Tests passed."
 # --- Step 2: Build and sign ---
 echo "[2/10] Building and signing (version: ${VERSION})..."
 ALPHA_BUILD_ENV=(
-  MUESLI_BUILD_VERSION="$VERSION"
+  MEETS_BUILD_VERSION="$VERSION"
   "${BUILD_ENV[@]}"
-  MUESLI_APP_NAME=MuesliCanary
-  MUESLI_BUNDLE_ID=com.muesli.canary
-  MUESLI_DISPLAY_NAME=MuesliCanary
-  MUESLI_SUPPORT_DIR_NAME=MuesliCanary
-  MUESLI_SPARKLE_FEED_URL=""
-  MUESLI_TELEMETRYDECK_APP_ID="$MUESLI_TELEMETRYDECK_DEV_APP_ID"
-  MUESLI_TELEMETRY_CHANNEL="canary"
+  MEETS_APP_NAME=MeetsCanary
+  MEETS_BUNDLE_ID=com.meets.canary
+  MEETS_DISPLAY_NAME=MeetsCanary
+  MEETS_SUPPORT_DIR_NAME=MeetsCanary
+  MEETS_SPARKLE_FEED_URL=""
+  MEETS_TELEMETRYDECK_APP_ID="$MEETS_TELEMETRYDECK_DEV_APP_ID"
+  MEETS_TELEMETRY_CHANNEL="canary"
 )
 echo "y" | env "${ALPHA_BUILD_ENV[@]}" "$ROOT/scripts/build_native_app.sh" > /dev/null
 echo "  Installed to $APP_DIR"
@@ -171,7 +171,7 @@ echo "  Signature: $FLAGS"
 
 # --- Step 3: Notarize app bundle ---
 echo "[3/10] Notarizing app bundle (this may take several minutes)..."
-APP_ZIP="$OUTPUT_DIR/MuesliCanary-app-${VERSION}.zip"
+APP_ZIP="$OUTPUT_DIR/MeetsCanary-app-${VERSION}.zip"
 ditto -c -k --keepParent "$APP_DIR" "$APP_ZIP"
 NOTARY_OUTPUT=$(xcrun notarytool submit "$APP_ZIP" \
   --keychain-profile "$PROFILE_NAME" \
@@ -196,7 +196,7 @@ echo "  App stapled."
 echo "[5/10] Creating DMG from stapled app..."
 "$ROOT/scripts/create_dmg.sh" "$APP_DIR" "$OUTPUT_DIR"
 # create_dmg.sh reads CFBundleShortVersionString from the app, so the DMG is
-# already named MuesliCanary-{VERSION}.dmg — no rename needed.
+# already named MeetsCanary-{VERSION}.dmg — no rename needed.
 
 # --- Step 6: Notarize DMG ---
 echo "[6/10] Notarizing DMG..."
@@ -223,8 +223,8 @@ if [[ -z "$MOUNT_POINT" ]]; then
   exit 1
 fi
 
-SPCTL_RESULT=$(spctl -a -vv "$MOUNT_POINT/MuesliCanary.app" 2>&1)
-STAPLE_RESULT=$(xcrun stapler validate "$MOUNT_POINT/MuesliCanary.app" 2>&1)
+SPCTL_RESULT=$(spctl -a -vv "$MOUNT_POINT/MeetsCanary.app" 2>&1)
+STAPLE_RESULT=$(xcrun stapler validate "$MOUNT_POINT/MeetsCanary.app" 2>&1)
 hdiutil detach "$MOUNT_POINT" -quiet 2>/dev/null
 
 if ! echo "$SPCTL_RESULT" | grep -q "accepted"; then
@@ -274,10 +274,10 @@ echo "  Draft prerelease: $DRAFT_URL"
 # --- Step 10: Verify hosted asset + publish ---
 echo "[10/10] Verifying hosted DMG and publishing..."
 VERIFY_DIR=$(mktemp -d)
-HOSTED_DMG="$VERIFY_DIR/MuesliCanary-${VERSION}.dmg"
+HOSTED_DMG="$VERIFY_DIR/MeetsCanary-${VERSION}.dmg"
 
 gh release download "$TAG" \
-  -p "MuesliCanary-${VERSION}.dmg" \
+  -p "MeetsCanary-${VERSION}.dmg" \
   -D "$VERIFY_DIR" \
   --clobber >/dev/null
 
@@ -304,7 +304,7 @@ if ! echo "$HOSTED_STAPLE" | grep -q "worked"; then
 fi
 
 HOSTED_MOUNT_POINT=$(hdiutil attach "$HOSTED_DMG" -nobrowse 2>&1 | grep "/Volumes" | awk -F'\t' '{print $NF}')
-HOSTED_APP_SPCTL=$(spctl -a -vv "$HOSTED_MOUNT_POINT/MuesliCanary.app" 2>&1)
+HOSTED_APP_SPCTL=$(spctl -a -vv "$HOSTED_MOUNT_POINT/MeetsCanary.app" 2>&1)
 hdiutil detach "$HOSTED_MOUNT_POINT" -quiet 2>/dev/null
 HOSTED_MOUNT_POINT=""
 

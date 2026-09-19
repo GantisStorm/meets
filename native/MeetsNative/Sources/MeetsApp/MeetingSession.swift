@@ -180,7 +180,7 @@ final class MeetingSession {
     var capturePhase: MeetingCapturePhase { captureLifecycle.phase }
     func beginStoppingCapture() { captureLifecycle.requestStop() }
     private let neuralAec = MeetingNeuralAec()
-    private let inputObservationQueue = DispatchQueue(label: "com.muesli.meeting-input-controls")
+    private let inputObservationQueue = DispatchQueue(label: "com.meets.meeting-input-controls")
     private let inputMuted = OSAllocatedUnfairLock<Bool?>(initialState: nil)
     private let inputObserver: CoreAudioMicrophoneActivityObserver
 
@@ -1410,7 +1410,7 @@ final class MeetingSession {
 
                     let segmentURL = try WavWriter.writeTemporaryWAV(
                         samples: Array(samples[startSample..<endSample]),
-                        directoryName: "muesli-meeting-mic-repair"
+                        directoryName: "meets-meeting-mic-repair"
                     )
                     defer { try? FileManager.default.removeItem(at: segmentURL) }
 

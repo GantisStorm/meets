@@ -106,7 +106,7 @@ struct ConfigStoreTests {
 
     private func makeSupportDirectory(label: String) -> URL {
         FileManager.default.temporaryDirectory.appendingPathComponent(
-            "muesli-config-\(label)-\(UUID().uuidString)",
+            "meets-config-\(label)-\(UUID().uuidString)",
             isDirectory: true
         )
     }

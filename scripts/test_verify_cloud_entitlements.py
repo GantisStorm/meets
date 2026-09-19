@@ -25,8 +25,8 @@ def run(entitlements: dict, profile: dict | None = None) -> subprocess.Completed
             "python3", str(VALIDATOR),
             "--entitlements", str(entitlements_path),
             "--environment", "Production",
-            "--bundle-id", "com.muesli.app",
-            "--container", "iCloud.com.mueslihq.muesli",
+            "--bundle-id", "com.meets.app",
+            "--container", "iCloud.com.meets.app",
             "--aps-environment", "production",
         ]
         if profile is not None:
@@ -37,20 +37,20 @@ def run(entitlements: dict, profile: dict | None = None) -> subprocess.Completed
 
 
 base_entitlements = {
-    "com.apple.application-identifier": "58W55QJ567.com.muesli.app",
+    "com.apple.application-identifier": "58W55QJ567.com.meets.app",
     "com.apple.developer.team-identifier": "58W55QJ567",
     "com.apple.developer.icloud-container-environment": "Production",
-    "com.apple.developer.icloud-container-identifiers": ["iCloud.com.mueslihq.muesli"],
+    "com.apple.developer.icloud-container-identifiers": ["iCloud.com.meets.app"],
     "com.apple.developer.icloud-services": ["CloudKit"],
     "com.apple.developer.aps-environment": "production",
 }
 base_profile = {
     "Entitlements": {
-        "com.apple.application-identifier": "58W55QJ567.com.muesli.app",
+        "com.apple.application-identifier": "58W55QJ567.com.meets.app",
         "com.apple.developer.team-identifier": "58W55QJ567",
         "com.apple.developer.aps-environment": "production",
         "com.apple.developer.icloud-container-environment": ["Development", "Production"],
-        "com.apple.developer.icloud-container-identifiers": ["iCloud.com.mueslihq.muesli"],
+        "com.apple.developer.icloud-container-identifiers": ["iCloud.com.meets.app"],
     }
 }
 
@@ -73,11 +73,11 @@ assert run(missing_environment, base_profile).returncode != 0
 
 wrong_profile = {
     "Entitlements": {
-        "com.apple.application-identifier": "58W55QJ567.com.muesli.app",
+        "com.apple.application-identifier": "58W55QJ567.com.meets.app",
         "com.apple.developer.team-identifier": "58W55QJ567",
         "com.apple.developer.aps-environment": "production",
         "com.apple.developer.icloud-container-environment": "Development",
-        "com.apple.developer.icloud-container-identifiers": ["iCloud.com.mueslihq.muesli"],
+        "com.apple.developer.icloud-container-identifiers": ["iCloud.com.meets.app"],
     }
 }
 assert run(base_entitlements, wrong_profile).returncode != 0
@@ -106,15 +106,15 @@ stable_release = (ROOT / "scripts" / "release.sh").read_text(encoding="utf-8")
 preprod_release = (ROOT / "scripts" / "release-preprod.sh").read_text(encoding="utf-8")
 build_script = (ROOT / "scripts" / "build_native_app.sh").read_text(encoding="utf-8")
 dev_test_script = (ROOT / "scripts" / "dev-test.sh").read_text(encoding="utf-8")
-assert 'MUESLI_ICLOUD_CONTAINER_ENVIRONMENT="Production"' in stable_release
-assert 'MUESLI_ICLOUD_CONTAINER_ENVIRONMENT="Production"' in preprod_release
-assert 'MUESLI_ICLOUD_CONTAINER_ENVIRONMENT="Development"' in dev_test_script
+assert 'MEETS_ICLOUD_CONTAINER_ENVIRONMENT="Production"' in stable_release
+assert 'MEETS_ICLOUD_CONTAINER_ENVIRONMENT="Production"' in preprod_release
+assert 'MEETS_ICLOUD_CONTAINER_ENVIRONMENT="Development"' in dev_test_script
 assert stable_release.count("verify_signed_cloud_entitlements.sh") >= 2
 assert preprod_release.count("verify_signed_cloud_entitlements.sh") >= 2
 assert "CloudKit provisioning profiles require an explicit" in build_script
 
 dev_production_environment = dict(os.environ)
-dev_production_environment["MUESLI_ICLOUD_CONTAINER_ENVIRONMENT"] = "Production"
+dev_production_environment["MEETS_ICLOUD_CONTAINER_ENVIRONMENT"] = "Production"
 dev_production_result = subprocess.run(
     ["bash", str(ROOT / "scripts" / "dev-test.sh"), "--cloud-entitlements"],
     text=True,
@@ -139,14 +139,14 @@ publication_section = stable_release.split(publication_marker, maxsplit=1)[1].sp
     "# --- Step 13:",
     maxsplit=1,
 )[0]
-assert 'RELEASE_METADATA_BRANCH="${MUESLI_RELEASE_METADATA_BRANCH:-codex/release-${VERSION}-appcast}"' in stable_release
+assert 'RELEASE_METADATA_BRANCH="${MEETS_RELEASE_METADATA_BRANCH:-codex/release-${VERSION}-appcast}"' in stable_release
 assert "gh pr create" in metadata_section
 assert "--base main" in metadata_section
 assert "git push origin main" not in metadata_section
 assert "verify_update_flow.sh" in metadata_section
 assert "gh release edit" not in metadata_section
 assert "gh release edit" in publication_section
-assert "muesli_require_release_publication_ready" in publication_section
+assert "meets_require_release_publication_ready" in publication_section
 assert "RELEASE_METADATA_PR_URL" in publication_section
 assert "resume_existing_release_publication()" in stable_release
 assert "Existing release metadata branch found" in stable_release
@@ -185,7 +185,7 @@ failed_validation_probe = subprocess.run(
 source "{publication_gate}"
 published=0
 publish() {{ published=1; }}
-if muesli_require_release_publication_ready 0 "https://example.invalid/pr/1"; then
+if meets_require_release_publication_ready 0 "https://example.invalid/pr/1"; then
   publish
 fi
 [[ "$published" == "0" ]]
@@ -198,7 +198,7 @@ fi
 assert failed_validation_probe.returncode == 0, failed_validation_probe.stderr
 
 missing_pr_probe = subprocess.run(
-    ["bash", "-c", f'source "{publication_gate}"; muesli_require_release_publication_ready 1 ""'],
+    ["bash", "-c", f'source "{publication_gate}"; meets_require_release_publication_ready 1 ""'],
     text=True,
     capture_output=True,
     check=False,
@@ -209,7 +209,7 @@ ready_probe = subprocess.run(
     [
         "bash",
         "-c",
-        f'source "{publication_gate}"; muesli_require_release_publication_ready 1 "https://example.invalid/pr/1"',
+        f'source "{publication_gate}"; meets_require_release_publication_ready 1 "https://example.invalid/pr/1"',
     ],
     text=True,
     capture_output=True,

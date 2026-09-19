@@ -6,19 +6,19 @@ import Darwin
 @available(macOS 15, *)
 final class BodhanCoreML {
     static var weightPrecision: String {
-        ProcessInfo.processInfo.environment["MUESLI_BODHAN_WEIGHT_PRECISION"]
+        ProcessInfo.processInfo.environment["MEETS_BODHAN_WEIGHT_PRECISION"]
             ?? UserDefaults.standard.string(forKey: "bodhanWeightPrecision") ?? "fp16"
     }
     static var decoderRuntime: String {
-        ProcessInfo.processInfo.environment["MUESLI_BODHAN_DECODER_RUNTIME"]
+        ProcessInfo.processInfo.environment["MEETS_BODHAN_DECODER_RUNTIME"]
             ?? UserDefaults.standard.string(forKey: "bodhanDecoderRuntime") ?? "coreml"
     }
     static var encoderShapePolicy: String {
-        ProcessInfo.processInfo.environment["MUESLI_BODHAN_ENCODER_SHAPES"]
+        ProcessInfo.processInfo.environment["MEETS_BODHAN_ENCODER_SHAPES"]
             ?? UserDefaults.standard.string(forKey: "bodhanEncoderShapePolicy") ?? "dynamic"
     }
     static var specializeEncoder: Bool {
-        if let override = ProcessInfo.processInfo.environment["MUESLI_BODHAN_ENCODER_SPECIALIZE"] { return override == "1" }
+        if let override = ProcessInfo.processInfo.environment["MEETS_BODHAN_ENCODER_SPECIALIZE"] { return override == "1" }
         return UserDefaults.standard.bool(forKey: "bodhanEncoderSpecialize")
     }
     struct Tokenizer: Decodable {
@@ -95,10 +95,10 @@ final class BodhanCoreML {
         guard ["fp16", "int8"].contains(precision), precision != "int8" || runtime == "mlx" else {
             throw NSError(domain: "BodhanASR", code: 13, userInfo: [NSLocalizedDescriptionKey: "INT8 requires the MLX decoder runtime."])
         }
-        let selectedEncoderAsset = model.map { $0.isInt8 ? "variants/int8/encoder" : "coreml/encoder" } ?? ProcessInfo.processInfo.environment["MUESLI_BODHAN_ENCODER_ASSET"].map { "coreml/" + $0 }
+        let selectedEncoderAsset = model.map { $0.isInt8 ? "variants/int8/encoder" : "coreml/encoder" } ?? ProcessInfo.processInfo.environment["MEETS_BODHAN_ENCODER_ASSET"].map { "coreml/" + $0 }
             ?? (precision == "int8" ? "experiments/coreml-int8/encoder" : "coreml/encoder")
         encoderAsset = selectedEncoderAsset
-        let policy = ProcessInfo.processInfo.environment["MUESLI_BODHAN_ENCODER_COMPUTE"] ?? "gpu"
+        let policy = ProcessInfo.processInfo.environment["MEETS_BODHAN_ENCODER_COMPUTE"] ?? "gpu"
         encoderPolicy = policy
         shapePolicy = model == nil ? Self.encoderShapePolicy : "buckets"
         let specialize = model == nil ? (Self.encoderShapePolicy == "buckets" && Self.specializeEncoder) : true
@@ -110,7 +110,7 @@ final class BodhanCoreML {
                 selectedConfig.optimizationHints.reshapeFrequency = .infrequent
             }
             selectedConfig.computeUnits = name == "encoder" ? (policy == "ane" ? .cpuAndNeuralEngine : policy == "all" ? .all : computeUnits) : computeUnits
-            let asset = ProcessInfo.processInfo.environment["MUESLI_BODHAN_" + name.uppercased() + "_ASSET"] ?? name
+            let asset = ProcessInfo.processInfo.environment["MEETS_BODHAN_" + name.uppercased() + "_ASSET"] ?? name
             let assetPath = name == "encoder" ? selectedEncoderAsset : "coreml/\(asset)"
             let compiled = root.appendingPathComponent("\(assetPath).mlmodelc")
             if !FileManager.default.fileExists(atPath: compiled.path) {

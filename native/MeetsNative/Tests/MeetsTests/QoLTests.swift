@@ -26,63 +26,17 @@ struct ChatGPTTokenStorageTests {
     }
 }
 
-// MARK: - Floating Indicator: showFloatingIndicator hides only idle state
+// MARK: - Recording indicator
 
-@Suite("FloatingIndicator visibility")
+@Suite("Recording indicator visibility")
 struct FloatingIndicatorVisibilityTests {
 
-    @Test("config default shows floating indicator")
-    func defaultShowsIndicator() {
-        let config = AppConfig()
-        #expect(config.showFloatingIndicator == true)
-    }
-
-    @Test("showFloatingIndicator persists through JSON round-trip")
-    func jsonRoundTrip() throws {
-        var config = AppConfig()
-        config.showFloatingIndicator = false
-        let data = try JSONEncoder().encode(config)
-        let decoded = try JSONDecoder().decode(AppConfig.self, from: data)
-        #expect(decoded.showFloatingIndicator == false)
-    }
-
-    @Test("showFloatingIndicator decodes from snake_case JSON")
-    func snakeCaseDecode() throws {
-        let json = #"{"show_floating_indicator": false}"#
-        let config = try JSONDecoder().decode(AppConfig.self, from: json.data(using: .utf8)!)
-        #expect(config.showFloatingIndicator == false)
-    }
-
-    @Test("floating hotkey defaults off while menu bar hotkey defaults on")
-    func hotkeyVisibilityRoundTrip() throws {
-        var config = AppConfig()
-        #expect(!config.showHotkeyOnFloatingIndicator)
-        #expect(config.showHotkeyInMenuBar)
-
-        config.showHotkeyOnFloatingIndicator = true
-        config.showHotkeyInMenuBar = false
-        let data = try JSONEncoder().encode(config)
-        let decoded = try JSONDecoder().decode(AppConfig.self, from: data)
-
-        #expect(decoded.showHotkeyOnFloatingIndicator)
-        #expect(!decoded.showHotkeyInMenuBar)
-    }
-
-    @Test("missing hotkey visibility preferences use fresh-install defaults")
-    func hotkeyVisibilityMissingKeysUseDefaults() throws {
-        let config = try JSONDecoder().decode(AppConfig.self, from: Data("{}".utf8))
-
-        #expect(!config.showHotkeyOnFloatingIndicator)
-        #expect(config.showHotkeyInMenuBar)
-    }
-
-    @Test("hotkey visibility controls decode from snake_case JSON")
-    func hotkeyVisibilitySnakeCaseDecode() throws {
-        let json = #"{"show_hotkey_on_floating_indicator": false, "show_hotkey_in_menu_bar": false}"#
-        let config = try JSONDecoder().decode(AppConfig.self, from: Data(json.utf8))
-
-        #expect(!config.showHotkeyOnFloatingIndicator)
-        #expect(!config.showHotkeyInMenuBar)
+    @Test("idle is hidden while every active meeting state is visible")
+    func activeMeetingStatesOnly() {
+        #expect(!MeetingIndicatorState.idle.presentsRecordingIndicator)
+        #expect(MeetingIndicatorState.preparing.presentsRecordingIndicator)
+        #expect(MeetingIndicatorState.recording.presentsRecordingIndicator)
+        #expect(MeetingIndicatorState.transcribing.presentsRecordingIndicator)
     }
 
     @Test("meeting transcript hover defaults on and persists")

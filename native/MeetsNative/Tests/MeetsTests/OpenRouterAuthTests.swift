@@ -156,7 +156,7 @@ struct OpenRouterAuthTests {
     @MainActor
     func credentialStorageAndLocalSignOut() throws {
         let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("muesli-openrouter-auth-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("meets-openrouter-auth-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
         let store = OpenRouterCredentialStore(supportDirectory: root)
         let credential = OpenRouterCredential(apiKey: "sk-or-v1-local", userID: "user_local")
@@ -185,7 +185,7 @@ struct OpenRouterAuthTests {
     @MainActor
     func signOutDeletionFailure() throws {
         let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("muesli-openrouter-delete-failure-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("meets-openrouter-delete-failure-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
         let store = OpenRouterCredentialStore(supportDirectory: root)
         try store.save(OpenRouterCredential(apiKey: "sk-or-v1-retained", userID: nil))
@@ -229,7 +229,7 @@ struct OpenRouterAuthTests {
     @MainActor
     func manualKeyAndEnvironmentFallback() throws {
         let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("muesli-openrouter-manual-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("meets-openrouter-manual-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
         let auth = OpenRouterAuthManager(
             credentialStore: OpenRouterCredentialStore(supportDirectory: root),

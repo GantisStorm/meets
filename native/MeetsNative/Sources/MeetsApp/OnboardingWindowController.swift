@@ -84,7 +84,7 @@ final class OnboardingWindowController: NSObject, NSWindowDelegate {
             window.ignoresMouseEvents = true
         case .restoredWithoutActivation:
             // Leaving System Settings must make onboarding recoverable without
-            // activating Muesli over the application the user chose.
+            // activating Meets over the application the user chose.
             window.level = .normal
             window.alphaValue = 1
             window.ignoresMouseEvents = false
@@ -112,7 +112,7 @@ final class OnboardingWindowController: NSObject, NSWindowDelegate {
         // Same footprint as the main app window.
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1120, height: 762),
-            styleMask: [.titled],
+            styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
         )

@@ -1,0 +1,70 @@
+{
+  "title": "Choose the Settings structure",
+  "question": "All three preserve every current setting. Choose how General, Meetings, and Appearance should reveal their depth.",
+  "options": [
+    {
+      "id": "lifecycle",
+      "label": "Meeting Lifecycle",
+      "kicker": "THE ROLL",
+      "thesis": "Organize settings around what happens before, during, and after a meeting, with current status visible at the top.",
+      "palette": ["system background", "raised neutral", "Meets accent", "semantic status"],
+      "materials": ["native inset groups", "quiet status strip", "disclosure rows"],
+      "viewport": "A compact pane switcher sits beside the page title; a health strip leads into Before, During, and After cards, each showing only its essential controls until expanded.",
+      "risk": "Provider-specific options move one level deeper because lifecycle takes precedence over technology names.",
+      "wireframe": {
+        "cols": 12,
+        "rows": 10,
+        "regions": [
+          {"label": "Settings + pane switcher", "x": 0, "y": 0, "w": 12, "h": 1, "accent": true},
+          {"label": "readiness status", "x": 0, "y": 1, "w": 12, "h": 1},
+          {"label": "before the meeting", "x": 0, "y": 2, "w": 12, "h": 2},
+          {"label": "during the meeting", "x": 0, "y": 4, "w": 12, "h": 3, "accent": true},
+          {"label": "after the meeting", "x": 0, "y": 7, "w": 12, "h": 3}
+        ]
+      }
+    },
+    {
+      "id": "essentials",
+      "label": "Essentials + Advanced",
+      "thesis": "Give each pane a small set of everyday cards and place every expert workflow in clearly named expandable groups below.",
+      "palette": ["system background", "raised neutral", "Meets accent", "semantic status"],
+      "materials": ["native cards", "summary rows", "accordion disclosures"],
+      "viewport": "The title and text pane switcher lead into two or three essential cards; a quiet Advanced area below summarizes hidden providers, export, sync, and automation before expansion.",
+      "risk": "Users who tune providers frequently make an extra click, though their last expanded state can be remembered.",
+      "wireframe": {
+        "cols": 12,
+        "rows": 10,
+        "regions": [
+          {"label": "Settings + pane switcher", "x": 0, "y": 0, "w": 12, "h": 1, "accent": true},
+          {"label": "pane intro", "x": 0, "y": 1, "w": 12, "h": 1},
+          {"label": "essential card", "x": 0, "y": 2, "w": 12, "h": 2},
+          {"label": "essential card", "x": 0, "y": 4, "w": 12, "h": 2},
+          {"label": "advanced disclosures", "x": 0, "y": 6, "w": 12, "h": 4, "accent": true}
+        ]
+      }
+    },
+    {
+      "id": "preferences-rail",
+      "label": "Preferences Rail",
+      "thesis": "Use a compact native subcategory rail so only one focused settings group is visible at a time.",
+      "palette": ["system background", "raised neutral", "Meets accent", "semantic status"],
+      "materials": ["text navigation rail", "single detail surface", "contextual footer"],
+      "viewport": "The global pane switcher stays at the top; Meetings adds a narrow left rail for Recording, Transcription, Notes, Calendar, Sharing, and Advanced with one detail surface on the right.",
+      "risk": "It eliminates long scrolling but adds navigation and can make related settings feel farther apart.",
+      "wireframe": {
+        "cols": 12,
+        "rows": 10,
+        "regions": [
+          {"label": "Settings + pane switcher", "x": 0, "y": 0, "w": 12, "h": 1, "accent": true},
+          {"label": "subcategory rail", "x": 0, "y": 1, "w": 3, "h": 9, "accent": true},
+          {"label": "focused detail header", "x": 3, "y": 1, "w": 9, "h": 1},
+          {"label": "focused settings group", "x": 3, "y": 2, "w": 9, "h": 6},
+          {"label": "contextual help", "x": 3, "y": 8, "w": 9, "h": 2}
+        ]
+      }
+    }
+  ],
+  "reroll": {"registers": ["safer", "bolder"]},
+  "buildPath": {"value": "code", "toggle": true},
+  "steer": true
+}

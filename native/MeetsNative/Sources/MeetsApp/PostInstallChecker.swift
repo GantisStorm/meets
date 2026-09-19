@@ -110,7 +110,7 @@ enum PostInstallChecker {
             // The existing app is moved to Trash by the background install task below.
         }
 
-        // Derive the DMG volume path from our bundle path (/Volumes/Muesli/Muesli.app → /Volumes/Muesli)
+        // Derive the DMG volume path from our bundle path (/Volumes/Meets/Meets.app → /Volumes/Meets)
         let volumePath = URL(fileURLWithPath: bundlePath).deletingLastPathComponent().path
         let progressWindow = showInstallProgress(appName: appName)
         let shouldReplaceExisting = isDir.boolValue

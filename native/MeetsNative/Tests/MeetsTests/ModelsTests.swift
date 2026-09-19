@@ -196,7 +196,7 @@ struct BackendOptionTests {
     func qwenAsrReadinessMatchesManagedRuntimeDirectory() throws {
         let fm = FileManager.default
         let root = fm.temporaryDirectory
-            .appendingPathComponent("muesli-qwen-asr-path-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("meets-qwen-asr-path-\(UUID().uuidString)", isDirectory: true)
         defer { try? fm.removeItem(at: root) }
 
         func installRequiredArtifacts(in directory: URL) throws {
@@ -1091,7 +1091,7 @@ struct AppConfigTests {
     @Test("OpenRouter cleanup key uses environment, stored credential, then legacy config")
     func openRouterCleanupKeyPrecedence() throws {
         let supportDirectory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("muesli-openrouter-resolution-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("meets-openrouter-resolution-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: supportDirectory) }
         let credentialStore = OpenRouterCredentialStore(supportDirectory: supportDirectory)
         var config = AppConfig()
@@ -1145,7 +1145,7 @@ struct AppConfigTests {
         config.meetingHookPath = "/tmp/meeting-hook.sh"
         config.meetingHookTimeoutSeconds = 45
         config.autoExportMarkdownEnabled = true
-        config.autoExportMarkdownFolderPath = "/tmp/muesli-auto-export"
+        config.autoExportMarkdownFolderPath = "/tmp/meets-auto-export"
         config.autoExportMarkdownContent = MeetingExportContent.fullMeeting.rawValue
         config.autoExportFileFormat = MeetingAutoExportFileFormat.markdownAndPDF.rawValue
         config.showScheduledMeetingNotifications = false
@@ -1214,7 +1214,7 @@ struct AppConfigTests {
         #expect(decoded.meetingHookPath == "/tmp/meeting-hook.sh")
         #expect(decoded.meetingHookTimeoutSeconds == 45)
         #expect(decoded.autoExportMarkdownEnabled == true)
-        #expect(decoded.autoExportMarkdownFolderPath == "/tmp/muesli-auto-export")
+        #expect(decoded.autoExportMarkdownFolderPath == "/tmp/meets-auto-export")
         #expect(decoded.autoExportMarkdownContent == MeetingExportContent.fullMeeting.rawValue)
         #expect(decoded.resolvedAutoExportMarkdownContent == .fullMeeting)
         #expect(decoded.autoExportFileFormat == MeetingAutoExportFileFormat.markdownAndPDF.rawValue)
@@ -1852,8 +1852,8 @@ struct AppConfigTests {
           "custom_words": [
             {
               "id": "67A2A4E9-E707-4A65-B690-124AFA4F0C18",
-              "word": "muesli",
-              "replacement": "Muesli"
+              "word": "meets",
+              "replacement": "Meets"
             }
           ]
         }

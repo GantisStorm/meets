@@ -11,7 +11,7 @@
 # Consequence: the bundle ID and versions below belong to a throwaway
 # intermediate .app that never ships. They are intentionally generic; do not
 # "fix" them to match a release channel.
-name: MuesliXcode
+name: MeetsXcode
 options:
   bundleIdPrefix: com.meets
   deploymentTarget:
@@ -50,7 +50,7 @@ targets:
         # Contents/Frameworks layout used by the App Intents build path.
         LD_RUNPATH_SEARCH_PATHS: "@loader_path @executable_path/../Frameworks"
         # Xcode's Debug-only "debug dylib" split (app code compiled into a
-        # separate Muesli.debug.dylib loaded at @rpath) speeds up Xcode's own
+        # separate Meets.debug.dylib loaded at @rpath) speeds up Xcode's own
         # incremental Build & Run but doesn't survive being copied out of
         # DerivedData into a standalone bundle by build_native_app.sh.
         ENABLE_DEBUG_DYLIB: NO

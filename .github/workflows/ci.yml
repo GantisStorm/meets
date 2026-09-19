@@ -82,6 +82,9 @@ jobs:
       - name: Test append-only appcast updates
         run: python3 ./scripts/test_merge_appcast_item.py
 
+      - name: Test update feed validation
+        run: python3 ./scripts/test_verify_update_flow.py
+
       - name: Test LocalVQE runtime validation
         run: ./scripts/test_localvqe_runtime_validation.sh
 
@@ -139,7 +142,7 @@ jobs:
       - name: Run test shard
         run: bash ./scripts/run_ci_test_shard.sh "${{ matrix.shard }}"
 
-  # Packaged CLI smoke test — verify the app bundle contains muesli-cli
+  # Packaged CLI smoke test — verify the app bundle contains meets-cli
   cli-smoke:
     needs: changes
     if: needs.changes.outputs.native_or_packaging == 'true'
