@@ -2,7 +2,7 @@ import Testing
 import AppKit
 import Foundation
 import MeetsCore
-@testable import MeetsNativeApp
+@testable import MeetsApp
 
 private enum OpenRouterDisconnectTestError: Error {
     case expected
@@ -1295,8 +1295,8 @@ struct MeetingsNavigationTests {
         #expect(controller.appState.config.postProcessorBackend == TranscriptCleanupBackendOption.local.backend)
     }
 
-    @Test("switching to Indic ASR disables S1-mini cleanup")
-    func switchingToIndicASRDisablesS1MiniCleanup() {
+    @Test("switching to Bodhan disables S1-mini cleanup")
+    func switchingToBodhanDisablesS1MiniCleanup() {
         let controller = makeController()
         controller.updateConfig {
             $0.sttBackend = BackendOption.parakeetMultilingual.backend
@@ -1305,7 +1305,7 @@ struct MeetingsNavigationTests {
             $0.enablePostProcessor = true
         }
 
-        controller.selectBackend(.indicASR)
+        controller.selectBackend(.bodhanFlex)
 
         #expect(controller.appState.config.activePostProcessorId == PostProcessorOption.s1Mini.id)
         #expect(!controller.appState.config.enablePostProcessor)
@@ -1315,8 +1315,8 @@ struct MeetingsNavigationTests {
     func switchingFromHostedCleanupToLocalDisablesIncompatibleS1MiniCleanup() {
         let controller = makeController()
         controller.updateConfig {
-            $0.sttBackend = BackendOption.indicASR.backend
-            $0.sttModel = BackendOption.indicASR.model
+            $0.sttBackend = BackendOption.bodhanFlex.backend
+            $0.sttModel = BackendOption.bodhanFlex.model
             $0.postProcessorBackend = LLMBackendOption.chatGPT.backend
             $0.activePostProcessorId = PostProcessorOption.s1Mini.id
             $0.enablePostProcessor = true
@@ -1371,10 +1371,13 @@ struct MeetingsNavigationTests {
 
         let unauthenticatedRequestCount = await probe.requestCount
         #expect(unauthenticatedRequestCount == 0)
+        #expect(!controller.canUseSummaryProvider(.openRouter))
         #expect(controller.appState.openRouterTranscriptionModels.isEmpty)
         #expect(controller.appState.openRouterTranscriptionCatalogState == .idle)
 
         try openRouterAuth.storeManualAPIKey("sk-or-v1-test")
+        controller.updateConfig { _ in }
+        #expect(controller.canUseSummaryProvider(.openRouter))
         controller.loadOpenRouterModels(.transcription, force: true)
         await probe.waitForRequest()
         for _ in 0..<100 where controller.appState.openRouterTranscriptionCatalogState != .loaded {
@@ -1411,6 +1414,7 @@ struct MeetingsNavigationTests {
 
         #expect(!openRouterAuth.isAuthenticated)
         #expect(controller.hostedDictationModelVisibility.shows(.openRouter))
+        #expect(controller.canUseSummaryProvider(.openRouter))
     }
 
     @Test("an older cancelled catalog request cannot overwrite a newer reload")

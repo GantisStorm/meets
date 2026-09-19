@@ -1,7 +1,7 @@
 import FluidAudio
 import Foundation
 import Testing
-@testable import MeetsNativeApp
+@testable import MeetsApp
 
 private actor StreamingVadTestProbe {
     private(set) var processedCount = 0

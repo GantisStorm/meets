@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 import MeetsCore
-@testable import MeetsNativeApp
+@testable import MeetsApp
 
 @Suite("Meeting resume policy")
 struct MeetingResumePolicyTests {

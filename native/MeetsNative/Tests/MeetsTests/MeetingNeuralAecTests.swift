@@ -1,7 +1,7 @@
 import Foundation
 import LocalVQEBridge
 import Testing
-@testable import MeetsNativeApp
+@testable import MeetsApp
 
 @Suite("MeetingNeuralAec")
 struct MeetingNeuralAecTests {

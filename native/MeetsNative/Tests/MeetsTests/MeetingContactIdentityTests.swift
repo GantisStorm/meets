@@ -1,6 +1,6 @@
 import Contacts
 import Testing
-@testable import MeetsNativeApp
+@testable import MeetsApp
 
 @Suite("Meeting contact identity")
 struct MeetingContactIdentityTests {

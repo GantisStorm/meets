@@ -5,7 +5,7 @@ import TelemetryDeck
 import MeetsCore
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private var controller: MeetsController?
     private var terminationTask: Task<Void, Never>?
     private(set) var updaterController: SPUStandardUpdaterController?
@@ -87,6 +87,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         controller?.focusSearchField()
     }
 
+    @objc func checkForUpdates(_ sender: Any?) {
+        controller?.checkForUpdates()
+    }
+
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        if menuItem.action == #selector(AppDelegate.checkForUpdates(_:)) {
+            return updaterController != nil
+        }
+        return true
+    }
+
     @objc func showMeetings(_ sender: Any?) {
         controller?.openHistoryWindow(tab: .meetings)
     }
@@ -109,6 +120,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         settingsItem.target = self
         appMenu.addItem(settingsItem)
+        let updatesItem = NSMenuItem(
+            title: "Check for Updates…",
+            action: #selector(AppDelegate.checkForUpdates(_:)),
+            keyEquivalent: ""
+        )
+        updatesItem.target = self
+        appMenu.addItem(updatesItem)
         appMenu.addItem(.separator())
         appMenu.addItem(
             withTitle: "Hide \(AppIdentity.displayName)",

@@ -1,6 +1,6 @@
 import Testing
 import MeetsCore
-@testable import MeetsNativeApp
+@testable import MeetsApp
 
 @Suite("Meeting template default fallback")
 struct MeetingTemplatesDefaultFallbackTests {

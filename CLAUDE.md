@@ -12,7 +12,7 @@ Local-first macOS app for **dictation** and **meeting transcription** on Apple S
 - **Meeting transcription:** Captures mic (You) + system audio (Others) → VAD-driven chunking → speaker diarization → AI-powered meeting notes
 - **Meeting export:** Export notes or transcript as PDF (paginated US Letter) or Markdown via `MeetingExporter.swift`
 - **Screen context:** Accessibility API captures app name + text around cursor for dictation context-awareness (opt-in, off by default)
-- **11 ASR models:** Parakeet v3/v2, Whisper Tiny/Small/Medium/Large Turbo, Cohere Transcribe, Nemotron 3.5 Multilingual, SenseVoice Small, Qwen3 ASR, Indic ASR
+- **ASR models:** Parakeet v3/v2, Whisper Tiny/Small/Medium/Large Turbo, Cohere Transcribe, Nemotron 3.5 Multilingual, SenseVoice Small, Qwen3 ASR, Bodhan Core and Flex (each with FP16/INT8 weights)
 - **3 summarization backends:** OpenAI API key, OpenRouter API key, ChatGPT OAuth (subscription-based)
 - **Camera-based meeting detection:** Requires mic + camera + recognized meeting app (camera alone won't trigger)
 - **Join & Transcribe:** Extract meeting URLs from calendar events (Zoom, Meet, Teams, Webex, Chime, FaceTime), split button with "Join & Transcribe" / "Join Only" / "Transcribe Only", platform icons in notifications
@@ -21,6 +21,8 @@ Local-first macOS app for **dictation** and **meeting transcription** on Apple S
 
 ## Building
 
+Bodhan uses a CoreML encoder and native MLX decoder in both precisions. Its `mlx-swift` dependency requires Swift 6.3; use Xcode 26.6 on macOS 26 to build. See `AGENTS.md` for current build and cache instructions.
+
 ### Production build (signed, installed to /Applications)
 ```bash
 ./scripts/build_native_app.sh
@@ -28,21 +30,21 @@ Local-first macOS app for **dictation** and **meeting transcription** on Apple S
 
 ### Dev/test build (isolated from production)
 ```bash
-./scripts/dev-test.sh                         # Build MuesliDev.app (separate bundle ID, separate data)
+./scripts/dev-test.sh                         # Build MeetsDev.app (separate bundle ID, separate data)
 ./scripts/dev-test.sh --lane A                # Build MuesliDevA.app for a parallel worktree
 ./scripts/dev-test.sh --lane B                # Build MuesliDevB.app for another parallel worktree
 ./scripts/dev-test.sh --lane A --local-only   # Explicitly omit iCloud/APNs entitlements
 ./scripts/dev-test.sh --lane A --reset        # Re-run onboarding for lane A, keep lane data
-./scripts/dev-test.sh --reset                 # Re-run onboarding for default MuesliDev, keep data
-./scripts/dev-seed-from-prod.sh               # Copy production DB/config into MuesliDev safely
+./scripts/dev-test.sh --reset                 # Re-run onboarding for default MeetsDev, keep data
+./scripts/dev-seed-from-prod.sh               # Copy production DB/config into MeetsDev safely
 ```
 
-MuesliDev uses bundle ID `com.muesli.dev` and stores data at `~/Library/Application Support/MuesliDev/`. Named lanes use fixed identities: `MuesliDevA` / `com.muesli.dev.a` / `~/Library/Application Support/MuesliDevA`, then B and C with matching suffixes. Named lane executable/process names also match the lane app name. Production data is never touched.
+MeetsDev uses bundle ID `com.muesli.dev` and stores data at `~/Library/Application Support/MeetsDev/`. Named lanes use fixed identities: `MuesliDevA` / `com.muesli.dev.a` / `~/Library/Application Support/MuesliDevA`, then B and C with matching suffixes. Named lane executable/process names also match the lane app name. Production data is never touched.
 
-Named lanes default to local-only signing through `scripts/MuesliLocalOnly.entitlements`, which omits iCloud and APNs entitlements for non-sync feature work. Use `--cloud-entitlements` only when the lane has a matching Apple Developer provisioning profile and the test actually needs iCloud/APNs behavior.
+Named lanes default to local-only signing through `scripts/MeetsLocalOnly.entitlements`, which omits iCloud and APNs entitlements for non-sync feature work. Use `--cloud-entitlements` only when the lane has a matching Apple Developer provisioning profile and the test actually needs iCloud/APNs behavior.
 
 ### SwiftPM build artifacts in worktrees
-SwiftPM can write build artifacts to `native/MuesliNative/.build` inside the active worktree. That can consume several GB per worktree. Local scripts now resolve a shared SwiftPM scratch path through `scripts/muesli_spm_cache.sh`:
+SwiftPM can write build artifacts to `native/MeetsNative/.build` inside the active worktree. That can consume several GB per worktree. Local scripts now resolve a shared SwiftPM scratch path through `scripts/muesli_spm_cache.sh`:
 
 - Explicit `MUESLI_SWIFTPM_SCRATCH_PATH` wins.
 - `MUESLI_SWIFTPM_SCRATCH_CHANNEL` overrides the channel segment under the resolved cache root.
@@ -72,7 +74,7 @@ For parallel PR/worktree work, use isolated paths:
 
 ```bash
 MUESLI_SWIFTPM_SCRATCH_PATH="/Volumes/MuesliBuildCache/muesli-spm/worktrees/pr182/dev" ./scripts/dev-test.sh
-swift test --package-path native/MuesliNative --scratch-path "/Volumes/MuesliBuildCache/muesli-spm/worktrees/pr182/test"
+swift test --package-path native/MeetsNative --scratch-path "/Volumes/MuesliBuildCache/muesli-spm/worktrees/pr182/test"
 ```
 
 The build script passes the resolved path to SwiftPM as `--scratch-path`, so multiple worktrees do not each grow their own `.build`. Caveat: do not run concurrent builds from different worktrees into the same scratch path; use separate paths per channel, agent, or simultaneous build. Deleting a scratch path only removes rebuildable SwiftPM artifacts, not installed apps or app data. Set `MUESLI_DISABLE_SWIFTPM_SCRATCH_PATH=1` only when you intentionally want package-local `.build`.
@@ -90,7 +92,7 @@ Each lane installs a separate app bundle under `/Applications/`, keeps a separat
 
 ### Tests
 ```bash
-swift test --package-path native/MuesliNative    # 1,148 @Test declarations across 120 suites
+swift test --package-path native/MeetsNative    # 1,148 @Test declarations across 120 suites
 ```
 
 ### Onboarding testing
@@ -134,9 +136,9 @@ Note: config JSON uses snake_case keys (`has_completed_onboarding`, not `hasComp
 ## Key Architecture
 
 ```
-native/MuesliNative/Sources/
-├── MuesliNativeApp/              # Main app (~50 Swift files)
-│   ├── MuesliController.swift    # Central orchestrator — dictation, meetings, onboarding, state
+native/MeetsNative/Sources/
+├── MeetsApp/              # Main app (~50 Swift files)
+│   ├── MeetsController.swift    # Central orchestrator — dictation, meetings, onboarding, state
 │   ├── TranscriptionRuntime.swift # Routes to ASR backends, post-processing, VAD + diarization
 │   ├── FluidAudioBackend.swift   # Parakeet TDT on ANE
 │   ├── Qwen3AsrBackend.swift     # Qwen3 ASR on ANE (macOS 15+)
@@ -154,10 +156,10 @@ native/MuesliNative/Sources/
 │   ├── MeetingDetector.swift     # Camera + mic + app detection for meetings
 │   ├── MeetingNotificationController.swift # Join & Transcribe notification panel with platform icons
 │   └── PasteController.swift     # Clipboard-preserving Cmd+V paste
-├── MuesliCore/                   # Shared library (SQLite, paths, models)
+├── MeetsCore/                   # Shared library (SQLite, paths, models)
 │   ├── DictationStore.swift      # SQLite3 C API — dictations + meetings CRUD
-│   └── MuesliPaths.swift         # App-identity-aware path resolution
-└── MuesliCLI/                    # Agent-friendly CLI (JSON over stdout)
+│   └── MeetsPaths.swift         # App-identity-aware path resolution
+└── MeetsCLI/                    # Agent-friendly CLI (JSON over stdout)
 ```
 
 ## Data Storage
@@ -169,7 +171,7 @@ native/MuesliNative/Sources/
 - **ChatGPT tokens:** macOS Keychain (`com.muesli.app.chatgpt-auth`)
 - **Whisper models:** `~/.cache/muesli/models/`
 
-`{AppName}` is `Muesli` for production, `MuesliDev` for dev, `MuesliCanary` for alpha — controlled by `MuesliSupportDirectoryName` in Info.plist.
+`{AppName}` is `Muesli` for production, `MeetsDev` for dev, `MeetsCanary` for alpha — controlled by `MeetsSupportDirectoryName` in Info.plist.
 
 ## macOS Permissions
 

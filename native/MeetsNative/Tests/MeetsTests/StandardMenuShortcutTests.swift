@@ -1,6 +1,6 @@
 import AppKit
 import Testing
-@testable import MeetsNativeApp
+@testable import MeetsApp
 
 @Suite("Standard app menu shortcuts")
 @MainActor

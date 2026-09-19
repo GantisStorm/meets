@@ -1,4 +1,4 @@
-# xcodegen spec for the production Muesli app target.
+# xcodegen spec for the production Meets app target.
 #
 # This project exists for exactly one reason: App Intents metadata extraction
 # (Contents/Resources/Metadata.appintents) only runs for a genuine Xcode
@@ -13,29 +13,29 @@
 # "fix" them to match a release channel.
 name: MuesliXcode
 options:
-  bundleIdPrefix: com.muesli
+  bundleIdPrefix: com.meets
   deploymentTarget:
     macOS: "14.2"
   createIntermediateGroups: true
 
 packages:
-  MuesliNative:
-    path: ../MuesliNative
+  MeetsNative:
+    path: ../MeetsNative
 
 targets:
-  Muesli:
+  Meets:
     type: application
     platform: macOS
     deploymentTarget: "14.2"
     sources:
-      - path: ../MuesliNative/Sources/MuesliNativeAppShell
+      - path: ../MeetsNative/Sources/MeetsAppShell
     dependencies:
-      - package: MuesliNative
-        product: MuesliNativeAppCore
+      - package: MeetsNative
+        product: MeetsAppCore
     settings:
       base:
-        PRODUCT_NAME: Muesli
-        PRODUCT_BUNDLE_IDENTIFIER: com.muesli.build.intermediate
+        PRODUCT_NAME: Meets
+        PRODUCT_BUNDLE_IDENTIFIER: com.meets.build.intermediate
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_LSUIElement: YES
         INFOPLIST_KEY_NSHumanReadableCopyright: ""

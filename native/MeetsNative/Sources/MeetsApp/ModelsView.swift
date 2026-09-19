@@ -38,6 +38,8 @@ struct ModelsView: View {
     @State private var modelToDelete: BackendOption?
     @State private var selectedParakeetModel: String
     @State private var selectedWhisperModel: String
+    @State private var selectedBodhanCoreModel: String
+    @State private var selectedBodhanFlexModel: String
     @State private var showExperimental: Bool
     @State private var appleSpeechLanguageOptions: [AppleSpeechLanguageOption] = [.system]
     @State private var isLiveCaptionModelDownloaded = false
@@ -55,6 +57,9 @@ struct ModelsView: View {
         let active = appState.selectedBackend
         _selectedParakeetModel = State(initialValue: BackendOption.parakeetFamily.contains(active) ? active.model : BackendOption.parakeetUnified.model)
         _selectedWhisperModel = State(initialValue: BackendOption.whisperFamily.contains(active) ? active.model : BackendOption.whisperSmall.model)
+        let bodhan = BodhanModel(rawValue: active.model)
+        _selectedBodhanCoreModel = State(initialValue: bodhan?.isCore == true ? active.model : BodhanModel.coreInt8.rawValue)
+        _selectedBodhanFlexModel = State(initialValue: bodhan?.isCore == false ? active.model : BodhanModel.flexInt8.rawValue)
         _showExperimental = State(initialValue: false)
     }
 
@@ -75,7 +80,9 @@ struct ModelsView: View {
                         }
                     }
                     .pickerStyle(.segmented)
-                    .frame(maxWidth: 520)
+                    .labelsHidden()
+                    .frame(maxWidth: 600)
+                    .frame(maxWidth: .infinity, alignment: .center)
 
                     selectedCategoryContent
                 }
@@ -166,6 +173,8 @@ struct ModelsView: View {
             )
 
             modelCard(option: .cohereTranscribe, logo: "cohere-logo")
+            bodhanCard(selection: $selectedBodhanCoreModel, isCore: true)
+            bodhanCard(selection: $selectedBodhanFlexModel, isCore: false)
             experimentalSection
             comingSoonSection
         case .streaming:
@@ -193,6 +202,7 @@ struct ModelsView: View {
         }
     }
 
+
     private var streamingSection: some View {
         VStack(alignment: .leading, spacing: MeetsTheme.spacing12) {
             VStack(alignment: .leading, spacing: MeetsTheme.spacing4) {
@@ -200,13 +210,31 @@ struct ModelsView: View {
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(MeetsTheme.textTertiary)
 
-                Text("Choose how words appear while a meeting is in progress. Nemotron also creates the saved transcript; Parakeet prioritizes a faster English preview.")
+                Text("Choose how words appear while a meeting is in progress. Apple Speech and Nemotron also create the saved transcript; Parakeet provides a provisional preview.")
                     .font(MeetsTheme.caption())
                     .foregroundStyle(MeetsTheme.textSecondary)
             }
             .padding(.leading, 2)
             .padding(.top, MeetsTheme.spacing8)
 
+
+            if BackendOption.systemManaged.contains(.appleSpeechAnalyzer) {
+                let option = BackendOption.appleSpeechAnalyzer
+                modelCard(
+                    option: option,
+                    logo: logoForBackend(option),
+                    isActive: appState.config.enableLiveStreamingPartials
+                        && appState.config.resolvedMeetingLiveCaptionBackend == .appleSpeech,
+                    onSetActive: {
+                        controller.updateConfig {
+                            $0.meetingLiveCaptionBackend = MeetingLiveCaptionBackend.appleSpeech.rawValue
+                            $0.enableLiveStreamingPartials = true
+                        }
+                    },
+                    description: "Apple's private, on-device streaming transcription on macOS 26. Finalized speech becomes your saved transcript; your regular meeting model recovers any audio the live stream could not finish.",
+                    downloadedLabel: "Available"
+                )
+            }
 
             ForEach(BackendOption.streaming, id: \.model) { option in
                 if let liveCaptionBackend = MeetingLiveCaptionBackend(rawValue: option.backend) {
@@ -484,10 +512,20 @@ struct ModelsView: View {
         )
     }
 
-    private var indicASRLanguageSelection: Binding<IndicASRLanguage> {
+    @ViewBuilder
+    private func bodhanCard(selection: Binding<String>, isCore: Bool) -> some View {
+        let variants = BackendOption.bodhanFamily.filter { BodhanModel(rawValue: $0.model)?.isCore == isCore }
+        if let selected = variants.first(where: { $0.model == selection.wrappedValue }) ?? variants.first {
+            modelCard(option: selected, logo: "bodhan-logo",
+                         title: isCore ? "Bodhan Core" : "Bodhan Flex",
+                         precisionSelection: selection)
+        }
+    }
+
+    private func bodhanLanguageSelection(for model: String) -> Binding<BodhanLanguage> {
         Binding(
-            get: { appState.config.resolvedIndicASRLanguage },
-            set: { controller.selectIndicASRLanguage($0) }
+            get: { appState.config.resolvedBodhanLanguage.supported(for: model) },
+            set: { controller.selectBodhanLanguage($0) }
         )
     }
 
@@ -528,6 +566,7 @@ struct ModelsView: View {
         )
     }
 
+
     private func familyCard(
         title: String,
         subtitle: String,
@@ -542,6 +581,7 @@ struct ModelsView: View {
         let isDownloading = downloadingModels.contains(selectedOption.model)
         let progress = downloadProgress[selectedOption.model] ?? 0
         let showsDownloadStatus = shouldShowDownloadStatus(for: selectedOption.model, isDownloading: isDownloading)
+        let incompatibilityReason = selectedOption.incompatibilityReason()
 
         return VStack(alignment: .leading, spacing: MeetsTheme.spacing12) {
             HStack(alignment: .top, spacing: MeetsTheme.spacing12) {
@@ -585,6 +625,7 @@ struct ModelsView: View {
                 .labelsHidden()
                 .pickerStyle(.menu)
                 .frame(maxWidth: 220, alignment: .leading)
+                .disabled(incompatibilityReason != nil)
 
                 Text(selectedOption.sizeLabel)
                     .font(MeetsTheme.caption())
@@ -593,7 +634,7 @@ struct ModelsView: View {
 
             Text(selectedOption.description)
                 .font(MeetsTheme.caption())
-                .foregroundStyle(MeetsTheme.textSecondary)
+                .foregroundStyle(incompatibilityReason == nil ? MeetsTheme.textSecondary : MeetsTheme.textTertiary)
 
             if selectedOption.supportsWhisperLanguageSelection {
                 HStack(alignment: .center, spacing: MeetsTheme.spacing12) {
@@ -610,6 +651,7 @@ struct ModelsView: View {
                     .labelsHidden()
                     .pickerStyle(.menu)
                     .frame(maxWidth: 220, alignment: .leading)
+                    .disabled(incompatibilityReason != nil)
                 }
             }
 
@@ -628,6 +670,7 @@ struct ModelsView: View {
                     .labelsHidden()
                     .pickerStyle(.menu)
                     .frame(maxWidth: 220, alignment: .leading)
+                    .disabled(incompatibilityReason != nil)
                 }
 
                 Text("Script filter: keeps the chosen language's writing script in the transcript. Parakeet v3 only — v2 ignores this setting.")
@@ -635,15 +678,28 @@ struct ModelsView: View {
                     .foregroundStyle(MeetsTheme.textTertiary)
             }
 
-            if showsDownloadStatus {
+            if showsDownloadStatus, incompatibilityReason == nil {
                 downloadProgressView(
                     for: selectedOption.model,
                     fallbackProgress: progress,
-                    fallbackMessage: downloadMessages[selectedOption.model]
+                    fallbackMessage: downloadMessages[selectedOption.model],
+                    isDownloading: isDownloading
                 )
             }
 
-            actionButtons(for: selectedOption, isActive: isActive, isDownloaded: isDownloaded, isDownloading: isDownloading)
+            if let incompatibilityReason {
+                Label(incompatibilityReason, systemImage: "exclamationmark.triangle")
+                    .font(MeetsTheme.caption())
+                    .foregroundStyle(MeetsTheme.textTertiary)
+            }
+
+            actionButtons(
+                for: selectedOption,
+                isActive: isActive,
+                isDownloaded: isDownloaded,
+                isDownloading: isDownloading,
+                incompatibilityReason: incompatibilityReason
+            )
         }
         .padding(MeetsTheme.spacing16)
         .background(MeetsTheme.backgroundRaised)
@@ -676,7 +732,12 @@ struct ModelsView: View {
     }
 
     @ViewBuilder
-    private func downloadProgressView(for modelID: String, fallbackProgress: Double, fallbackMessage: String? = nil) -> some View {
+    private func downloadProgressView(
+        for modelID: String,
+        fallbackProgress: Double,
+        fallbackMessage: String? = nil,
+        isDownloading: Bool = true
+    ) -> some View {
         if let snapshot = downloadSnapshots[modelID] {
             VStack(alignment: .leading, spacing: 4) {
                 if snapshot.phase != .preparing {
@@ -702,8 +763,13 @@ struct ModelsView: View {
             }
         } else {
             VStack(alignment: .leading, spacing: 4) {
-                ProgressView(value: fallbackProgress)
-                    .tint(MeetsTheme.accent)
+                // Only show a moving bar while a download is actually in flight — a failure with
+                // no snapshot (e.g. an instant OS-compatibility rejection) can leave a stale
+                // message behind with nothing in progress to animate.
+                if isDownloading {
+                    ProgressView(value: fallbackProgress)
+                        .tint(MeetsTheme.accent)
+                }
                 Text(fallbackMessage ?? "\(Int(fallbackProgress * 100))% downloading...")
                     .font(.system(size: 11))
                     .foregroundStyle(MeetsTheme.textTertiary)
@@ -799,7 +865,7 @@ struct ModelsView: View {
         case "cohere": return "cohere-logo"
         case "qwen": return "qwen-logo"
         case "nemotron35": return "nvidia-logo"
-        case "indicasr": return "ai4bharat-logo"
+        case "bodhan": return "bodhan-logo"
         case "sensevoice": return "qwen-logo"
         case "gemma4-litert": return "google-logo"
         case "apple-speech": return "apple-system-logo"
@@ -815,6 +881,7 @@ struct ModelsView: View {
         isDownloading: Bool,
         actionTitle: String = "Set Active",
         activationDisabledReason: String? = nil,
+        incompatibilityReason: String? = nil,
         onSetActive: (() -> Void)? = nil
     ) -> some View {
         HStack(spacing: MeetsTheme.spacing8) {
@@ -831,6 +898,7 @@ struct ModelsView: View {
                 .clipShape(RoundedRectangle(cornerRadius: MeetsTheme.cornerSmall))
             } else if isDownloaded {
                 if !isActive {
+                    let disabledReason = incompatibilityReason ?? activationDisabledReason
                     Button(actionTitle) {
                         if let onSetActive {
                             onSetActive()
@@ -840,13 +908,13 @@ struct ModelsView: View {
                     }
                     .buttonStyle(.plain)
                     .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(activationDisabledReason == nil ? MeetsTheme.accent : MeetsTheme.textTertiary)
+                    .foregroundStyle(disabledReason == nil ? MeetsTheme.accent : MeetsTheme.textTertiary)
                     .padding(.horizontal, MeetsTheme.spacing12)
                     .padding(.vertical, 4)
-                    .background(activationDisabledReason == nil ? MeetsTheme.accentSubtle : MeetsTheme.surfacePrimary)
+                    .background(disabledReason == nil ? MeetsTheme.accentSubtle : MeetsTheme.surfacePrimary)
                     .clipShape(RoundedRectangle(cornerRadius: MeetsTheme.cornerSmall))
-                    .disabled(activationDisabledReason != nil)
-                    .help(activationDisabledReason ?? actionTitle)
+                    .disabled(disabledReason != nil)
+                    .help(disabledReason ?? actionTitle)
                 }
 
                 if !option.isSystemManaged {
@@ -866,11 +934,13 @@ struct ModelsView: View {
                 }
                 .buttonStyle(.plain)
                 .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(MeetsTheme.accent)
+                .foregroundStyle(incompatibilityReason == nil ? MeetsTheme.accent : MeetsTheme.textTertiary)
                 .padding(.horizontal, MeetsTheme.spacing12)
                 .padding(.vertical, 4)
-                .background(MeetsTheme.accentSubtle)
+                .background(incompatibilityReason == nil ? MeetsTheme.accentSubtle : MeetsTheme.surfacePrimary)
                 .clipShape(RoundedRectangle(cornerRadius: MeetsTheme.cornerSmall))
+                .disabled(incompatibilityReason != nil)
+                .help(incompatibilityReason ?? "Download")
             }
         }
     }
@@ -878,6 +948,8 @@ struct ModelsView: View {
     private func modelCard(
         option: BackendOption,
         logo: String? = nil,
+        title: String? = nil,
+        precisionSelection: Binding<String>? = nil,
         isActive activeOverride: Bool? = nil,
         onSetActive: (() -> Void)? = nil,
         description: String? = nil,
@@ -891,15 +963,16 @@ struct ModelsView: View {
         let isDownloading = downloadingModels.contains(option.model)
         let progress = downloadProgress[option.model] ?? 0
         let showsDownloadStatus = shouldShowDownloadStatus(for: option.model, isDownloading: isDownloading)
+        let incompatibilityReason = option.incompatibilityReason()
 
         return VStack(alignment: .leading, spacing: MeetsTheme.spacing12) {
             HStack(alignment: .top, spacing: MeetsTheme.spacing12) {
                 brandLogo(logo)
                 VStack(alignment: .leading, spacing: MeetsTheme.spacing4) {
                     HStack(spacing: MeetsTheme.spacing8) {
-                        Text(option.label)
+                        Text(title ?? option.label)
                             .font(MeetsTheme.headline())
-                            .foregroundStyle(MeetsTheme.textPrimary)
+                            .foregroundStyle(incompatibilityReason == nil ? MeetsTheme.textPrimary : MeetsTheme.textTertiary)
 
                         if option.recommended {
                             Text("Recommended")
@@ -918,13 +991,22 @@ struct ModelsView: View {
 
                     Text(description ?? option.description)
                         .font(MeetsTheme.caption())
-                        .foregroundStyle(MeetsTheme.textSecondary)
+                        .foregroundStyle(incompatibilityReason == nil ? MeetsTheme.textSecondary : MeetsTheme.textTertiary)
                 }
 
                 Spacer()
 
-                // Status badge
-                if isActive {
+                // Status badge — Incompatible takes priority over Active/Downloaded.
+                if let incompatibilityReason {
+                    Text("Incompatible")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(MeetsTheme.textTertiary)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(MeetsTheme.surfacePrimary)
+                        .clipShape(RoundedRectangle(cornerRadius: 4))
+                        .help(incompatibilityReason)
+                } else if isActive {
                     Text(activeLabel)
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(MeetsTheme.success)
@@ -958,24 +1040,44 @@ struct ModelsView: View {
                     .labelsHidden()
                     .pickerStyle(.menu)
                     .frame(maxWidth: 220, alignment: .leading)
+                    .disabled(incompatibilityReason != nil)
                 }
             }
 
-            if option.backend == BackendOption.indicASR.backend {
+            if option.backend == BackendOption.bodhanFlex.backend {
                 HStack(alignment: .center, spacing: MeetsTheme.spacing12) {
                     Text("Language")
                         .font(MeetsTheme.caption())
                         .foregroundStyle(MeetsTheme.textTertiary)
                         .frame(width: 64, alignment: .leading)
 
-                    Picker("", selection: indicASRLanguageSelection) {
-                        ForEach(IndicASRLanguage.allCases, id: \.self) { language in
+                    Picker("", selection: bodhanLanguageSelection(for: option.model)) {
+                        ForEach(BodhanLanguage.choices(for: option.model), id: \.self) { language in
                             Text(language.label).tag(language)
                         }
                     }
                     .labelsHidden()
                     .pickerStyle(.menu)
                     .frame(maxWidth: 220, alignment: .leading)
+                    .disabled(incompatibilityReason != nil)
+
+                    if let precisionSelection {
+                        Text("Precision")
+                            .font(MeetsTheme.caption())
+                            .foregroundStyle(MeetsTheme.textTertiary)
+                        Picker("Precision", selection: precisionSelection) {
+                            ForEach(BackendOption.bodhanFamily.filter {
+                                BodhanModel(rawValue: $0.model)?.isCore == BodhanModel(rawValue: option.model)?.isCore
+                            }, id: \.model) { variant in
+                                Text(BodhanModel(rawValue: variant.model)?.isInt8 == true ? "INT8" : "FP16")
+                                    .tag(variant.model)
+                            }
+                        }
+                        .labelsHidden()
+                        .pickerStyle(.menu)
+                        .frame(width: 100)
+                        .disabled(isDownloading || incompatibilityReason != nil)
+                    }
                 }
             }
 
@@ -994,6 +1096,7 @@ struct ModelsView: View {
                     .labelsHidden()
                     .pickerStyle(.menu)
                     .frame(maxWidth: 220, alignment: .leading)
+                    .disabled(incompatibilityReason != nil)
                 }
             }
 
@@ -1012,6 +1115,7 @@ struct ModelsView: View {
                     .labelsHidden()
                     .pickerStyle(.menu)
                     .frame(maxWidth: 220, alignment: .leading)
+                    .disabled(incompatibilityReason != nil)
                 }
             }
 
@@ -1048,6 +1152,7 @@ struct ModelsView: View {
                     .labelsHidden()
                     .pickerStyle(.menu)
                     .frame(maxWidth: 220, alignment: .leading)
+                    .disabled(incompatibilityReason != nil)
                 }
 
                 if isDownloaded && nemotron35UpdateAvailable && !isDownloading {
@@ -1061,21 +1166,28 @@ struct ModelsView: View {
                         Button("Update") { updateNemotron35(option) }
                             .buttonStyle(.plain)
                             .font(.system(size: 12, weight: .medium))
-                            .foregroundStyle(MeetsTheme.accent)
+                            .foregroundStyle(incompatibilityReason == nil ? MeetsTheme.accent : MeetsTheme.textTertiary)
+                            .disabled(incompatibilityReason != nil)
+                            .help(incompatibilityReason ?? "Update")
                     }
                 }
             }
 
-            // Progress bar when downloading
-            if showsDownloadStatus {
+            // Progress bar when downloading.
+            if showsDownloadStatus, incompatibilityReason == nil {
                 downloadProgressView(
                     for: option.model,
                     fallbackProgress: progress,
-                    fallbackMessage: downloadMessages[option.model]
+                    fallbackMessage: downloadMessages[option.model],
+                    isDownloading: isDownloading
                 )
             }
 
-            if let activationDisabledReason, isDownloaded, !isActive {
+            if let incompatibilityReason {
+                Label(incompatibilityReason, systemImage: "exclamationmark.triangle")
+                    .font(MeetsTheme.caption())
+                    .foregroundStyle(MeetsTheme.textTertiary)
+            } else if let activationDisabledReason, isDownloaded, !isActive {
                 Label(activationDisabledReason, systemImage: "exclamationmark.lock")
                     .font(MeetsTheme.caption())
                     .foregroundStyle(MeetsTheme.textTertiary)
@@ -1088,6 +1200,7 @@ struct ModelsView: View {
                 isDownloading: isDownloading,
                 actionTitle: actionTitle,
                 activationDisabledReason: activationDisabledReason,
+                incompatibilityReason: incompatibilityReason,
                 onSetActive: onSetActive
             )
         }
@@ -1139,9 +1252,11 @@ struct ModelsView: View {
         .opacity(0.6)
     }
 
+
     // MARK: - Actions
 
     private func startDownload(_ option: BackendOption) {
+        guard option.isCompatible() else { return }
         withAnimation { _ = downloadingModels.insert(option.model) }
         downloadProgress[option.model] = 0.05  // Show initial progress immediately
         downloadMessages.removeValue(forKey: option.model)
@@ -1326,6 +1441,9 @@ struct ModelsView: View {
     /// Re-download Nemotron 3.5 to pick up a newer upstream build: delete the cached
     /// files (so the download isn't skipped), then start a fresh download.
     private func updateNemotron35(_ option: BackendOption) {
+        // Check before unloading or deleting the installed model: startDownload also
+        // rejects incompatible backends, so otherwise no replacement would be started.
+        guard option.isCompatible() else { return }
         Task {
             do {
                 await controller.transcriptionCoordinator.unloadNemotron35Transcriber()
@@ -1399,9 +1517,12 @@ struct ModelsView: View {
             try removeItemIfPresent(at: Nemotron35ModelStore.cacheDirectory(fileManager: fm), fileManager: fm)
         case "cohere":
             try removeItemIfPresent(at: CohereTranscribeModelStore.cacheDirectory(), fileManager: fm)
-        case "indicasr":
-            if IndicASRModelStore.localOverrideDirectory() == nil {
-                try removeItemIfPresent(at: IndicASRModelStore.cacheDirectory(), fileManager: fm)
+        case "bodhan":
+            if let model = BodhanModel(rawValue: option.model) {
+                if model.localOverride == nil {
+                    await controller.transcriptionCoordinator.unloadBodhanTranscriber(ifLoadedModelID: model.rawValue)
+                    try removeItemIfPresent(at: model.cacheDirectory, fileManager: fm)
+                }
             }
         case "sensevoice":
             SenseVoiceTranscriber.deleteModelFiles(fileManager: fm)
@@ -1466,6 +1587,10 @@ struct ModelsView: View {
         if BackendOption.whisperFamily.contains(active) {
             selectedWhisperModel = active.model
         }
+        if let model = BodhanModel(rawValue: active.model) {
+            if model.isCore { selectedBodhanCoreModel = active.model }
+            else { selectedBodhanFlexModel = active.model }
+        }
         if BackendOption.experimental.contains(active) {
             showExperimental = true
         }
@@ -1488,8 +1613,8 @@ struct ModelsView: View {
             return Qwen3AsrModelStore.isModelDownloaded(fileManager: fm)
         case "cohere":
             return CohereTranscribeModelStore.isAvailableLocally()
-        case "indicasr":
-            return IndicASRModelStore.isAvailableLocally()
+        case "bodhan":
+            return BodhanModel(rawValue: option.model)?.isDownloaded ?? false
         case "sensevoice":
             return SenseVoiceTranscriber.isModelDownloaded(fileManager: fm)
         case "gemma4-litert":

@@ -1,7 +1,7 @@
 import AVFoundation
 import Foundation
 import Testing
-@testable import MeetsNativeApp
+@testable import MeetsApp
 
 @Suite("MeetingRecordingWriter")
 struct MeetingRecordingWriterTests {

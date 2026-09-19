@@ -3,7 +3,7 @@ import CloudKit
 import SQLite3
 import Testing
 import MeetsCore
-@testable import MeetsNativeApp
+@testable import MeetsApp
 
 @Suite("Meeting follow-up policy")
 struct MeetingFollowUpPolicyTests {

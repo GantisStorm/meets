@@ -2,7 +2,7 @@ import FluidAudio
 import Testing
 import Foundation
 import MeetsCore
-@testable import MeetsNativeApp
+@testable import MeetsApp
 
 @Suite("TranscriptFormatter")
 struct TranscriptFormatterTests {

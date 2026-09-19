@@ -1,6 +1,6 @@
 import FluidAudio
 import Testing
-@testable import MeetsNativeApp
+@testable import MeetsApp
 
 @Suite("SystemTurnNormalizer")
 struct SystemTurnNormalizerTests {

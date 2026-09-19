@@ -1,6 +1,6 @@
 import Testing
 import Foundation
-@testable import MeetsNativeApp
+@testable import MeetsApp
 
 @Suite("Upcoming meetings window")
 struct UpcomingMeetingsWindowTests {

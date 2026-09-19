@@ -127,22 +127,26 @@ struct OnboardingView: View {
             requestedStep: initialStep,
             permissions: initialPermissions,
             useCase: resolvedUseCase,
-            permissionsStep: Self.permissionsStep
+            permissionsStep: Self.permissionsStep,
+            useCoreAudioTap: appState.config.useCoreAudioTap
         )
-        let effectiveInitialStep = OnboardingFlow.normalizedStep(permissionGatedInitialStep, for: resolvedUseCase)
+        let sanitizedInitialBackend = BackendOption.resolvedOnboardingBackend(initialBackend)
+        let modelGatedInitialStep = OnboardingFlow.modelGatedResumeStep(
+            requestedStep: permissionGatedInitialStep,
+            initialBackend: initialBackend,
+            resolvedBackend: sanitizedInitialBackend
+        )
+        let effectiveInitialStep = OnboardingFlow.normalizedStep(modelGatedInitialStep, for: resolvedUseCase)
 
         _currentStep = State(initialValue: effectiveInitialStep)
         _userName = State(initialValue: initialUserName)
         _selectedUseCase = State(initialValue: resolvedUseCase)
-        let sanitizedInitialBackend = BackendOption.onboarding.contains(initialBackend)
-            ? initialBackend
-            : BackendOption.onboardingDefault
         _selectedBackend = State(initialValue: sanitizedInitialBackend)
         _selectedCohereLanguage = State(initialValue: initialCohereLanguage)
         _selectedHotkey = State(initialValue: initialHotkey)
         _summaryBackend = State(initialValue: initialSummaryBackend)
-        _modelDownloadProgress = State(initialValue: initialModelDownloadProgress)
-        _modelDownloadStatus = State(initialValue: initialModelDownloadStatus)
+        _modelDownloadProgress = State(initialValue: sanitizedInitialBackend == initialBackend ? initialModelDownloadProgress : nil)
+        _modelDownloadStatus = State(initialValue: sanitizedInitialBackend == initialBackend ? initialModelDownloadStatus : nil)
         _micGranted = State(initialValue: initialMicGranted)
         _systemAudioGranted = State(initialValue: initialSystemAudioGranted)
         _calendarGranted = State(initialValue: appState.calendarAuthorization == .fullAccess)
@@ -169,6 +173,7 @@ struct OnboardingView: View {
                 case OnboardingFlow.Step.model.rawValue: modelStep
                 case OnboardingFlow.Step.permissions.rawValue: permissionsStep
                 case OnboardingFlow.Step.meetingSummary.rawValue: meetingSummaryStep
+                case OnboardingFlow.Step.calendarAccess.rawValue: calendarAccessStep
                 case OnboardingFlow.Step.transcriptCleanup.rawValue: transcriptCleanupStep
                 default: EmptyView()
                 }
@@ -243,7 +248,7 @@ struct OnboardingView: View {
                 goToNextStep()
             }
         case OnboardingFlow.Step.model.rawValue:
-            onboardingButton(selectedBackend.isDownloaded ? "Continue" : "Download & Continue", enabled: true) {
+            onboardingButton(selectedBackend.isDownloaded ? "Continue" : "Download & Continue", enabled: selectedBackend.isCompatible()) {
                 startDownload()
             }
         case OnboardingFlow.Step.permissions.rawValue:
@@ -253,6 +258,13 @@ struct OnboardingView: View {
         case OnboardingFlow.Step.meetingSummary.rawValue:
             onboardingButton("Continue", enabled: true) {
                 goToNextStep()
+            }
+        case OnboardingFlow.Step.calendarAccess.rawValue:
+            HStack(spacing: MeetsTheme.spacing12) {
+                skipButton("Not now") { finishOnboarding(withKey: true) }
+                onboardingButton("Finish", enabled: true) {
+                    finishOnboarding(withKey: true)
+                }
             }
         case OnboardingFlow.Step.transcriptCleanup.rawValue:
             HStack(spacing: MeetsTheme.spacing16) {
@@ -298,6 +310,22 @@ struct OnboardingView: View {
         }
         .buttonStyle(.plain)
         .disabled(!enabled)
+    }
+
+    @ViewBuilder
+    private func skipButton(_ title: String = "Skip", action: @escaping () -> Void) -> some View {
+        Button(title, action: action)
+            .buttonStyle(.plain)
+            .font(MeetsTheme.body())
+            .foregroundStyle(MeetsTheme.textSecondary)
+            .padding(.horizontal, MeetsTheme.spacing16)
+            .padding(.vertical, MeetsTheme.spacing8)
+            .background(MeetsTheme.surfacePrimary)
+            .clipShape(RoundedRectangle(cornerRadius: MeetsTheme.cornerSmall))
+            .overlay(
+                RoundedRectangle(cornerRadius: MeetsTheme.cornerSmall)
+                    .strokeBorder(MeetsTheme.surfaceBorder, lineWidth: 1)
+            )
     }
 
     private var shouldShowModelDownloadIndicator: Bool {
@@ -573,7 +601,9 @@ struct OnboardingView: View {
 
     private func modelCard(option: BackendOption) -> some View {
         let isSelected = selectedBackend == option
+        let incompatibilityReason = option.incompatibilityReason()
         return Button {
+            guard option.isCompatible() else { return }
             selectedBackend = option
         } label: {
             HStack(spacing: MeetsTheme.spacing12) {
@@ -589,7 +619,7 @@ struct OnboardingView: View {
                     HStack(spacing: 6) {
                         Text(option.label)
                             .font(MeetsTheme.headline())
-                            .foregroundStyle(MeetsTheme.textPrimary)
+                            .foregroundStyle(incompatibilityReason == nil ? MeetsTheme.textPrimary : MeetsTheme.textTertiary)
                         if option == BackendOption.onboardingDefault {
                             Text("Recommended")
                                 .font(.system(size: 9, weight: .semibold))
@@ -605,7 +635,12 @@ struct OnboardingView: View {
                     }
                     Text(option.description)
                         .font(MeetsTheme.caption())
-                        .foregroundStyle(MeetsTheme.textSecondary)
+                        .foregroundStyle(incompatibilityReason == nil ? MeetsTheme.textSecondary : MeetsTheme.textTertiary)
+                    if let incompatibilityReason {
+                        Label(incompatibilityReason, systemImage: "exclamationmark.triangle")
+                            .font(MeetsTheme.caption())
+                            .foregroundStyle(MeetsTheme.textTertiary)
+                    }
                 }
 
                 Spacer()
@@ -619,6 +654,8 @@ struct OnboardingView: View {
             )
         }
         .buttonStyle(.plain)
+        .disabled(incompatibilityReason != nil)
+        .help(incompatibilityReason ?? option.label)
     }
 
     // MARK: - Step 3: Permissions
@@ -1769,11 +1806,16 @@ struct OnboardingView: View {
     // MARK: - Actions
 
     private func startDownload() {
+        guard selectedBackend.isCompatible() else { return }
         ensureModelDownloadStarted()
         goToNextStep()
     }
 
     private func ensureModelDownloadStarted() {
+        if let reason = selectedBackend.incompatibilityReason() {
+            modelDownloadError = reason
+            return
+        }
         if modelReadyBackend == selectedBackend {
             isModelStillDownloading = false
             modelDownloadProgress = 1.0
@@ -2086,6 +2128,34 @@ struct OnboardingView: View {
             }
             modelReadyIndicatorTask = nil
         }
+    }
+
+    private var calendarAccessStep: some View {
+        VStack(spacing: MeetsTheme.spacing24) {
+            Spacer()
+            Image(nsImage: CalendarIntegration.calendarIcon)
+                .resizable()
+                .frame(width: 80, height: 80)
+                .accessibilityHidden(true)
+            Text("Bring your meetings into Meets")
+                .font(MeetsTheme.title1())
+                .foregroundStyle(MeetsTheme.textPrimary)
+            Text("Allow access to macOS Calendar to see upcoming meetings and get reminders.")
+                .font(MeetsTheme.body())
+                .foregroundStyle(MeetsTheme.textSecondary)
+            CalendarAccessControl {
+                await controller.calendarAccessDidChange()
+            }
+            Button("Set up calendar accounts…", action: CalendarIntegration.openAccounts)
+                .buttonStyle(.link)
+            Divider().background(MeetsTheme.surfaceBorder)
+            Text("Already use Google or Exchange? Add the account in macOS Internet Accounts and turn on Calendars.")
+                .font(MeetsTheme.caption())
+                .foregroundStyle(MeetsTheme.textSecondary)
+            Spacer()
+        }
+        .multilineTextAlignment(.center)
+        .padding(.horizontal, MeetsTheme.spacing32)
     }
 
     private func finishOnboarding(withKey: Bool) {

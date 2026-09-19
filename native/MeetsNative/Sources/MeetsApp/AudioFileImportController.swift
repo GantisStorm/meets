@@ -187,7 +187,7 @@ enum AudioFileImportController {
             at: wavURL,
             backend: backend,
             cohereLanguage: config.resolvedCohereLanguage,
-            indicASRLanguage: config.resolvedIndicASRLanguage,
+            bodhanLanguage: config.resolvedBodhanLanguage,
             whisperLanguage: config.resolvedWhisperLanguage,
             parakeetLanguage: config.resolvedParakeetLanguage,
             appleSpeechLanguage: config.resolvedAppleSpeechLanguage

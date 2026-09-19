@@ -1,7 +1,7 @@
 import Foundation
 import Sparkle
 import Testing
-@testable import MeetsNativeApp
+@testable import MeetsApp
 
 @Suite("Update failure guidance")
 struct UpdateFailureGuidanceTests {

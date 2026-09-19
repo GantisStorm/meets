@@ -3,7 +3,7 @@ import Foundation
 import AVFoundation
 import FluidAudio
 import MeetsCore
-@testable import MeetsNativeApp
+@testable import MeetsApp
 
 @Suite("AudioFileImportController")
 struct AudioFileImportControllerTests {

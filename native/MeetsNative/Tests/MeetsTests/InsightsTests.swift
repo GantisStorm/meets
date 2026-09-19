@@ -1,7 +1,7 @@
 import AppKit
 import Foundation
 @testable import MeetsCore
-@testable import MeetsNativeApp
+@testable import MeetsApp
 import SQLite3
 import Testing
 

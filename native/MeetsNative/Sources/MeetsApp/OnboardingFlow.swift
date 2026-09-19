@@ -11,9 +11,27 @@ enum OnboardingFlow {
         case permissions = 3
         case dictationTest = 4
         case meetingSummary = 5
-        case transcriptCleanup = 6
+        case calendarAccess = 6
+        /// The fork's AI transcript cleanup setup screen. Upstream's macOS
+        /// calendar step owns slot 6, so this step stays out of the meetings
+        /// ordering while its screen keeps compiling.
+        case transcriptCleanup = 7
     }
 
+
+    /// Reconfirm a restored model whenever sanitization replaces it, without skipping
+    /// earlier setup steps or discarding the permission gate for unchanged selections.
+    static func modelGatedResumeStep(
+        requestedStep: Int,
+        initialBackend: BackendOption,
+        resolvedBackend: BackendOption,
+        currentOSVersion: OperatingSystemVersion = BackendOption.currentOSVersion
+    ) -> Int {
+        let mustChooseModel = resolvedBackend != initialBackend
+            || !initialBackend.isCompatible(currentOSVersion: currentOSVersion)
+        return mustChooseModel && requestedStep > Step.model.rawValue
+            ? Step.model.rawValue : requestedStep
+    }
 
     static func hasCompletedPermissionsStep(resumingAt step: Int) -> Bool {
         step > Step.permissions.rawValue
@@ -45,7 +63,7 @@ enum OnboardingFlow {
             steps += [Step.permissions.rawValue]
         }
         if useCase.includesMeetings {
-            steps += [Step.meetingSummary.rawValue, Step.transcriptCleanup.rawValue]
+            steps += [Step.meetingSummary.rawValue, Step.calendarAccess.rawValue]
         }
         return steps
     }

@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import MeetsNativeApp
+@testable import MeetsApp
 
 @Suite("BrowserMeetingActivityCollector")
 struct BrowserMeetingActivityCollectorTests {

@@ -4,7 +4,7 @@ import AppKit
 import Foundation
 import FluidAudio
 import MeetsCore
-@testable import MeetsNativeApp
+@testable import MeetsApp
 
 @Suite("BackendOption")
 struct BackendOptionTests {
@@ -26,7 +26,7 @@ struct BackendOptionTests {
 
     @Test("backend field is one of the known backends")
     func knownBackends() {
-        let known: Set<String> = ["fluidaudio", "parakeet-unified", "whisper", "qwen", "nemotron35", "cohere", "indicasr", "sensevoice", "gemma4-litert", "apple-speech"]
+        let known: Set<String> = ["fluidaudio", "parakeet-unified", "whisper", "qwen", "nemotron35", "cohere", "bodhan", "sensevoice", "gemma4-litert", "apple-speech"]
         for option in BackendOption.all {
             #expect(known.contains(option.backend), "Unknown backend: \(option.backend)")
         }
@@ -76,7 +76,7 @@ struct BackendOptionTests {
         #expect(BackendOption.all.contains(.whisperLargeTurbo))
         #expect(BackendOption.all.contains(.qwen3Asr))
         #expect(BackendOption.all.contains(.cohereTranscribe))
-        #expect(BackendOption.all.contains(.indicASR))
+        #expect(BackendOption.all.contains(.bodhanFlex))
         #expect(BackendOption.all.contains(.senseVoiceSmall))
         #expect(BackendOption.all.contains(.nemotron35Multilingual))
         #expect(BackendOption.all.contains(.gemma4E2BLiteRT))
@@ -88,6 +88,85 @@ struct BackendOptionTests {
         #expect(BackendOption.experimental.contains(.qwen3Asr))
         #expect(BackendOption.qwen3Asr.description.contains("52 languages"))
         #expect(BackendOption.qwen3Asr.description.contains("2–3 second"))
+    }
+
+    // Exercise the shared library/onboarding OS guard independently of the test host's OS.
+    private static let macOS14: OperatingSystemVersion = .init(majorVersion: 14, minorVersion: 8, patchVersion: 0)
+    private static let macOS15: OperatingSystemVersion = .init(majorVersion: 15, minorVersion: 0, patchVersion: 0)
+    private static let macOS25: OperatingSystemVersion = .init(majorVersion: 25, minorVersion: 0, patchVersion: 0)
+    private static let macOS26: OperatingSystemVersion = .init(majorVersion: 26, minorVersion: 0, patchVersion: 0)
+
+    @Test(
+        "macOS-15-gated backends report an incompatibility reason exactly when unavailable",
+        arguments: [
+            BackendOption.nemotron35Multilingual,
+            BackendOption.qwen3Asr,
+            BackendOption.cohereTranscribe,
+            BackendOption.bodhanFlex,
+            BackendOption.gemma4E2BLiteRT,
+            BackendOption.gemma4E4BLiteRT,
+        ]
+    )
+    func macOS15GatedBackendsMatchAvailability(_ option: BackendOption) {
+        #expect(
+            option.incompatibilityReason(currentOSVersion: Self.macOS15) == nil,
+            "\(option.label) should be compatible on macOS 15+"
+        )
+        let reason = option.incompatibilityReason(currentOSVersion: Self.macOS14)
+        #expect(reason != nil, "\(option.label) should report an incompatibility reason below macOS 15")
+        #expect(reason?.contains("macOS 15") == true)
+        #expect(reason?.contains(option.label) == true)
+    }
+
+    @Test("apple-speech reports an incompatibility reason exactly when below macOS 26")
+    func appleSpeechIncompatibilityMatchesAvailability() {
+        #expect(BackendOption.appleSpeechAnalyzer.incompatibilityReason(currentOSVersion: Self.macOS26) == nil)
+        let reason = BackendOption.appleSpeechAnalyzer.incompatibilityReason(currentOSVersion: Self.macOS25)
+        #expect(reason != nil)
+        #expect(reason?.contains("macOS 26") == true)
+    }
+
+    @Test(
+        "baseline backends are compatible on supported macOS 14 versions",
+        arguments: [
+            BackendOption.parakeetMultilingual,
+            BackendOption.parakeetUnified,
+            BackendOption.parakeetEnglish,
+            BackendOption.whisperTiny,
+            BackendOption.senseVoiceSmall,
+        ]
+    )
+    func baselineBackendsSupportMacOS14(_ option: BackendOption) {
+        #expect(
+            option.incompatibilityReason(currentOSVersion: Self.macOS14) == nil,
+            "\(option.label) requires only the app's macOS 14.2 minimum"
+        )
+    }
+
+    @Test("model OS guard respects the app's macOS 14.2 minimum")
+    func modelOSGuardIncludesMinorVersion() {
+        let beforeMinimum = OperatingSystemVersion(majorVersion: 14, minorVersion: 1, patchVersion: 9)
+        let minimum = OperatingSystemVersion(majorVersion: 14, minorVersion: 2, patchVersion: 0)
+        #expect(!BackendOption.parakeetUnified.isCompatible(currentOSVersion: beforeMinimum))
+        #expect(BackendOption.parakeetUnified.isCompatible(currentOSVersion: minimum))
+        #expect(BackendOption.parakeetUnified.incompatibilityReason(currentOSVersion: beforeMinimum)?.contains("macOS 14.2 or later") == true)
+    }
+
+    @Test("onboarding and model library share the same OS guard", arguments: BackendOption.onboarding)
+    func onboardingUsesSharedOSGuard(_ option: BackendOption) {
+        for version in [Self.macOS14, Self.macOS15, Self.macOS26] {
+            let supported = option.isCompatible(currentOSVersion: version)
+            #expect((option.incompatibilityReason(currentOSVersion: version) == nil) == supported)
+            let restored = BackendOption.resolvedOnboardingBackend(option, currentOSVersion: version)
+            #expect(restored == (supported ? option : .onboardingDefault))
+            #expect(restored.isCompatible(currentOSVersion: version))
+        }
+    }
+
+    @Test("onboarding rejects restored models outside its curated catalog")
+    func onboardingRejectsNonOnboardingModels() {
+        #expect(BackendOption.resolvedOnboardingBackend(.gemma4E2BLiteRT, currentOSVersion: Self.macOS15) == .onboardingDefault)
+        #expect(BackendOption.resolvedOnboardingBackend(.appleSpeechAnalyzer, currentOSVersion: Self.macOS26) == .onboardingDefault)
     }
 
     @Test("model descriptions explain usage without implementation jargon")
@@ -215,15 +294,21 @@ struct BackendOptionTests {
         #expect(BackendOption.cohereTranscribe.model.contains("cohere"))
     }
 
-    @Test("Indic ASR uses indicasr backend")
-    func indicASRBackend() {
-        #expect(BackendOption.indicASR.backend == "indicasr")
-        #expect(BackendOption.indicASR.model.contains("indic-conformer"))
+    @Test("Bodhan checkpoints have distinct production catalog entries and output modes")
+    func bodhanCheckpoints() {
+        #expect(BackendOption.bodhanFamily.contains(.bodhanCore))
+        #expect(BackendOption.bodhanFamily.contains(.bodhanFlex))
+        #expect(BackendOption.bodhanCore.model != BackendOption.bodhanFlex.model)
+        #expect(BodhanModel(rawValue: BackendOption.bodhanCore.model) == .core)
+        #expect(BodhanModel(rawValue: BackendOption.bodhanFlex.model) == .flex)
+        #expect(!BodhanModel.core.mixedScript)
+        #expect(BodhanModel.flex.mixedScript)
+        #expect(BodhanModel.core.cacheDirectory != BodhanModel.flex.cacheDirectory)
     }
 
-    @Test("Indic ASR chunk merge deduplicates Indic overlap")
-    func indicASRChunkMergeDeduplicatesIndicOverlap() {
-        let result = IndicASRTranscriptMerger.mergeOverlappingTranscripts([
+    @Test("Bodhan chunk merge deduplicates Indic overlap")
+    func bodhanChunkMergeDeduplicatesIndicOverlap() {
+        let result = BodhanTranscriptMerger.mergeOverlappingTranscripts([
             "मैं हिंदी में बोल सकता हूँ",
             "बोल सकता हूँ और तमिल भी",
             "தமிழ் கூட பேச முடியும்",
@@ -233,47 +318,14 @@ struct BackendOptionTests {
         #expect(result == "मैं हिंदी में बोल सकता हूँ और तमिल भी தமிழ் கூட பேச முடியும் இப்போ")
     }
 
-    @Test("Indic ASR chunk merge preserves non-overlapping text")
-    func indicASRChunkMergePreservesNonOverlappingText() {
-        let result = IndicASRTranscriptMerger.mergeOverlappingTranscripts([
+    @Test("Bodhan chunk merge preserves non-overlapping text")
+    func bodhanChunkMergePreservesNonOverlappingText() {
+        let result = BodhanTranscriptMerger.mergeOverlappingTranscripts([
             "நான் தமிழ் பேசுகிறேன்",
             "यह नया वाक्य है",
         ])
 
         #expect(result == "நான் தமிழ் பேசுகிறேன் यह नया वाक्य है")
-    }
-
-    @Test("Indic ASR mel transpose uses row-major vDSP parameter order")
-    func indicASRMelTransposeParameterOrder() {
-        let rows = 2
-        let columns = 3
-        let frameMajor: [Float] = [
-            1, 2, 3,
-            4, 5, 6,
-        ]
-        let expectedColumnMajorTranspose: [Float] = [
-            1, 4,
-            2, 5,
-            3, 6,
-        ]
-
-        var actual = [Float](repeating: 0, count: frameMajor.count)
-        vDSP_mtrans(
-            frameMajor, 1,
-            &actual, 1,
-            vDSP_Length(columns),
-            vDSP_Length(rows)
-        )
-        #expect(actual == expectedColumnMajorTranspose)
-
-        var swapped = [Float](repeating: 0, count: frameMajor.count)
-        vDSP_mtrans(
-            frameMajor, 1,
-            &swapped, 1,
-            vDSP_Length(rows),
-            vDSP_Length(columns)
-        )
-        #expect(swapped != expectedColumnMajorTranspose)
     }
 
     @Test("SenseVoice uses the native speech model")
@@ -329,13 +381,6 @@ struct BackendOptionTests {
     func streamingDictationBackends() {
         let streaming = BackendOption.all.filter(\.isStreamingDictationBackend)
         #expect(streaming == [.nemotron35Multilingual])
-    }
-
-    @Test("OpenAI never uses local streaming")
-    func providerStreamingRouting() {
-        #expect(DictationProvider.local.usesStreamingBackend(.nemotron35Multilingual))
-        #expect(!DictationProvider.openAI.usesStreamingBackend(.nemotron35Multilingual))
-        #expect(!DictationProvider.local.usesStreamingBackend(.parakeetMultilingual))
     }
 
     @Test("Hosted dictation fallback excludes streaming backends")
@@ -499,11 +544,12 @@ struct PostProcessorOptionTests {
         #expect(option.logoResourceName == "superwhisper-logo")
     }
 
-    @Test("S1-mini is unavailable for Indic ASR only")
-    func s1MiniIndicASRCompatibility() {
-        #expect(!PostProcessorOption.s1Mini.isCompatible(with: .indicASR))
+    @Test("S1-mini is unavailable for Bodhan only")
+    func s1MiniBodhanCompatibility() {
+        #expect(!PostProcessorOption.s1Mini.isCompatible(with: .bodhanFlex))
+        #expect(!PostProcessorOption.s1Mini.isCompatible(with: .bodhanCore))
         #expect(PostProcessorOption.s1Mini.isCompatible(with: .parakeetMultilingual))
-        #expect(PostProcessorOption.finetunedV3.isCompatible(with: .indicASR))
+        #expect(PostProcessorOption.finetunedV3.isCompatible(with: .bodhanFlex))
     }
 
     @Test("default option is first and matches config default")
@@ -653,6 +699,7 @@ struct SummaryModelPresetTests {
     func openAIModels() {
         #expect(!SummaryModelPreset.openAIModels.isEmpty)
         #expect(SummaryModelPreset.openAIModels.first?.id == "gpt-5.4-mini")
+        #expect(SummaryModelPreset.openAIModels.contains { $0.id == "gpt-6-astra" })
         #expect(SummaryModelPreset.openAIModels.contains { $0.id == "gpt-5.6-sol" })
         #expect(SummaryModelPreset.openAIModels.contains { $0.id == "gpt-5.6-terra" })
         #expect(SummaryModelPreset.openAIModels.contains { $0.id == "gpt-5.6-luna" })
@@ -668,6 +715,7 @@ struct SummaryModelPresetTests {
     func chatGPTModels() {
         #expect(!SummaryModelPreset.chatGPTModels.isEmpty)
         #expect(SummaryModelPreset.chatGPTModels.first?.id == "gpt-5.4-mini")
+        #expect(SummaryModelPreset.chatGPTModels.contains { $0.id == "gpt-6-astra" })
         #expect(SummaryModelPreset.chatGPTModels.contains { $0.id == "gpt-5.6-sol" })
         #expect(SummaryModelPreset.chatGPTModels.contains { $0.id == "gpt-5.6-terra" })
         #expect(SummaryModelPreset.chatGPTModels.contains { $0.id == "gpt-5.6-luna" })
@@ -690,6 +738,7 @@ struct SummaryModelPresetTests {
         #expect(presets.first?.label.contains("default") == true)
         #expect(Set(presets.map(\.id)) == Set([
             "gpt-5.4-mini",
+            "gpt-6-astra",
             "gpt-5.6-sol",
             "gpt-5.6-terra",
             "gpt-5.6-luna",
@@ -700,35 +749,54 @@ struct SummaryModelPresetTests {
         #expect(TranscriptCleanupClient.configuredModel(for: backend, config: AppConfig()) == "gpt-5.6-terra")
     }
 
-    @Test("OpenRouter presets have valid model IDs")
+    @Test("OpenRouter presets default to the provider-managed free router")
     func openRouterModels() {
         #expect(!SummaryModelPreset.openRouterModels.isEmpty)
+        #expect(SummaryModelPreset.openRouterModels.first?.id == "openrouter/free")
+
         for preset in SummaryModelPreset.openRouterModels {
             #expect(!preset.id.isEmpty)
             #expect(!preset.label.isEmpty)
         }
+
+        let backend = TranscriptCleanupBackendOption.hosted(.openRouter)
+        #expect(TranscriptCleanupClient.defaultModel(for: backend) == "openrouter/free")
+        #expect(TranscriptCleanupClient.configuredModel(for: backend, config: AppConfig()) == "openrouter/free")
     }
 
-    @Test("Computer use planner presets use GPT-5.6 Sol by default")
-    func computerUsePlannerModels() {
-        #expect(SummaryModelPreset.computerUsePlannerModels.first?.id == "gpt-5.6-sol")
-        #expect(SummaryModelPreset.computerUsePlannerModels.contains { $0.id == "gpt-5.6-terra" })
-        #expect(SummaryModelPreset.computerUsePlannerModels.contains { $0.id == "gpt-5.6-luna" })
-        #expect(SummaryModelPreset.computerUsePlannerModels.contains { $0.id == "gpt-5.4-mini" })
-        #expect(!SummaryModelPreset.computerUsePlannerModels.contains { $0.id == "gpt-5.5" })
-        for preset in SummaryModelPreset.computerUsePlannerModels {
-            #expect(!preset.id.isEmpty)
-            #expect(!preset.label.isEmpty)
-        }
-    }
-
-    @Test("GPT-5.6 family uses fixed High reasoning")
-    func gpt56ReasoningEffort() {
-        #expect(SummaryModelPreset.reasoningEffort(for: "gpt-5.6-sol") == "high")
-        #expect(SummaryModelPreset.reasoningEffort(for: "gpt-5.6-terra") == "high")
-        #expect(SummaryModelPreset.reasoningEffort(for: "gpt-5.6-luna") == "high")
-        #expect(SummaryModelPreset.reasoningEffort(for: "gpt-5.4-mini") == nil)
-        #expect(SummaryModelPreset.reasoningEffort(for: "gpt-5.5") == nil)
+    @Test("reasoning models expose only their supported efforts")
+    func reasoningEffort() {
+        #expect(ReasoningEffortPolicy.apiValue(for: "gpt-6-astra") == "high")
+        #expect(ReasoningEffortPolicy.apiValue(for: "gpt-5.6-sol") == "high")
+        #expect(ReasoningEffortPolicy.apiValue(for: "gpt-5.6-terra") == "high")
+        #expect(ReasoningEffortPolicy.apiValue(for: "gpt-5.6-luna") == "high")
+        #expect(ReasoningEffortPolicy.apiValue(for: "gpt-5.4-mini") == "none")
+        #expect(ReasoningEffortPolicy.apiValue(for: "gpt-5.4") == "none")
+        #expect(ReasoningEffortPolicy.apiValue(for: "gpt-5.4-pro") == "medium")
+        #expect(ReasoningEffortPolicy.apiValue(for: "gpt-5-mini") == "medium")
+        #expect(ReasoningEffortPolicy.apiValue(for: "gpt-5.5") == nil)
+        #expect(
+            ReasoningEffortPolicy.apiValue(for: "gpt-6-astra", preferred: .xhigh)
+                == "xhigh"
+        )
+        #expect(
+            ReasoningEffortPolicy.selectableEfforts(for: "gpt-6-astra")
+                == [.low, .medium, .high, .xhigh, .max]
+        )
+        #expect(
+            ReasoningEffortPolicy.selectableEfforts(for: "gpt-5.4-mini")
+                == [.off, .low, .medium, .high, .xhigh]
+        )
+        #expect(
+            ReasoningEffortPolicy.selectableEfforts(for: "gpt-5.6-sol")
+                == [.off, .low, .medium, .high, .xhigh, .max]
+        )
+        #expect(
+            ReasoningEffortPolicy.selectableEfforts(for: "gpt-5-mini")
+                == [.minimal, .low, .medium, .high]
+        )
+        #expect(ReasoningEffortPolicy.apiValue(for: "gpt-5.4-mini", preferred: .max) == "none")
+        #expect(ReasoningEffortPolicy.apiValue(for: "gpt-6-astra", preferred: .off) == "high")
     }
 
     @Test("model menu includes custom configured model")
@@ -885,12 +953,13 @@ struct AppConfigTests {
         #expect(config.sttModel == BackendOption.parakeetUnified.model)
         #expect(config.meetingInputDeviceUID == nil)
         #expect(config.cohereLanguage == CohereTranscribeLanguage.defaultLanguage.rawValue)
-        #expect(config.indicASRLanguage == IndicASRLanguage.defaultLanguage.rawValue)
+        #expect(config.bodhanLanguage == BodhanLanguage.defaultLanguage.rawValue)
         #expect(config.whisperLanguage == WhisperKitLanguage.defaultLanguage.rawValue)
         #expect(config.appleSpeechLanguage == AppleSpeechLanguageOption.systemIdentifier)
         #expect(config.meetingTranscriptionBackend == BackendOption.whisper.backend)
         #expect(config.meetingTranscriptionModel == BackendOption.whisper.model)
         #expect(config.meetingSummaryBackend == "chatgpt")
+        #expect(config.meetingSummaryReasoningEffort == nil)
         #expect(config.defaultMeetingTemplateID == MeetingTemplates.autoID)
         #expect(config.meetingRecordingSavePolicy == .never)
         #expect(config.showScheduledMeetingNotifications == true)
@@ -913,6 +982,7 @@ struct AppConfigTests {
         #expect(config.postProcessorBackend == TranscriptCleanupBackendOption.local.backend)
         #expect(config.postProcessorChatGPTModel.isEmpty)
         #expect(config.postProcessorOpenAIModel.isEmpty)
+        #expect(config.transcriptCleanupReasoningEffort == nil)
         #expect(config.postProcessorOpenRouterModel.isEmpty)
         #expect(config.postProcessorOllamaModel.isEmpty)
         #expect(config.postProcessorLMStudioModel.isEmpty)
@@ -920,19 +990,9 @@ struct AppConfigTests {
         #expect(config.activeTranscriptCleanupPromptId == TranscriptCleanupPrompts.defaultID)
         #expect(config.customTranscriptCleanupPrompts.isEmpty)
         #expect(config.enableScreenContext == false)
-        #expect(config.enableDictationOCRContext == false)
         #expect(config.enableLiveStreamingPartials == false)
         #expect(config.resolvedMeetingLiveCaptionBackend == .parakeetRealtimeEOU)
         #expect(config.showMeetingTranscriptOnIndicatorHover == true)
-        #expect(config.dictationHotkey == .default)
-        #expect(config.computerUseHotkey == .computerUseDefault)
-        #expect(config.enableComputerUseHotkey == false)
-        #expect(config.computerUseHotkeyDefaultDisabledMigrationApplied == true)
-        #expect(config.enableComputerUsePlanner == true)
-        #expect(config.computerUsePlannerModel.isEmpty)
-        #expect(config.computerUseTimeoutSeconds == 120)
-        #expect(config.hotkeyTriggerThresholdMS == HotkeyTriggerTiming.defaultThresholdMilliseconds)
-        #expect(config.computerUseHotkeyTriggerThresholdMS == HotkeyTriggerTiming.defaultThresholdMilliseconds)
         #expect(config.meetingRecordingHotkeyTriggerThresholdMS == HotkeyTriggerTiming.defaultMeetingThresholdMilliseconds)
         #expect(config.showFloatingIndicator == true)
         #expect(config.indicatorAnchor == .midTrailing)
@@ -949,12 +1009,9 @@ struct AppConfigTests {
         #expect(config.resolvedAutoExportMarkdownContent == .notes)
         #expect(config.autoExportFileFormat == MeetingAutoExportFileFormat.markdown.rawValue)
         #expect(config.resolvedAutoExportFileFormat == .markdown)
-        #expect(config.contributionPromptNextWordCount == nil)
         #expect(config.contributionPromptNextMeetingCount == nil)
         #expect(config.contributionGitHubStarClicked == false)
         #expect(config.contributionBuyMeCoffeeClicked == false)
-        #expect(config.contributionTweetClicked == false)
-        #expect(config.contributionLinkedInClicked == false)
         #expect(config.upcomingMeetingsDayCount == UpcomingMeetingsWindow.defaultDayCount)
         #expect(config.hiddenCalendarEventSourceHints.isEmpty)
     }
@@ -1095,7 +1152,7 @@ struct AppConfigTests {
         config.hasCompletedOnboarding = true
         config.onboardingUseCase = OnboardingUseCase.dictationAndMeetings.rawValue
         config.cohereLanguage = CohereTranscribeLanguage.german.rawValue
-        config.indicASRLanguage = IndicASRLanguage.tamil.rawValue
+        config.bodhanLanguage = BodhanLanguage.tamil.rawValue
         config.appleSpeechLanguage = "en-GB"
         config.defaultMeetingTemplateID = "weekly-team-meeting"
         config.meetingRecordingSavePolicy = .always
@@ -1119,13 +1176,6 @@ struct AppConfigTests {
         config.scheduledMeetingNotificationLeadTime = .threeMinutes
         config.showMeetingDetectionNotification = false
         config.mutedMeetingDetectionAppBundleIDs = ["com.google.Chrome", "com.tinyspeck.slackmacgap"]
-        config.computerUseHotkey = HotkeyConfig(keyCode: 62, label: "Right Ctrl")
-        config.enableComputerUseHotkey = false
-        config.enableComputerUsePlanner = false
-        config.computerUsePlannerModel = "gpt-5.4"
-        config.computerUseTimeoutSeconds = 180
-        config.hotkeyTriggerThresholdMS = 125
-        config.computerUseHotkeyTriggerThresholdMS = 350
         config.meetingRecordingHotkeyTriggerThresholdMS = 900
         config.lmStudioURL = "http://localhost:1234"
         config.lmStudioModel = "local-model"
@@ -1133,10 +1183,12 @@ struct AppConfigTests {
         config.customLLMAPIKey = "custom-key"
         config.customLLMModel = "custom-model"
         config.customLLMFormat = "anthropic"
+        config.meetingSummaryReasoningEffort = .xhigh
         config.meetingSummaryRetryCount = 5
         config.postProcessorBackend = TranscriptCleanupBackendOption.hosted(.openRouter).backend
         config.postProcessorChatGPTModel = "gpt-5.4-mini"
         config.postProcessorOpenAIModel = "gpt-5.4-mini"
+        config.transcriptCleanupReasoningEffort = .low
         config.postProcessorOpenRouterModel = "openrouter/test-model"
         config.postProcessorOllamaModel = "qwen3.5"
         config.postProcessorLMStudioModel = "lmstudio-loaded"
@@ -1151,18 +1203,14 @@ struct AppConfigTests {
         ]
         config.postProcessorSystemPrompt = "Preserve labels and quotes."
         config.enableScreenContext = true
-        config.enableDictationOCRContext = true
         config.enableLiveStreamingPartials = true
         config.meetingInputDeviceUID = "meeting-mic"
         config.enableAutomaticDiagnosticIssuePrompts = true
         config.meetingLiveCaptionBackend = MeetingLiveCaptionBackend.nemotron35.rawValue
         config.showMeetingTranscriptOnIndicatorHover = false
-        config.contributionPromptNextWordCount = 31_000
         config.contributionPromptNextMeetingCount = 75
         config.contributionGitHubStarClicked = true
         config.contributionBuyMeCoffeeClicked = false
-        config.contributionTweetClicked = true
-        config.contributionLinkedInClicked = false
         config.upcomingMeetingsDayCount = UpcomingMeetingsWindow.today.dayCount
         config.hiddenCalendarEventSourceHints = [
             "ek-event-1": UnifiedCalendarEvent.CalendarSource.eventKit.rawValue,
@@ -1177,7 +1225,7 @@ struct AppConfigTests {
         #expect(decoded.hasCompletedOnboarding == true)
         #expect(decoded.resolvedOnboardingUseCase == .dictationAndMeetings)
         #expect(decoded.cohereLanguage == CohereTranscribeLanguage.german.rawValue)
-        #expect(decoded.indicASRLanguage == IndicASRLanguage.tamil.rawValue)
+        #expect(decoded.bodhanLanguage == BodhanLanguage.tamil.rawValue)
         #expect(decoded.appleSpeechLanguage == "en-GB")
         #expect(decoded.defaultMeetingTemplateID == "weekly-team-meeting")
         #expect(decoded.meetingRecordingSavePolicy == .always)
@@ -1201,13 +1249,6 @@ struct AppConfigTests {
         #expect(decoded.mutedMeetingDetectionAppBundleIDs == ["com.google.Chrome", "com.tinyspeck.slackmacgap"])
         #expect(decoded.meetingTranscriptionBackend == config.meetingTranscriptionBackend)
         #expect(decoded.indicatorAnchor == config.indicatorAnchor)
-        #expect(decoded.computerUseHotkey == HotkeyConfig(keyCode: 62, label: "Right Ctrl"))
-        #expect(decoded.enableComputerUseHotkey == false)
-        #expect(decoded.enableComputerUsePlanner == false)
-        #expect(decoded.computerUsePlannerModel == "gpt-5.4")
-        #expect(decoded.computerUseTimeoutSeconds == 180)
-        #expect(decoded.hotkeyTriggerThresholdMS == 125)
-        #expect(decoded.computerUseHotkeyTriggerThresholdMS == 350)
         #expect(decoded.meetingRecordingHotkeyTriggerThresholdMS == 900)
         #expect(decoded.lmStudioURL == "http://localhost:1234")
         #expect(decoded.lmStudioModel == "local-model")
@@ -1215,10 +1256,12 @@ struct AppConfigTests {
         #expect(decoded.customLLMAPIKey == "custom-key")
         #expect(decoded.customLLMModel == "custom-model")
         #expect(decoded.customLLMFormat == "anthropic")
+        #expect(decoded.meetingSummaryReasoningEffort == .xhigh)
         #expect(decoded.meetingSummaryRetryCount == 5)
         #expect(decoded.postProcessorBackend == "openrouter")
         #expect(decoded.postProcessorChatGPTModel == "gpt-5.4-mini")
         #expect(decoded.postProcessorOpenAIModel == "gpt-5.4-mini")
+        #expect(decoded.transcriptCleanupReasoningEffort == .low)
         #expect(decoded.postProcessorOpenRouterModel == "openrouter/test-model")
         #expect(decoded.postProcessorOllamaModel == "qwen3.5")
         #expect(decoded.postProcessorLMStudioModel == "lmstudio-loaded")
@@ -1228,18 +1271,14 @@ struct AppConfigTests {
         #expect(decoded.customTranscriptCleanupPrompts.first?.name == "Strict Dictation")
         #expect(decoded.postProcessorSystemPrompt == "Preserve labels and quotes.")
         #expect(decoded.enableScreenContext == true)
-        #expect(decoded.enableDictationOCRContext == true)
         #expect(decoded.enableLiveStreamingPartials == true)
         #expect(decoded.meetingInputDeviceUID == "meeting-mic")
         #expect(decoded.enableAutomaticDiagnosticIssuePrompts == true)
         #expect(decoded.resolvedMeetingLiveCaptionBackend == .nemotron35)
         #expect(decoded.showMeetingTranscriptOnIndicatorHover == false)
-        #expect(decoded.contributionPromptNextWordCount == 31_000)
         #expect(decoded.contributionPromptNextMeetingCount == 75)
         #expect(decoded.contributionGitHubStarClicked == true)
         #expect(decoded.contributionBuyMeCoffeeClicked == false)
-        #expect(decoded.contributionTweetClicked == true)
-        #expect(decoded.contributionLinkedInClicked == false)
         #expect(decoded.upcomingMeetingsDayCount == UpcomingMeetingsWindow.today.dayCount)
         #expect(decoded.hiddenCalendarEventSourceHints == config.hiddenCalendarEventSourceHints)
     }
@@ -1251,11 +1290,32 @@ struct AppConfigTests {
         #expect(decoded.enableAutomaticDiagnosticIssuePrompts == false)
     }
 
+    @Test("Reasoning preferences use model defaults when absent or invalid")
+    func reasoningPreferencesUseModelDefaults() throws {
+        let missing = try JSONDecoder().decode(AppConfig.self, from: Data("{}".utf8))
+        let invalid = try JSONDecoder().decode(
+            AppConfig.self,
+            from: Data("""
+            {
+              "computer_use_reasoning_effort": "unsupported",
+              "meeting_summary_reasoning_effort": "unsupported",
+              "transcript_cleanup_reasoning_effort": "unsupported"
+            }
+            """.utf8)
+        )
+
+        #expect(missing.meetingSummaryReasoningEffort == nil)
+        #expect(missing.transcriptCleanupReasoningEffort == nil)
+        #expect(invalid.meetingSummaryReasoningEffort == nil)
+        #expect(invalid.transcriptCleanupReasoningEffort == nil)
+    }
+
     @Test("JSON coding keys use snake_case")
     func snakeCaseKeys() throws {
         var config = AppConfig()
-        config.contributionPromptNextWordCount = 1_000
         config.contributionPromptNextMeetingCount = 25
+        config.meetingSummaryReasoningEffort = .off
+        config.transcriptCleanupReasoningEffort = .low
         let data = try JSONEncoder().encode(config)
         let json = try JSONSerialization.jsonObject(with: data) as! [String: Any]
 
@@ -1266,10 +1326,13 @@ struct AppConfigTests {
         #expect(json["computer_use_hotkey_default_disabled_migration_applied"] != nil)
         #expect(json["enable_computer_use_planner"] != nil)
         #expect(json["computer_use_planner_model"] != nil)
+        #expect(json["computer_use_reasoning_effort"] != nil)
         #expect(json["computer_use_timeout_seconds"] != nil)
         #expect(json["hotkey_trigger_threshold_ms"] != nil)
         #expect(json["computer_use_hotkey_trigger_threshold_ms"] != nil)
         #expect(json["meeting_recording_hotkey_trigger_threshold_ms"] != nil)
+        #expect(json["meeting_summary_reasoning_effort"] != nil)
+        #expect(json["transcript_cleanup_reasoning_effort"] != nil)
         #expect(json["cohere_language"] != nil)
         #expect(json["indic_asr_language"] != nil)
         #expect(json["whisper_language"] != nil)
@@ -1278,6 +1341,7 @@ struct AppConfigTests {
         #expect(json["indicator_anchor"] != nil)
         #expect(json["has_completed_onboarding"] != nil)
         #expect(json["onboarding_use_case"] != nil)
+        #expect(json["enable_push_to_talk"] != nil)
         #expect(json["user_name"] != nil)
         #expect(json["default_meeting_template_id"] != nil)
         #expect(json["meeting_recording_save_policy"] != nil)
@@ -1333,7 +1397,6 @@ struct AppConfigTests {
         let config = try JSONDecoder().decode(AppConfig.self, from: data)
 
         #expect(config.enableScreenContext == true)
-        #expect(config.enableDictationOCRContext == true)
     }
 
     @Test("decodes with missing fields using defaults")
@@ -1345,7 +1408,7 @@ struct AppConfigTests {
         #expect(config.openAIAPIKey.isEmpty)
         #expect(config.showFloatingIndicator == true)
         #expect(config.resolvedCohereLanguage == .english)
-        #expect(config.resolvedIndicASRLanguage == .defaultLanguage)
+        #expect(config.resolvedBodhanLanguage == .defaultLanguage)
         #expect(config.resolvedWhisperLanguage == .auto)
         #expect(config.resolvedAppleSpeechLanguage == AppleSpeechLanguageOption.systemIdentifier)
         #expect(config.hasCompletedOnboarding == false)
@@ -1360,14 +1423,6 @@ struct AppConfigTests {
         #expect(config.showMeetingDetectionNotification == true)
         #expect(config.mutedMeetingDetectionAppBundleIDs.isEmpty)
         #expect(config.customMeetingTemplates.isEmpty)
-        #expect(config.computerUseHotkey == .computerUseDefault)
-        #expect(config.enableComputerUseHotkey == false)
-        #expect(config.computerUseHotkeyDefaultDisabledMigrationApplied == true)
-        #expect(config.enableComputerUsePlanner == true)
-        #expect(config.computerUsePlannerModel.isEmpty)
-        #expect(config.computerUseTimeoutSeconds == 120)
-        #expect(config.hotkeyTriggerThresholdMS == HotkeyTriggerTiming.defaultThresholdMilliseconds)
-        #expect(config.computerUseHotkeyTriggerThresholdMS == HotkeyTriggerTiming.defaultThresholdMilliseconds)
         #expect(config.meetingRecordingHotkeyTriggerThresholdMS == HotkeyTriggerTiming.defaultMeetingThresholdMilliseconds)
         #expect(config.meetingHookEnabled == false)
         #expect(config.meetingHookPath.isEmpty)
@@ -1389,7 +1444,6 @@ struct AppConfigTests {
         #expect(config.activeTranscriptCleanupPromptId == TranscriptCleanupPrompts.defaultID)
         #expect(config.customTranscriptCleanupPrompts.isEmpty)
         #expect(config.enableScreenContext == false)
-        #expect(config.enableDictationOCRContext == false)
         #expect(config.enableLiveStreamingPartials == false)
         #expect(config.resolvedMeetingLiveCaptionBackend == .parakeetRealtimeEOU)
         #expect(config.showMeetingTranscriptOnIndicatorHover == true)
@@ -1487,77 +1541,6 @@ struct AppConfigTests {
         #expect(prompt.contains("Selected text: Mercury"))
         #expect(prompt.contains("OCR screen text: "))
         #expect(prompt.contains("tail"))
-    }
-
-    @Test("Quill context requires the original app and document identity")
-    func quilContextRequiresBoundDocumentIdentity() {
-        let matching = DictationContext(
-            appName: "Chrome",
-            bundleID: "com.google.Chrome",
-            documentContext: "Draft",
-            selectedText: "Selection",
-            url: nil,
-            documentIdentifier: "https://docs.google.com/document/d/original",
-            ocrText: ""
-        )
-        let unidentified = DictationContext(
-            appName: matching.appName,
-            bundleID: matching.bundleID,
-            documentContext: matching.documentContext,
-            selectedText: matching.selectedText,
-            url: matching.url,
-            documentIdentifier: nil,
-            ocrText: matching.ocrText
-        )
-        let otherDocument = DictationContext(
-            appName: matching.appName,
-            bundleID: matching.bundleID,
-            documentContext: matching.documentContext,
-            selectedText: matching.selectedText,
-            url: matching.url,
-            documentIdentifier: "https://docs.google.com/document/d/other",
-            ocrText: matching.ocrText
-        )
-        let emptyIdentity = DictationContext(
-            appName: matching.appName,
-            bundleID: "",
-            documentContext: matching.documentContext,
-            selectedText: matching.selectedText,
-            url: matching.url,
-            documentIdentifier: "",
-            ocrText: matching.ocrText
-        )
-
-        #expect(DictationContextCapture.matchesQuilSelection(
-            matching,
-            bundleID: "com.google.Chrome",
-            documentIdentifier: "https://docs.google.com/document/d/original"
-        ))
-        #expect(!DictationContextCapture.matchesQuilSelection(
-            unidentified,
-            bundleID: "com.google.Chrome",
-            documentIdentifier: "https://docs.google.com/document/d/original"
-        ))
-        #expect(!DictationContextCapture.matchesQuilSelection(
-            otherDocument,
-            bundleID: "com.google.Chrome",
-            documentIdentifier: "https://docs.google.com/document/d/original"
-        ))
-        #expect(!DictationContextCapture.matchesQuilSelection(
-            matching,
-            bundleID: "com.apple.Safari",
-            documentIdentifier: "https://docs.google.com/document/d/original"
-        ))
-        #expect(!DictationContextCapture.matchesQuilSelection(
-            emptyIdentity,
-            bundleID: "",
-            documentIdentifier: ""
-        ))
-        #expect(!DictationContextCapture.matchesQuilSelection(
-            matching,
-            bundleID: "   ",
-            documentIdentifier: "https://docs.google.com/document/d/original"
-        ))
     }
 
     @Test("screen OCR binds to the focused accessibility window")
@@ -1703,7 +1686,6 @@ struct AppConfigTests {
         """
         let config = try JSONDecoder().decode(AppConfig.self, from: Data(json.utf8))
 
-        #expect(config.computerUsePlannerModel == "gpt-5.6-sol")
         #expect(config.openAIModel == "gpt-5.6-sol")
         #expect(config.chatGPTModel == "gpt-5.6-sol")
         #expect(config.postProcessorOpenAIModel == "gpt-5.6-sol")
@@ -1806,55 +1788,6 @@ struct AppConfigTests {
         #expect(!config.resolvedOnboardingUseCase.includesMeetings)
     }
 
-    @Test("computer use default avoids existing right command dictation hotkey")
-    func computerUseDefaultAvoidsExistingRightCommandDictationHotkey() throws {
-        let json = """
-        {
-          "dictation_hotkey": {
-            "keyCode": 54,
-            "label": "Right Cmd"
-          }
-        }
-        """
-
-        let config = try JSONDecoder().decode(AppConfig.self, from: Data(json.utf8))
-
-        #expect(config.dictationHotkey == HotkeyConfig(keyCode: 54, label: "Right Cmd"))
-        #expect(config.computerUseHotkey == .default)
-        #expect(config.enableComputerUseHotkey == false)
-    }
-
-    @Test("legacy computer use hotkey enabled config is disabled once")
-    func legacyComputerUseHotkeyEnabledConfigIsDisabledOnce() throws {
-        let json = """
-        {
-          "enable_computer_use_hotkey": true,
-          "enable_computer_use_planner": true
-        }
-        """
-
-        let config = try JSONDecoder().decode(AppConfig.self, from: Data(json.utf8))
-
-        #expect(config.enableComputerUseHotkey == false)
-        #expect(config.computerUseHotkeyDefaultDisabledMigrationApplied == true)
-        #expect(config.enableComputerUsePlanner == true)
-    }
-
-    @Test("computer use hotkey remains enabled after migration is applied")
-    func computerUseHotkeyRemainsEnabledAfterMigrationIsApplied() throws {
-        let json = """
-        {
-          "enable_computer_use_hotkey": true,
-          "computer_use_hotkey_default_disabled_migration_applied": true
-        }
-        """
-
-        let config = try JSONDecoder().decode(AppConfig.self, from: Data(json.utf8))
-
-        #expect(config.enableComputerUseHotkey == true)
-        #expect(config.computerUseHotkeyDefaultDisabledMigrationApplied == true)
-    }
-
     @Test("unsupported onboarding use case falls back to dictation")
     func unsupportedOnboardingUseCaseFallsBackToDictation() throws {
         let json = """
@@ -1951,14 +1884,12 @@ struct AppConfigTests {
           "stt_model": "tiny.en",
           "meeting_transcription_backend": "whisper",
           "meeting_transcription_model": "small.en",
-          "whisper_model": "medium.en"
         }
         """
         let config = try JSONDecoder().decode(AppConfig.self, from: Data(json.utf8))
 
         #expect(config.sttModel == BackendOption.whisperTinyEnglish.model)
         #expect(config.meetingTranscriptionModel == BackendOption.whisperSmallEnglish.model)
-        #expect(config.whisperModel == BackendOption.whisperMediumEnglish.model)
     }
 
     @Test("indicator anchor falls back to custom when legacy origin exists")
@@ -2619,17 +2550,6 @@ struct MeetingTemplateResolutionTests {
     }
 }
 
-@Suite("DictationState")
-struct DictationStateTests {
-    @Test("raw values")
-    func rawValues() {
-        #expect(DictationState.idle.rawValue == "idle")
-        #expect(DictationState.preparing.rawValue == "preparing")
-        #expect(DictationState.recording.rawValue == "recording")
-        #expect(DictationState.transcribing.rawValue == "transcribing")
-    }
-}
-
 @Suite("CGPointCodable")
 struct CGPointCodableTests {
 
@@ -2679,84 +2599,6 @@ struct HotkeyConfigTests {
         #expect(config.label == "Right Option")
     }
 
-    @Test("computer use default is Right Cmd")
-    func computerUseDefaultConfig() {
-        let config = HotkeyConfig.computerUseDefault
-        #expect(config.keyCode == 54)
-        #expect(config.label == "Right Cmd")
-    }
-
-    @Test("computer use fallback avoids dictation hotkey")
-    func computerUseFallbackAvoidsDictationHotkey() {
-        #expect(HotkeyConfig.computerUseDefault(avoiding: .default) == .computerUseDefault)
-        #expect(HotkeyConfig.computerUseDefault(avoiding: .computerUseDefault) == .default)
-    }
-
-    @Test("hotkey policy blocks active duplicate shortcuts")
-    func hotkeyPolicyBlocksActiveDuplicateShortcuts() {
-        #expect(ShortcutHotkeyPolicy.validateDictationHotkey(
-            .computerUseDefault,
-            computerUseHotkey: .computerUseDefault,
-            isComputerUseEnabled: true
-        ) == .conflict(message: ShortcutHotkeyPolicy.conflictMessage))
-
-        #expect(ShortcutHotkeyPolicy.validateDictationHotkey(
-            .computerUseDefault,
-            computerUseHotkey: .computerUseDefault,
-            isComputerUseEnabled: false
-        ) == .updated)
-
-        #expect(ShortcutHotkeyPolicy.validateComputerUseHotkey(
-            .default,
-            dictationHotkey: .default,
-            isComputerUseEnabled: true
-        ) == .conflict(message: ShortcutHotkeyPolicy.conflictMessage))
-
-        #expect(ShortcutHotkeyPolicy.validateComputerUseHotkey(
-            .default,
-            dictationHotkey: .default,
-            isComputerUseEnabled: false
-        ) == .updated)
-    }
-
-    @Test("hotkey policy moves computer use key when enabling with a stale conflict")
-    func hotkeyPolicyMovesComputerUseKeyWhenEnablingWithStaleConflict() {
-        let resolution = ShortcutHotkeyPolicy.resolvedComputerUseHotkeyWhenEnabling(
-            currentHotkey: .default,
-            dictationHotkey: .default
-        )
-
-        #expect(resolution.hotkey == .computerUseDefault)
-        #expect(resolution.result.didUpdate)
-        #expect(resolution.result.message == "Computer Use Command moved to Right Cmd to avoid matching Push to Talk.")
-    }
-
-    @Test("hotkey policy rejects computer use enable when fallback conflicts with meeting recording")
-    func hotkeyPolicyRejectsComputerUseEnableWhenFallbackConflictsWithMeetingRecording() {
-        let resolution = ShortcutHotkeyPolicy.resolvedComputerUseHotkeyWhenEnabling(
-            currentHotkey: .default,
-            dictationHotkey: .default,
-            meetingRecordingHotkey: .computerUseDefault,
-            isMeetingRecordingEnabled: true
-        )
-
-        #expect(resolution.hotkey == .default)
-        #expect(resolution.result == .conflict(message: ShortcutHotkeyPolicy.conflictMessage))
-    }
-
-    @Test("hotkey policy rejects computer use enable when current shortcut conflicts with meeting recording")
-    func hotkeyPolicyRejectsComputerUseEnableWhenCurrentShortcutConflictsWithMeetingRecording() {
-        let resolution = ShortcutHotkeyPolicy.resolvedComputerUseHotkeyWhenEnabling(
-            currentHotkey: .computerUseDefault,
-            dictationHotkey: .default,
-            meetingRecordingHotkey: .computerUseDefault,
-            isMeetingRecordingEnabled: true
-        )
-
-        #expect(resolution.hotkey == .computerUseDefault)
-        #expect(resolution.result == .conflict(message: ShortcutHotkeyPolicy.conflictMessage))
-    }
-
     @Test("combination conflicts ignore unsupported modifier flags")
     func combinationConflictsIgnoreUnsupportedModifierFlags() {
         let visible = HotkeyConfig.combination(modifiers: [.command, .shift], keyCode: 15)
@@ -2772,9 +2614,6 @@ struct HotkeyConfigTests {
     func meetingRecordingWarnsForCommonGlobalAppShortcuts() {
         let result = ShortcutHotkeyPolicy.validateMeetingRecordingHotkey(
             .meetingRecordingDefault,
-            dictationHotkey: .default,
-            computerUseHotkey: .computerUseDefault,
-            isComputerUseEnabled: false
         )
 
         #expect(result.didUpdate)
@@ -2786,9 +2625,6 @@ struct HotkeyConfigTests {
         let uncommon = HotkeyConfig.combination(modifiers: [.command, .option, .control], keyCode: 46)
         let result = ShortcutHotkeyPolicy.validateMeetingRecordingHotkey(
             uncommon,
-            dictationHotkey: .default,
-            computerUseHotkey: .computerUseDefault,
-            isComputerUseEnabled: false
         )
 
         #expect(result == .updated)
@@ -2810,7 +2646,6 @@ struct HotkeyConfigTests {
     @Test("display label uses keyboard symbols")
     func displayLabelUsesKeyboardSymbols() {
         #expect(HotkeyConfig.default.displayLabel == "Right ⌥")
-        #expect(HotkeyConfig.computerUseDefault.displayLabel == "Right ⌘")
         #expect(HotkeyConfig.meetingRecordingDefault.displayLabel == "⌘⇧R")
         #expect(HotkeyConfig(keyCode: 62, label: "Right Ctrl").displayLabel == "Right ⌃")
         #expect(HotkeyConfig(keyCode: 63, label: "Fn").displayLabel == "fn")
@@ -2832,24 +2667,6 @@ struct AppConfigAppearanceTests {
         #expect(config.soundEnabled == true)
     }
 
-    @Test("Quill sounds default to enabled")
-    func quilSoundEnabledDefault() {
-        let config = AppConfig()
-        #expect(config.quilSoundEnabled == true)
-    }
-
-    @Test("muteSystemAudioDuringDictation defaults to false")
-    func muteSystemAudioDuringDictationDefault() {
-        let config = AppConfig()
-        #expect(config.muteSystemAudioDuringDictation == false)
-    }
-
-    @Test("pauseMediaDuringDictation defaults to false")
-    func pauseMediaDuringDictationDefault() {
-        let config = AppConfig()
-        #expect(config.pauseMediaDuringDictation == false)
-    }
-
     @Test("recordingColorHex defaults to Catppuccin Mocha base")
     func recordingColorHexDefault() {
         let config = AppConfig()
@@ -2863,35 +2680,6 @@ struct AppConfigAppearanceTests {
         let data = try JSONEncoder().encode(config)
         let decoded = try JSONDecoder().decode(AppConfig.self, from: data)
         #expect(decoded.soundEnabled == false)
-    }
-
-    @Test("Quill sound preference round-trips independently from dictation sounds")
-    func quilSoundEnabledRoundTrip() throws {
-        var config = AppConfig()
-        config.soundEnabled = true
-        config.quilSoundEnabled = false
-        let data = try JSONEncoder().encode(config)
-        let decoded = try JSONDecoder().decode(AppConfig.self, from: data)
-        #expect(decoded.soundEnabled == true)
-        #expect(decoded.quilSoundEnabled == false)
-    }
-
-    @Test("muteSystemAudioDuringDictation round-trips through JSON")
-    func muteSystemAudioDuringDictationRoundTrip() throws {
-        var config = AppConfig()
-        config.muteSystemAudioDuringDictation = true
-        let data = try JSONEncoder().encode(config)
-        let decoded = try JSONDecoder().decode(AppConfig.self, from: data)
-        #expect(decoded.muteSystemAudioDuringDictation == true)
-    }
-
-    @Test("pauseMediaDuringDictation round-trips through JSON")
-    func pauseMediaDuringDictationRoundTrip() throws {
-        var config = AppConfig()
-        config.pauseMediaDuringDictation = true
-        let data = try JSONEncoder().encode(config)
-        let decoded = try JSONDecoder().decode(AppConfig.self, from: data)
-        #expect(decoded.pauseMediaDuringDictation == true)
     }
 
     @Test("recordingColorHex round-trips through JSON")
@@ -2910,27 +2698,6 @@ struct AppConfigAppearanceTests {
         #expect(decoded.soundEnabled == true)
     }
 
-    @Test("missing Quill sound preference falls back to enabled")
-    func quilSoundEnabledFallsBackOnMissingKey() throws {
-        let json = Data("{}".utf8)
-        let decoded = try JSONDecoder().decode(AppConfig.self, from: json)
-        #expect(decoded.quilSoundEnabled == true)
-    }
-
-    @Test("unknown JSON keys are ignored — muteSystemAudioDuringDictation falls back to default")
-    func muteSystemAudioDuringDictationFallsBackOnMissingKey() throws {
-        let json = Data("{}".utf8)
-        let decoded = try JSONDecoder().decode(AppConfig.self, from: json)
-        #expect(decoded.muteSystemAudioDuringDictation == false)
-    }
-
-    @Test("unknown JSON keys are ignored — pauseMediaDuringDictation falls back to default")
-    func pauseMediaDuringDictationFallsBackOnMissingKey() throws {
-        let json = Data("{}".utf8)
-        let decoded = try JSONDecoder().decode(AppConfig.self, from: json)
-        #expect(decoded.pauseMediaDuringDictation == false)
-    }
-
     @Test("unknown JSON keys are ignored — recordingColorHex falls back to default")
     func recordingColorHexFallsBackOnMissingKey() throws {
         let json = Data("{}".utf8)
@@ -2945,33 +2712,6 @@ struct AppConfigAppearanceTests {
         let data = try JSONEncoder().encode(config)
         let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
         #expect(json?["sound_enabled"] as? Bool == false)
-    }
-
-    @Test("Quill sound CodingKey is quil_sound_enabled")
-    func quilSoundEnabledCodingKey() throws {
-        var config = AppConfig()
-        config.quilSoundEnabled = false
-        let data = try JSONEncoder().encode(config)
-        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
-        #expect(json?["quil_sound_enabled"] as? Bool == false)
-    }
-
-    @Test("muteSystemAudioDuringDictation CodingKey is mute_system_audio_during_dictation")
-    func muteSystemAudioDuringDictationCodingKey() throws {
-        var config = AppConfig()
-        config.muteSystemAudioDuringDictation = true
-        let data = try JSONEncoder().encode(config)
-        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
-        #expect(json?["mute_system_audio_during_dictation"] as? Bool == true)
-    }
-
-    @Test("pauseMediaDuringDictation CodingKey is pause_media_during_dictation")
-    func pauseMediaDuringDictationCodingKey() throws {
-        var config = AppConfig()
-        config.pauseMediaDuringDictation = true
-        let data = try JSONEncoder().encode(config)
-        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
-        #expect(json?["pause_media_during_dictation"] as? Bool == true)
     }
 
     @Test("recordingColorHex CodingKey is recording_color_hex")
@@ -3084,128 +2824,5 @@ struct ParakeetLanguageTests {
         let decoded = try JSONDecoder().decode(AppConfig.self, from: data)
 
         #expect(decoded.resolvedParakeetLanguage == .german)
-    }
-}
-
-@Suite("OpenAIDictationProvider")
-struct OpenAIDictationProviderTests {
-    @Test("DictationProvider resolves raw values")
-    func providerResolution() {
-        #expect(DictationProvider.resolved("local") == .local)
-        #expect(DictationProvider.resolved("openAI") == .openAI)
-        #expect(DictationProvider.resolved("openRouter") == .openRouter)
-        #expect(DictationProvider.resolved(nil) == .local)
-        #expect(DictationProvider.resolved("bogus") == .local)
-    }
-
-    @Test("AppConfig persists provider settings")
-    func configRoundTrip() throws {
-        var config = AppConfig()
-        config.dictationProvider = DictationProvider.openRouter.rawValue
-        config.openaiDictationModel = "gpt-transcribe"
-        config.openRouterDictationModel = "provider/transcribe"
-        let data = try JSONEncoder().encode(config)
-        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
-        #expect(json?["dictation_provider"] as? String == "openRouter")
-        #expect(json?["openai_dictation_model"] as? String == "gpt-transcribe")
-        #expect(json?["openrouter_dictation_model"] as? String == "provider/transcribe")
-
-        let decoded = try JSONDecoder().decode(AppConfig.self, from: data)
-        #expect(decoded.resolvedDictationProvider == .openRouter)
-        #expect(decoded.openaiDictationModel == "gpt-transcribe")
-        #expect(decoded.openRouterDictationModel == "provider/transcribe")
-    }
-
-    @Test("AppConfig defaults provider settings when keys are missing or invalid")
-    func configDefaultsForMissingProviderSettings() throws {
-        let missing = try JSONDecoder().decode(AppConfig.self, from: Data("{}".utf8))
-        #expect(missing.resolvedDictationProvider == .local)
-        #expect(missing.openaiDictationModel == OpenAITranscriptionClient.defaultModel)
-        #expect(missing.openRouterDictationModel.isEmpty)
-
-        let invalidJSON = Data("{\"dictation_provider\":\"bogus\"}".utf8)
-        let invalid = try JSONDecoder().decode(AppConfig.self, from: invalidJSON)
-        #expect(invalid.resolvedDictationProvider == .local)
-        #expect(invalid.openaiDictationModel == OpenAITranscriptionClient.defaultModel)
-    }
-
-    @Test("OpenAITranscriptionClient normalizes empty model")
-    func normalizeModel() {
-        #expect(OpenAITranscriptionClient.normalizeModel("") == OpenAITranscriptionClient.defaultModel)
-        #expect(OpenAITranscriptionClient.normalizeModel("  gpt-transcribe  ") == "gpt-transcribe")
-    }
-
-    @Test("hosted model menus are hidden without provider credentials")
-    func hostedModelVisibilityWithoutCredentials() {
-        let visibility = HostedDictationModelVisibility.resolve(
-            openAIAPIKey: "  ",
-            openRouterAPIKey: "  "
-        )
-
-        #expect(visibility.visibleProviders.isEmpty)
-        #expect(!visibility.shows(.openAI))
-        #expect(!visibility.shows(.openRouter))
-    }
-
-    @Test("hosted model menus show only providers with credentials")
-    func hostedModelVisibilityWithProviderCredentials() {
-        let openAIOnly = HostedDictationModelVisibility.resolve(
-            openAIAPIKey: " sk-openai ",
-            openRouterAPIKey: ""
-        )
-        #expect(openAIOnly.visibleProviders == [.openAI])
-
-        let openRouterOnly = HostedDictationModelVisibility.resolve(
-            openAIAPIKey: "",
-            openRouterAPIKey: " sk-or-legacy "
-        )
-        #expect(openRouterOnly.visibleProviders == [.openRouter])
-
-        let both = HostedDictationModelVisibility.resolve(
-            openAIAPIKey: "sk-openai",
-            openRouterAPIKey: "sk-or-oauth"
-        )
-        #expect(both.visibleProviders == [.openAI, .openRouter])
-    }
-
-    @Test("Realtime session update uses current transcription schema")
-    func realtimeSessionUpdate() throws {
-        let data = try #require(OpenAIRealtimeProtocol.sessionUpdate(model: "gpt-live-transcribe").data(using: .utf8))
-        let json = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
-        #expect(json["type"] as? String == "session.update")
-        let session = try #require(json["session"] as? [String: Any])
-        #expect(session["type"] as? String == "transcription")
-        let audio = try #require(session["audio"] as? [String: Any])
-        let input = try #require(audio["input"] as? [String: Any])
-        let format = try #require(input["format"] as? [String: Any])
-        #expect(format["type"] as? String == "audio/pcm")
-        #expect(format["rate"] as? Int == 24_000)
-        let transcription = try #require(input["transcription"] as? [String: Any])
-        #expect(transcription["model"] as? String == "gpt-live-transcribe")
-        #expect(input["turn_detection"] is NSNull)
-    }
-
-    @Test("Realtime PCM encoder resamples and clips")
-    func realtimePCMEncoder() {
-        var encoder = OpenAIRealtimePCMEncoder()
-        let first = encoder.encode([-2, 0, 2])
-        let second = encoder.encode([0, 0])
-        #expect(!first.isEmpty)
-        #expect(!second.isEmpty)
-        #expect(first.count.isMultiple(of: 2))
-        let firstPCM = first.withUnsafeBytes { $0.loadUnaligned(as: Int16.self) }
-        #expect(Int16(littleEndian: firstPCM) == Int16.min)
-
-        let samples = (0..<257).map { index in
-            Float(sin(Double(index) * 0.07))
-        }
-        var oneShotEncoder = OpenAIRealtimePCMEncoder()
-        let oneShot = oneShotEncoder.encode(samples)
-        var chunkedEncoder = OpenAIRealtimePCMEncoder()
-        var chunked = Data()
-        chunked.append(chunkedEncoder.encode(Array(samples[..<79])))
-        chunked.append(chunkedEncoder.encode(Array(samples[79..<181])))
-        chunked.append(chunkedEncoder.encode(Array(samples[181...])))
-        #expect(chunked == oneShot)
     }
 }

@@ -163,6 +163,9 @@ public final class MeetsController: NSObject {
     private static let pendingDictionaryCorrectionAccessibilityRequestedAtKey = "dictionaryCorrectionPrompts.pendingAccessibilityRequestedAt"
     private static let pendingDictionaryCorrectionAccessibilityRequestProcessIDKey = "dictionaryCorrectionPrompts.pendingAccessibilityRequestProcessID"
     private static let dictionaryCorrectionAccessibilityIntentTimeout: TimeInterval = 24 * 60 * 60
+    private static let pendingScreenContextEnableKey = "settings.pendingScreenContextEnable"
+    private static let pendingScreenContextRequestedAtKey = "settings.pendingScreenContextRequestedAt"
+    private static let screenContextGrantIntentTimeout: TimeInterval = 15 * 60
     private let runtime: RuntimePaths
     private let configStore: ConfigStore
     private let dictationStore: DictationStore
@@ -179,6 +182,7 @@ public final class MeetsController: NSObject {
     private var qwen3PostProcessor: Any?
     private let meetingRecordingHotkeyMonitor = HotkeyMonitor()
     private let dictationAudioRoutingController: DictationAudioRouting
+
     private lazy var diagnosticIncidentReporter = DiagnosticIncidentReporter(
         appState: appState,
         automaticPromptEnabled: { [weak self] in
@@ -190,6 +194,7 @@ public final class MeetsController: NSObject {
     )
     private let indicator: FloatingIndicatorController
     private let calendarMonitor = CalendarMonitor()
+    private let calendarEventQuery = CalendarEventQuery()
     private let meetingMonitor = MeetingMonitor()
     private let meetingNotification = MeetingNotificationController()
     private let meetingSourceWindowLocator = MeetingSourceWindowLocator()
@@ -204,6 +209,85 @@ public final class MeetsController: NSObject {
     private var autoRecordedCalendarEventIDs = Set<String>()
     private var meetingFeatureMonitorsAllowed = false
     private var meetingDetectionMonitorStarted = false
+    private var interactionPermissionMonitoringClientIDs = Set<UUID>()
+    private var interactionPermissionMonitoringRevision = 0
+    private lazy var interactionPermissionMonitor = InteractionPermissionMonitor { [weak self] snapshot in
+        self?.applyInteractionPermissionSnapshot(snapshot)
+    }
+
+    func beginInteractionPermissionMonitoring(clientID: UUID) {
+        guard interactionPermissionMonitoringClientIDs.insert(clientID).inserted else { return }
+        synchronizeInteractionPermissionMonitoringClients()
+    }
+
+    func endInteractionPermissionMonitoring(clientID: UUID) {
+        guard interactionPermissionMonitoringClientIDs.remove(clientID) != nil else { return }
+        synchronizeInteractionPermissionMonitoringClients()
+    }
+
+    private func synchronizeInteractionPermissionMonitoringClients() {
+        interactionPermissionMonitoringRevision += 1
+        let clientIDs = interactionPermissionMonitoringClientIDs
+        let revision = interactionPermissionMonitoringRevision
+        let monitor = interactionPermissionMonitor
+        Task {
+            await monitor.updateClients(clientIDs, revision: revision)
+        }
+    }
+
+    func refreshInteractionPermissionSnapshot() {
+        let monitor = interactionPermissionMonitor
+        Task {
+            await monitor.refresh()
+        }
+    }
+
+    private func applyInteractionPermissionSnapshot(_ snapshot: InteractionPermissionSnapshot) {
+        guard appState.interactionPermissionSnapshot != snapshot else { return }
+        appState.interactionPermissionSnapshot = snapshot
+
+        reconcilePendingScreenContextPermission(snapshot)
+    }
+
+    private func reconcilePendingScreenContextPermission(_ snapshot: InteractionPermissionSnapshot) {
+        let defaults = UserDefaults.standard
+        let isPending = defaults.bool(forKey: Self.pendingScreenContextEnableKey)
+        let requestedAt = defaults.double(forKey: Self.pendingScreenContextRequestedAtKey)
+
+        if snapshot.accessibility, isPending, requestScreenContextEnable() {
+            clearPendingScreenContextPermission(defaults: defaults)
+        }
+
+        let pendingRequestExpired = isPending
+            && (requestedAt <= 0
+                || Date().timeIntervalSince1970 - requestedAt > Self.screenContextGrantIntentTimeout)
+        if !snapshot.accessibility, pendingRequestExpired {
+            clearPendingScreenContextPermission(defaults: defaults)
+        }
+
+        if !snapshot.accessibility, config.enableScreenContext {
+            clearPendingScreenContextPermission(defaults: defaults)
+            updateConfig { $0.enableScreenContext = false }
+        }
+    }
+
+    private func clearPendingScreenContextPermission(defaults: UserDefaults) {
+        defaults.set(false, forKey: Self.pendingScreenContextEnableKey)
+        defaults.set(0, forKey: Self.pendingScreenContextRequestedAtKey)
+    }
+
+    func requestScreenContextEnable() -> Bool {
+        guard AXIsProcessTrusted() else {
+            updateConfig { $0.enableScreenContext = false }
+            let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary
+            AXIsProcessTrustedWithOptions(options)
+            return false
+        }
+
+        updateConfig { $0.enableScreenContext = true }
+        return true
+    }
+
 
     private var searchTask: Task<Void, Never>?
     private var onboardingModelPreparationTask: Task<Void, Never>?
@@ -234,7 +318,7 @@ public final class MeetsController: NSObject {
     private weak var preparingMeetingSession: MeetingSession?
     private var activeMeetingID: Int64?
     /// Set when a meeting stops, so telemetry events legitimately emitted by
-    /// the stopping session (after activeMeetingID is cleared) still pass the
+    /// the stopping session (after activeMeetingID becomes nil) still pass the
     /// session-identity gate. Replaced on the next meeting start.
     private var micEpisodeTelemetryGate = RecentMeetingIdentityGate()
     private var liveMeetingTranscriptGeneration: UUID?
@@ -249,6 +333,7 @@ public final class MeetsController: NSObject {
     ] = [:]
     private let liveManualNotesPersistInterval: TimeInterval = 0.75
     private var staleLiveMeetingRecoveryFailures = Set<Int64>()
+
     private var openWindowCount = 0
     private var lastExternalApp: NSRunningApplication?
     private var workspaceObserver: NSObjectProtocol?
@@ -339,6 +424,7 @@ public final class MeetsController: NSObject {
         }) ?? .chatGPT
         self.indicator = FloatingIndicatorController(configStore: configStore)
         super.init()
+
         dictationAudioRoutingController.onMeetingPreferredInputDeviceChanged = { [weak self] deviceID in
             Task { @MainActor [weak self] in
                 self?.applyMeetingInputDevice(deviceID)
@@ -351,6 +437,7 @@ public final class MeetsController: NSObject {
         MeetsController.current = self
         do {
             try dictationStore.migrateIfNeeded()
+            try dictationStore.markRunningComputerUseTracesInterrupted()
         } catch {
             fputs("[meets] startup error: \(error)\n", stderr)
         }
@@ -399,6 +486,7 @@ public final class MeetsController: NSObject {
         indicator.onDiscardMeeting = { [weak self] in self?.discardMeetingWithConfirmation() }
         indicator.onToggleMeetingPause = { [weak self] in self?.toggleMeetingRecordingPause() }
         indicator.onOpenMeetingNotes = { [weak self] in self?.openActiveMeetingNotes() }
+
         indicator.onPositionSaved = { [weak self] center in
             self?.updateConfig {
                 $0.indicatorAnchor = .custom
@@ -449,12 +537,17 @@ public final class MeetsController: NSObject {
         meetingMonitor.customMeetingAppsProvider = { [weak self] in
             self?.customMeetingDetectionAppTable() ?? [:]
         }
-        meetingMonitor.isRecordingProvider = { [weak self] in
+        meetingMonitor.recordingLifecycleProvider = { [weak self] in
+            guard let self else { return .idle }
+            return MeetingRecordingLifecycleSnapshot(
+                phase: self.activeMeetingSession?.capturePhase ?? .stopped,
+                sessionID: self.activeMeetingID,
+                autoStopSource: self.activeMeetingAutoStop.source
+            )
+        }
+        meetingMonitor.selfAudioActivityActiveProvider = { [weak self] in
             guard let self else { return false }
             return self.isMeetingRecording()
-        }
-        meetingMonitor.isStartingRecordingProvider = { [weak self] in
-            self?.isStartingMeetingRecording ?? false
         }
         meetingMonitor.isCalendarNotificationVisibleProvider = { [weak self] in
             self?.isShowingCalendarNotification ?? false
@@ -546,11 +639,13 @@ public final class MeetsController: NSObject {
             self.dataDidChangeObserver = nil
         }
         meetingRecordingHotkeyMonitor.stop()
+
         let attendeePersistenceTasks = calendarAttendeePersistenceTasks.values.map(\.task)
         calendarAttendeePersistenceTasks.removeAll()
         for task in attendeePersistenceTasks {
             _ = await task.value
         }
+        calendarEventQuery.invalidate()
         calendarMonitor.stop()
         calendarCheckTimer?.invalidate()
         calendarCheckTimer = nil
@@ -747,6 +842,7 @@ public final class MeetsController: NSObject {
         appState.isOpenRouterAuthenticated = openRouterAuth.isAuthenticated
         appState.isOpenRouterEnvironmentManaged = openRouterAuth.hasEnvironmentCredential
         appState.hasStoredOpenRouterCredential = openRouterAuth.hasStoredCredential
+
         // Keep appState in sync with persisted hidden event IDs
         let persisted = Set(config.hiddenCalendarEventIDs)
         if appState.hiddenCalendarEventIDs != persisted {
@@ -945,12 +1041,15 @@ public final class MeetsController: NSObject {
     ) {
         let wasUsingAppleSpeech = selectedBackend.backend == "apple-speech"
             || selectedMeetingTranscriptionBackend.backend == "apple-speech"
+            || (config.enableLiveStreamingPartials && config.resolvedMeetingLiveCaptionBackend == .appleSpeech)
+        let previousAppleSpeechLanguage = config.resolvedAppleSpeechLanguage
+        let wasUsingAppleSpeechLive = config.enableLiveStreamingPartials
+            && config.resolvedMeetingLiveCaptionBackend == .appleSpeech
         let previousMeetingInputDeviceUID = config.meetingInputDeviceUID
         let previousMeetingRecordingHotkeyTriggerThresholdMS = config.meetingRecordingHotkeyTriggerThresholdMS
         let previousEnableLiveStreamingPartials = config.enableLiveStreamingPartials
         mutate(&config)
         if previousEnableLiveStreamingPartials, !config.enableLiveStreamingPartials {
-            preparingMeetingSession?.stopStreamingPartials()
             activeMeetingSession?.stopStreamingPartials()
             clearLiveMeetingPartialTails()
         }
@@ -960,6 +1059,7 @@ public final class MeetsController: NSObject {
         selectedBackend = BackendOption.all.first(where: {
             $0.backend == config.sttBackend && $0.model == config.sttModel
         }) ?? .whisper
+
         let configuredMeetingTranscriptionBackend = BackendOption.all.first(where: {
             $0.backend == config.meetingTranscriptionBackend && $0.model == config.meetingTranscriptionModel
         })
@@ -977,9 +1077,26 @@ public final class MeetsController: NSObject {
         }
         let isUsingAppleSpeech = selectedBackend.backend == "apple-speech"
             || selectedMeetingTranscriptionBackend.backend == "apple-speech"
+            || (config.enableLiveStreamingPartials && config.resolvedMeetingLiveCaptionBackend == .appleSpeech)
         if wasUsingAppleSpeech && !isUsingAppleSpeech {
             Task { [weak self] in
                 await self?.transcriptionCoordinator.unloadAppleSpeechTranscriber()
+            }
+        }
+        if previousAppleSpeechLanguage != config.resolvedAppleSpeechLanguage
+            || (isUsingAppleSpeech && (!wasUsingAppleSpeech
+            || (!wasUsingAppleSpeechLive && config.enableLiveStreamingPartials
+                && config.resolvedMeetingLiveCaptionBackend == .appleSpeech))) {
+            let language = config.resolvedAppleSpeechLanguage
+            Task { [weak self] in
+                guard let self, self.config.resolvedAppleSpeechLanguage == language,
+                      #available(macOS 26.0, *) else { return }
+                do {
+                    try await AppleSpeechAnalyzerTranscriber.shared.prepareSelectedLanguage(
+                        AppleSpeechLanguageOption.requestedLocale(for: language))
+                } catch {
+                    fputs("[muesli-native] Apple Speech selection preparation failed: \(error)\n", stderr)
+                }
             }
         }
         configStore.save(config)
@@ -1343,9 +1460,9 @@ public final class MeetsController: NSObject {
         }
     }
 
-    func selectIndicASRLanguage(_ language: IndicASRLanguage) {
+    func selectBodhanLanguage(_ language: BodhanLanguage) {
         updateConfig {
-            $0.indicASRLanguage = language.rawValue
+            $0.bodhanLanguage = language.rawValue
         }
     }
 
@@ -1692,6 +1809,16 @@ public final class MeetsController: NSObject {
     /// polling loop so the Calendar row stays current.
     func syncCalendarAuthorizationState() {
         appState.calendarAuthorization = calendarEventKitManager.authorizationState
+    }
+
+    /// Called from the onboarding calendar step after the user changes
+    /// calendar access: re-sync authorization, restart the monitor, and pull
+    /// the fresh calendar/account list and upcoming events.
+    func calendarAccessDidChange() async {
+        syncCalendarAuthorizationState()
+        syncCalendarMonitor()
+        await refreshCalendarAccess()
+        _ = await refreshUpcomingCalendarEvents()
     }
 
     /// Re-reads EventKit authorization and the calendar/account list into
@@ -2844,6 +2971,52 @@ public final class MeetsController: NSObject {
         selectMeetingSummaryBackend(option)
     }
 
+    private func summaryParticipantNames(meetingID: Int64) async -> [String] {
+        do {
+            return try await meetingParticipants(meetingID: meetingID).map(\.displayName)
+        } catch {
+            fputs("[summary] failed to load participants for meeting \(meetingID): \(error.localizedDescription)\n", stderr)
+            return []
+        }
+    }
+
+    func canUseSummaryProvider(_ provider: MeetingSummaryBackendOption) -> Bool {
+        switch provider {
+        case .chatGPT: return appState.isChatGPTAuthenticated
+        case .openAI: return !resolvedOpenAIAPIKey().trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        case .openRouter:
+            return appState.isOpenRouterAuthenticated || !config.openRouterAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        case .ollama: return true
+        case .lmStudio: return MeetingSummaryClient.lmStudioHasRequiredSettings(config: config)
+        case .customLLM: return MeetingSummaryClient.customLLMHasRequiredSettings(config: config)
+        default: return false
+        }
+    }
+
+    private func resolvedOpenAIAPIKey() -> String {
+        let configuredKey = config.openAIAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !configuredKey.isEmpty { return configuredKey }
+        let environmentKey = ProcessInfo.processInfo.environment["OPENAI_API_KEY"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return environmentKey
+    }
+
+    func resummarize(meeting: MeetingRecord, summaryConfig: AppConfig? = nil, completion: @escaping (Result<Void, Error>) -> Void) {
+        let templateSnapshot = meetingTemplateSnapshot(for: meeting)
+        resummarize(meeting: meeting, using: templateSnapshot, summaryConfig: summaryConfig, completion: completion)
+    }
+
+    func applyMeetingTemplate(id: String, to meeting: MeetingRecord, summaryConfig: AppConfig? = nil, completion: @escaping (Result<Void, Error>) -> Void) {
+        guard let templateSnapshot = MeetingTemplates.resolveExactSnapshot(
+            id: id,
+            customTemplates: config.customMeetingTemplates
+        ) else {
+            completion(.failure(MeetingTemplateSelectionError.templateNoLongerExists))
+            return
+        }
+        resummarize(meeting: meeting, using: templateSnapshot, summaryConfig: summaryConfig, completion: completion)
+    }
+
     func resummarize(meeting: MeetingRecord, completion: @escaping (Result<Void, Error>) -> Void) {
         let templateSnapshot = meetingTemplateSnapshot(for: meeting)
         resummarize(meeting: meeting, using: templateSnapshot, completion: completion)
@@ -2863,19 +3036,23 @@ public final class MeetsController: NSObject {
     private func resummarize(
         meeting: MeetingRecord,
         using templateSnapshot: MeetingTemplateSnapshot,
+        summaryConfig: AppConfig? = nil,
         completion: @escaping (Result<Void, Error>) -> Void
     ) {
+        let effectiveSummaryConfig = summaryConfig ?? config
         Task { [weak self] in
             guard let self else { return }
             let plan = MeetingResummarizationPolicy.plan(for: meeting)
+            let participantNames = await self.summaryParticipantNames(meetingID: meeting.id)
             do {
                 let notes = try await MeetingSummaryClient.summarize(
                     transcript: meeting.rawTranscript,
                     meetingTitle: plan.promptTitle,
-                    config: self.config,
+                    config: effectiveSummaryConfig,
                     template: templateSnapshot,
                     existingNotes: self.notesContextForResummary(meeting),
-                    manualNotesToRetain: config.includeNotesInSummary ? meeting.manualNotes : nil
+                    manualNotesToRetain: effectiveSummaryConfig.includeNotesInSummary ? meeting.manualNotes : nil,
+                    participantNames: participantNames
                 )
                 try self.dictationStore.updateMeetingSummary(
                     id: meeting.id,
@@ -2888,8 +3065,8 @@ public final class MeetsController: NSObject {
                 )
                 self.logLLMUsage(
                     kind: "summary",
-                    backend: self.config.meetingSummaryBackend,
-                    model: self.config.meetingSummaryModel,
+                    backend: effectiveSummaryConfig.meetingSummaryBackend,
+                    model: effectiveSummaryConfig.meetingSummaryModel,
                     status: "success",
                     characters: meeting.rawTranscript.count,
                     meetingID: meeting.id
@@ -2903,8 +3080,8 @@ public final class MeetsController: NSObject {
                 fputs("[meets] failed to generate or persist meeting summary: \(error)\n", stderr)
                 self.logLLMUsage(
                     kind: "summary",
-                    backend: self.config.meetingSummaryBackend,
-                    model: self.config.meetingSummaryModel,
+                    backend: effectiveSummaryConfig.meetingSummaryBackend,
+                    model: effectiveSummaryConfig.meetingSummaryModel,
                     status: "failed",
                     characters: meeting.rawTranscript.count,
                     meetingID: meeting.id
@@ -2955,7 +3132,7 @@ public final class MeetsController: NSObject {
                     at: recordingURL,
                     backend: backend,
                     cohereLanguage: self.config.resolvedCohereLanguage,
-                    indicASRLanguage: self.config.resolvedIndicASRLanguage,
+                    bodhanLanguage: self.config.resolvedBodhanLanguage,
                     whisperLanguage: self.config.resolvedWhisperLanguage,
                     qwen3AsrLanguage: self.config.resolvedQwen3AsrLanguage,
                     parakeetLanguage: self.config.resolvedParakeetLanguage,
@@ -3743,6 +3920,7 @@ public final class MeetsController: NSObject {
         try await MainActor.run {
             updateMeetingTranscript(id: id, transcript: cleaned)
         }
+
     }
 
 
@@ -4370,6 +4548,7 @@ public final class MeetsController: NSObject {
 
         meetingStartTask = Task { @MainActor [weak self] in
             guard let self else { return }
+
             do {
                 try Task.checkCancellation()
                 try await self.startMeetingRecordingWithSystemAudioRecovery(
@@ -5991,6 +6170,7 @@ public final class MeetsController: NSObject {
                 )
             }
         }
+
     }
 
     private func cleanupTemporaryMeetingAudioFiles(for result: MeetingSessionResult) {
@@ -6584,6 +6764,8 @@ public final class MeetsController: NSObject {
     @MainActor
     private func presentMeetingProcessingStage(_ stage: MeetingProcessingStage) {
         switch stage {
+        case .stoppingCapture:
+            setMeetingProcessingStatus("Finishing")
         case .transcribingAudio:
             setMeetingProcessingStatus("Transcribing")
         case .cleaningAudio:

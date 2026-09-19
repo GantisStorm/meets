@@ -1,5 +1,5 @@
 import Testing
-@testable import MeetsNativeApp
+@testable import MeetsApp
 
 @Suite("Transcript chat message parsing")
 struct TranscriptChatMessageTests {

@@ -1,7 +1,7 @@
 import AppKit
 import Foundation
 import Testing
-@testable import MeetsNativeApp
+@testable import MeetsApp
 
 @Suite("MeetingNotificationController")
 struct MeetingNotificationControllerTests {

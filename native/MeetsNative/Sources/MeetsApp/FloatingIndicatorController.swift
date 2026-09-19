@@ -493,6 +493,14 @@ final class FloatingIndicatorController: NSObject {
 
     /// Flash a brief warning message on the indicator pill, then snap back to idle.
     func showWarning(_ message: String, icon: String = "⚡", duration: TimeInterval = 2.5) {
+        showNotice(message, icon: icon, duration: duration, background: NSColor.colorWith(hex: 0xD99A11, alpha: 0.92))
+    }
+
+    func showSuccess(_ message: String, duration: TimeInterval = 3.0) {
+        showNotice(message, icon: "✓", duration: duration, background: NSColor.colorWith(hex: 0x34C759, alpha: 0.92))
+    }
+
+    private func showNotice(_ message: String, icon: String, duration: TimeInterval, background: NSColor) {
         hideShortcutPillChrome()
         guard state == .idle else { return }
         let config = configStore.load()
@@ -513,7 +521,7 @@ final class FloatingIndicatorController: NSObject {
         let y = min(max(center.y - warningSize.height / 2, screen.minY), screen.maxY - warningSize.height)
         let targetFrame = NSRect(x: x, y: y, width: warningSize.width, height: warningSize.height)
 
-        // Warning uses its own solid amber background — hide glass layers.
+        // Notices use a solid status color.
         glassView?.isHidden = true
         tintLayer?.isHidden = true
         micIconView?.isHidden = true
@@ -527,7 +535,7 @@ final class FloatingIndicatorController: NSObject {
             panel.animator().alphaValue = 1.0
             contentView.animator().frame = NSRect(origin: .zero, size: warningSize)
             contentView.layer?.cornerRadius = warningSize.height / 2
-            contentView.layer?.backgroundColor = NSColor.colorWith(hex: 0xD99A11, alpha: 0.92).cgColor
+            contentView.layer?.backgroundColor = background.cgColor
             contentView.layer?.borderWidth = 1.0
             contentView.layer?.borderColor = NSColor.colorWith(hex: 0xFFFFFF, alpha: 0.24).cgColor
 
@@ -1607,7 +1615,10 @@ final class FloatingIndicatorController: NSObject {
         let iconWidth = hasIcon ? max(24, ceil(iconSize.width) + 2) : 0
         let iconHeight = max(18, ceil(iconSize.height))
         let availableTextWidth = max(0, size.width - (horizontalPadding * 2) - iconWidth - gap)
-        let textWidth = min(ceil(textSize.width) + 2, availableTextWidth)
+        // NSTextFieldCell includes drawing insets that attributed-string sizing
+        // omits; short status labels such as "Done" must not lose their last letters.
+        let measuredTextWidth = max(ceil(textSize.width) + 6, ceil(textLabel.cell?.cellSize.width ?? 0))
+        let textWidth = min(measuredTextWidth, availableTextWidth)
         let textHeight = max(16, ceil(textSize.height))
 
         let totalWidth = iconWidth + gap + textWidth

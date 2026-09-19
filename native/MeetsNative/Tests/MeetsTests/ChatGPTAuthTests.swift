@@ -1,7 +1,7 @@
 import CryptoKit
 import Foundation
 import Testing
-@testable import MeetsNativeApp
+@testable import MeetsApp
 
 @Suite("ChatGPT OAuth")
 struct ChatGPTAuthTests {

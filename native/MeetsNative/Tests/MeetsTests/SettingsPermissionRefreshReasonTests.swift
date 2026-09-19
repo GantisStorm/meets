@@ -1,12 +1,10 @@
 import Testing
-@testable import MeetsNativeApp
+@testable import MeetsApp
 
 @Suite("Settings permission refresh reasons")
 struct SettingsPermissionRefreshReasonTests {
-    @Test("periodic polling reuses the cached system-audio permission")
-    func periodicPollingReusesSystemAudioCache() {
-        #expect(SettingsPermissionRefreshReason.periodicPoll.refreshesSystemAudio == false)
-        #expect(SettingsPermissionRefreshReason.periodicPoll.refreshesLaunchAtLogin == false)
+    @Test("permission requests reuse lifecycle-managed state")
+    func permissionRequestsReuseLifecycleManagedState() {
         #expect(SettingsPermissionRefreshReason.permissionRequested.refreshesSystemAudio == false)
         #expect(SettingsPermissionRefreshReason.permissionRequested.refreshesLaunchAtLogin == false)
     }

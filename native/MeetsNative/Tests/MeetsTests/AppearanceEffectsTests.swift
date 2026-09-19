@@ -1,6 +1,6 @@
 import Testing
 import AppKit
-@testable import MeetsNativeApp
+@testable import MeetsApp
 
 
 @Suite("MenuBarIconRenderer")

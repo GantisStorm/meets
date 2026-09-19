@@ -1,6 +1,6 @@
 import CoreAudio
 import Testing
-@testable import MeetsNativeApp
+@testable import MeetsApp
 
 @Suite("AudioRouteClassifier")
 struct AudioRouteClassifierTests {

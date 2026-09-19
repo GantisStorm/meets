@@ -99,7 +99,7 @@ struct ShortcutsView: View {
     ) -> some View {
         HStack(spacing: MeetsTheme.spacing12) {
             hotkeyBadge(hotkey(for: target))
-            changeButton(for: target)
+            compactChangeButton(for: target)
                 .disabled(!isEnabled)
                 .opacity(isEnabled ? 1 : 0.55)
             Spacer(minLength: MeetsTheme.spacing16)
@@ -160,7 +160,7 @@ struct ShortcutsView: View {
             .foregroundStyle(MeetsTheme.transcribing)
     }
 
-    private func changeButton(for target: ShortcutTarget) -> some View {
+    private func compactChangeButton(for target: ShortcutTarget) -> some View {
         Button {
             if recordingTarget == target {
                 stopRecording()

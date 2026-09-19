@@ -31,7 +31,6 @@ private struct MicrophoneOption: Identifiable {
 
 enum SettingsPermissionRefreshReason {
     case initialDisplay
-    case periodicPoll
     case permissionRequested
     case settingsSelected
     case appActivated
@@ -44,7 +43,7 @@ enum SettingsPermissionRefreshReason {
         switch self {
         case .initialDisplay, .settingsSelected, .appActivated:
             true
-        case .periodicPoll, .permissionRequested:
+        case .permissionRequested:
             false
         }
     }
@@ -83,11 +82,9 @@ struct SettingsView: View {
     @State private var downloadedMeetingLiveCaptionBackends: [MeetingLiveCaptionBackend] = []
     @State private var audioInputDevices: [AudioInputDeviceInfo] = []
     @State private var audioInputDeviceRefreshTask: Task<Void, Never>?
-    @State private var permissionPollTimer: Timer?
-    @State private var micGranted = false
-    @State private var accessibilityGranted = false
-    @State private var inputMonitoringGranted = false
-    @State private var screenRecordingGranted = false
+    @State private var permissionMonitoringClientID = UUID()
+    @AppStorage("settings.pendingScreenContextEnable") private var pendingScreenContextEnable = false
+    @AppStorage("settings.pendingScreenContextRequestedAt") private var pendingScreenContextRequestedAt = 0.0
     @State private var systemAudioGranted = false
     @State private var isCheckingSystemAudioPermission = false
     @State private var calendarGranted = false
@@ -114,6 +111,22 @@ struct SettingsView: View {
         self.appState = appState
         self.controller = controller
         _selectedPane = State(initialValue: appState.selectedSettingsPane)
+    }
+
+    private var micGranted: Bool {
+        appState.interactionPermissionSnapshot?.microphone ?? false
+    }
+
+    private var accessibilityGranted: Bool {
+        appState.interactionPermissionSnapshot?.accessibility ?? false
+    }
+
+    private var inputMonitoringGranted: Bool {
+        appState.interactionPermissionSnapshot?.inputMonitoring ?? false
+    }
+
+    private var screenRecordingGranted: Bool {
+        appState.interactionPermissionSnapshot?.screenRecording ?? false
     }
 
     // Uniform width for standard right-side controls.
@@ -152,8 +165,8 @@ struct SettingsView: View {
 
     private var usesUnifiedMeetingTranscript: Bool {
         appState.config.enableLiveStreamingPartials
-            && appState.config.resolvedMeetingLiveCaptionBackend == .nemotron35
-            && downloadedMeetingLiveCaptionBackends.contains(.nemotron35)
+            && appState.config.resolvedMeetingLiveCaptionBackend.producesFinalTranscript
+            && downloadedMeetingLiveCaptionBackends.contains(appState.config.resolvedMeetingLiveCaptionBackend)
     }
 
     private var meetingLiveTranscriptDescription: String {
@@ -183,8 +196,8 @@ struct SettingsView: View {
         UpcomingMeetingsWindow.resolve(dayCount: appState.config.upcomingMeetingsDayCount)
     }
 
-    private var selectedIndicASRLanguage: IndicASRLanguage {
-        appState.config.resolvedIndicASRLanguage
+    private var selectedBodhanLanguage: BodhanLanguage {
+        appState.config.resolvedBodhanLanguage
     }
 
     private var selectedNemotron35Language: Nemotron35Language {
@@ -230,7 +243,7 @@ struct SettingsView: View {
             .onAppear {
                 refreshDownloadedModelOptions()
                 refreshAudioInputDevices()
-                startPermissionPolling()
+                startPermissionMonitoring()
                 if appState.selectedMeetingSummaryBackend == .openRouter {
                     loadOpenRouterFreeModelsIfNeeded()
                 }
@@ -243,7 +256,7 @@ struct SettingsView: View {
                 isPreviewingClip = false
                 audioInputDeviceRefreshTask?.cancel()
                 audioInputDeviceRefreshTask = nil
-                stopPermissionPolling()
+                stopPermissionMonitoring()
                 hasRefreshedMeetingCalendarSources = false
             }
             .onChange(of: appState.selectedTab) { _, tab in
@@ -259,15 +272,17 @@ struct SettingsView: View {
             }
             .onChange(of: selectedPane) { _, pane in
                 appState.selectedSettingsPane = pane
-                if pane == .meetings {
-                    loadCachedAudioInputDevices()
-                    loadACPConfigOptionsIfNeeded()
-                }
+                handlePaneSelection(pane)
             }
             .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
                 guard appState.selectedTab == .settings else { return }
                 refreshAudioInputDevices()
                 refreshPermissionStatuses(for: .appActivated)
+                if selectedPane == .meetings {
+                    Task {
+                        await controller.calendarAccessDidChange()
+                    }
+                }
             }
             .onChange(of: appState.selectedBackend) { _, _ in
                 refreshDownloadedModelOptions()
@@ -352,6 +367,12 @@ struct SettingsView: View {
             guard !Task.isCancelled else { return }
             audioInputDevices = devices
         }
+    }
+
+    private func handlePaneSelection(_ pane: SettingsPane) {
+        guard pane == .meetings else { return }
+        loadCachedAudioInputDevices()
+        loadACPConfigOptionsIfNeeded()
     }
 
     private func loadCachedAudioInputDevices() {
@@ -713,7 +734,7 @@ struct SettingsView: View {
             }
             Divider().background(MeetsTheme.surfaceBorder)
             settingsRow(
-                "Live preview model",
+                "Live transcript model",
                 description: meetingLiveTranscriptDescription,
                 controlWidth: meetingControlWidth
             ) {
@@ -750,7 +771,7 @@ struct SettingsView: View {
                 controlWidth: meetingControlWidth
             ) {
                 if usesUnifiedMeetingTranscript {
-                    Text("\(MeetingLiveCaptionBackend.nemotron35.label) (same model)")
+                    Text("\(appState.config.resolvedMeetingLiveCaptionBackend.label) (same model)")
                         .font(MeetsTheme.body())
                         .foregroundStyle(MeetsTheme.textSecondary)
                         .frame(width: meetingControlWidth, alignment: .trailing)
@@ -777,7 +798,13 @@ struct SettingsView: View {
                     description: "Language for live and final transcription.",
                     controlWidth: meetingControlWidth
                 ) {
-                    nemotron35LanguageMenu
+                    if appState.config.resolvedMeetingLiveCaptionBackend == .nemotron35 {
+                        nemotron35LanguageMenu
+                    } else {
+                        Text("Set in Models → Apple Speech")
+                            .font(MeetsTheme.body())
+                            .foregroundStyle(MeetsTheme.textSecondary)
+                    }
                 }
             } else if appState.selectedMeetingTranscriptionBackend.backend == BackendOption.cohereTranscribe.backend {
                 Divider().background(MeetsTheme.surfaceBorder)
@@ -788,14 +815,10 @@ struct SettingsView: View {
                 ) {
                     cohereLanguageMenu
                 }
-            } else if appState.selectedMeetingTranscriptionBackend.backend == BackendOption.indicASR.backend {
+            } else if appState.selectedMeetingTranscriptionBackend.backend == BackendOption.bodhanFlex.backend {
                 Divider().background(MeetsTheme.surfaceBorder)
-                settingsRow(
-                    "Indic language",
-                    description: "Transcription language for the IndicASR backend.",
-                    controlWidth: meetingControlWidth
-                ) {
-                    indicLanguageMenu
+                settingsRow("Bodhan language", controlWidth: meetingControlWidth) {
+                    indicLanguageMenu(model: appState.selectedMeetingTranscriptionBackend.model)
                 }
             } else if appState.selectedMeetingTranscriptionBackend.supportsWhisperLanguageSelection {
                 Divider().background(MeetsTheme.surfaceBorder)
@@ -840,13 +863,14 @@ struct SettingsView: View {
         }
     }
 
-    private var indicLanguageMenu: some View {
-        FixedWidthPopUp(
-            selection: selectedIndicASRLanguage.label,
-            options: IndicASRLanguage.allCases.map(\.label),
+    private func indicLanguageMenu(model: String) -> some View {
+        let languages = BodhanLanguage.choices(for: model)
+        return FixedWidthPopUp(
+            selection: selectedBodhanLanguage.supported(for: model).label,
+            options: languages.map(\.label),
             onSelectIndex: { index in
-                guard index >= 0, index < IndicASRLanguage.allCases.count else { return }
-                controller.selectIndicASRLanguage(IndicASRLanguage.allCases[index])
+                guard index >= 0, index < languages.count else { return }
+                controller.selectBodhanLanguage(languages[index])
             }
         )
         .frame(height: 24)
@@ -897,6 +921,21 @@ struct SettingsView: View {
                         presets: SummaryModelPreset.chatGPTModels
                     ) { val in controller.updateConfig { $0.chatGPTModel = val } }
                 }
+                let model = appState.config.chatGPTModel.isEmpty
+                    ? (SummaryModelPreset.chatGPTModels.first?.id ?? "")
+                    : appState.config.chatGPTModel
+                if !ReasoningEffortPolicy.selectableEfforts(for: model).isEmpty {
+                    Divider().background(MeetsTheme.surfaceBorder)
+                    settingsRow("Thinking", controlWidth: meetingControlWidth) {
+                        settingsReasoningSlider(
+                            model: model,
+                            preferred: appState.config.meetingSummaryReasoningEffort,
+                            accessibilityLabel: "Meeting summary thinking"
+                        ) { effort in
+                            controller.updateConfig { $0.meetingSummaryReasoningEffort = effort }
+                        }
+                    }
+                }
             } else if appState.selectedMeetingSummaryBackend == .openAI {
                 settingsRow(
                     "API Key",
@@ -920,6 +959,21 @@ struct SettingsView: View {
                         currentModel: appState.config.openAIModel,
                         presets: SummaryModelPreset.openAIModels
                     ) { val in controller.updateConfig { $0.openAIModel = val } }
+                }
+                let model = appState.config.openAIModel.isEmpty
+                    ? (SummaryModelPreset.openAIModels.first?.id ?? "")
+                    : appState.config.openAIModel
+                if !ReasoningEffortPolicy.selectableEfforts(for: model).isEmpty {
+                    Divider().background(MeetsTheme.surfaceBorder)
+                    settingsRow("Thinking", controlWidth: meetingControlWidth) {
+                        settingsReasoningSlider(
+                            model: model,
+                            preferred: appState.config.meetingSummaryReasoningEffort,
+                            accessibilityLabel: "Meeting summary thinking"
+                        ) { effort in
+                            controller.updateConfig { $0.meetingSummaryReasoningEffort = effort }
+                        }
+                    }
                 }
                 keyStatusRow(key: appState.config.openAIAPIKey)
             } else if appState.selectedMeetingSummaryBackend == .ollama {
@@ -1408,6 +1462,19 @@ struct SettingsView: View {
 
             settingsSection("Calendars") {
                 calendarSyncRow
+                Divider().background(MeetsTheme.surfaceBorder)
+                HStack(alignment: .top) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Use calendars already connected to your Mac.")
+                            .font(MeetsTheme.body())
+                        Text("Add or remove accounts in macOS System Settings.")
+                            .font(MeetsTheme.caption())
+                            .foregroundStyle(MeetsTheme.textSecondary)
+                    }
+                    Spacer()
+                    Button("Manage accounts…", action: CalendarIntegration.openAccounts)
+                        .buttonStyle(.borderedProminent)
+                }
                 Divider().background(MeetsTheme.surfaceBorder)
                 settingsRow(
                     "Upcoming meetings",
@@ -2459,47 +2526,36 @@ struct SettingsView: View {
         }
 
         guard accessibilityGranted else {
-            let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary
-            AXIsProcessTrustedWithOptions(options)
-            accessibilityGranted = AXIsProcessTrusted()
-            if accessibilityGranted {
-                controller.updateConfig { $0.enableScreenContext = true }
+            pendingScreenContextEnable = true
+            pendingScreenContextRequestedAt = Date().timeIntervalSince1970
+            let granted = controller.requestScreenContextEnable()
+            controller.refreshInteractionPermissionSnapshot()
+            if granted {
+                clearPendingScreenContextEnable()
             }
-            return accessibilityGranted
+            return granted
         }
 
         controller.updateConfig { $0.enableScreenContext = true }
         return true
     }
 
-    private func startPermissionPolling() {
-        // Keep the 1 Hz poll limited to cheap TCC snapshots. SMAppService can block
-        // the main thread, while probing system audio creates a CoreAudio process
-        // tap and can perturb the HAL. Refresh those only at lifecycle boundaries.
+    private func startPermissionMonitoring() {
+        controller.beginInteractionPermissionMonitoring(clientID: permissionMonitoringClientID)
         refreshPermissionStatuses(for: .initialDisplay)
-        permissionPollTimer?.invalidate()
-        let timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
-            refreshPermissionStatuses(for: .periodicPoll)
-        }
-        RunLoop.main.add(timer, forMode: .common)
-        permissionPollTimer = timer
     }
 
-    private func stopPermissionPolling() {
-        permissionPollTimer?.invalidate()
-        permissionPollTimer = nil
+    private func stopPermissionMonitoring() {
+        controller.endInteractionPermissionMonitoring(clientID: permissionMonitoringClientID)
     }
 
     private func refreshPermissionStatuses(for reason: SettingsPermissionRefreshReason) {
         controller.syncCalendarAuthorizationState()
         calendarGranted = appState.calendarAuthorization == .fullAccess
-        micGranted = AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
-        accessibilityGranted = AXIsProcessTrusted()
-        inputMonitoringGranted = CGPreflightListenEventAccess()
-        screenRecordingGranted = CGPreflightScreenCaptureAccess()
         if reason.refreshesLaunchAtLogin {
             controller.refreshLaunchAtLoginState()
         }
+        controller.refreshInteractionPermissionSnapshot()
         if !accessibilityGranted && appState.config.enableScreenContext {
             // The app lost Accessibility access since the toggle was enabled;
             // meeting context capture cannot run without it.
@@ -2510,6 +2566,11 @@ struct SettingsView: View {
         if reason.refreshesSystemAudio {
             refreshSystemAudioPermissionIfNeeded()
         }
+    }
+
+    private func clearPendingScreenContextEnable() {
+        pendingScreenContextEnable = false
+        pendingScreenContextRequestedAt = 0
     }
 
     private func refreshSystemAudioPermissionIfNeeded() {
@@ -3127,6 +3188,45 @@ struct SettingsView: View {
             }
         )
         .frame(height: 24)
+    }
+
+    @ViewBuilder
+    private func settingsReasoningSlider(
+        model: String,
+        preferred: ReasoningEffort?,
+        accessibilityLabel: String,
+        onChange: @escaping (ReasoningEffort) -> Void
+    ) -> some View {
+        let efforts = ReasoningEffortPolicy.selectableEfforts(for: model)
+        if let effectiveEffort = ReasoningEffortPolicy.resolvedEffort(
+            for: model,
+            preferred: preferred
+        ) {
+            HStack(spacing: 12) {
+                Slider(
+                    value: Binding(
+                        get: {
+                            Double(efforts.firstIndex(of: effectiveEffort) ?? 0)
+                        },
+                        set: { value in
+                            let index = min(max(Int(value.rounded()), 0), efforts.count - 1)
+                            onChange(efforts[index])
+                        }
+                    ),
+                    in: 0 ... Double(efforts.count - 1),
+                    step: 1
+                )
+                .tint(MeetsTheme.accent)
+                .accessibilityLabel(accessibilityLabel)
+                .accessibilityValue(effectiveEffort.label)
+
+                Text(effectiveEffort.label)
+                    .font(MeetsTheme.caption())
+                    .foregroundStyle(MeetsTheme.textSecondary)
+                    .frame(width: 80, alignment: .trailing)
+            }
+            .frame(height: 24)
+        }
     }
 
     @ViewBuilder

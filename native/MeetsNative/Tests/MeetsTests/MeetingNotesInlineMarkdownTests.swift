@@ -2,7 +2,7 @@ import Foundation
 import AppKit
 import SwiftUI
 import Testing
-@testable import MeetsNativeApp
+@testable import MeetsApp
 
 @Suite("MeetingNotesView inline markdown")
 struct MeetingNotesInlineMarkdownTests {

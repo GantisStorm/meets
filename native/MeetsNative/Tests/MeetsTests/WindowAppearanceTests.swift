@@ -3,7 +3,7 @@ import Foundation
 import MeetsCore
 import SwiftUI
 import Testing
-@testable import MeetsNativeApp
+@testable import MeetsApp
 
 @MainActor
 @Suite("WindowAppearance", .serialized)

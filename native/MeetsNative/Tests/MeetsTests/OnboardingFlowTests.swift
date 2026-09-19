@@ -1,8 +1,44 @@
+import Foundation
 import Testing
-@testable import MeetsNativeApp
+@testable import MeetsApp
 
 @Suite("OnboardingFlow")
 struct OnboardingFlowTests {
+    @Test("Restored supported models outside onboarding must be reconfirmed", arguments: [2, 3, 4, 5, 6])
+    func replacedModelReturnsToSelection(_ requestedStep: Int) {
+        let version = OperatingSystemVersion(majorVersion: 15, minorVersion: 0, patchVersion: 0)
+        let initial = BackendOption.gemma4E2BLiteRT
+        #expect(initial.isCompatible(currentOSVersion: version))
+        let resolved = BackendOption.resolvedOnboardingBackend(initial, currentOSVersion: version)
+        #expect(resolved != initial)
+        #expect(OnboardingFlow.modelGatedResumeStep(
+            requestedStep: requestedStep, initialBackend: initial,
+            resolvedBackend: resolved, currentOSVersion: version
+        ) == 1)
+    }
+
+    @Test("Unchanged supported onboarding models preserve the permission-gated step", arguments: [0, 1, 2, 3, 4, 5, 6])
+    func unchangedModelPreservesResumeStep(_ requestedStep: Int) {
+        let version = OperatingSystemVersion(majorVersion: 14, minorVersion: 8, patchVersion: 0)
+        let initial = BackendOption.parakeetUnified
+        #expect(OnboardingFlow.modelGatedResumeStep(
+            requestedStep: requestedStep, initialBackend: initial,
+            resolvedBackend: BackendOption.resolvedOnboardingBackend(initial, currentOSVersion: version),
+            currentOSVersion: version
+        ) == requestedStep)
+    }
+
+    @Test("OS-incompatible restored models return to selection without skipping welcome", arguments: [0, 1, 3, 4])
+    func incompatibleModelRespectsEarlierSteps(_ requestedStep: Int) {
+        let version = OperatingSystemVersion(majorVersion: 14, minorVersion: 8, patchVersion: 0)
+        let initial = BackendOption.nemotron35Multilingual
+        #expect(OnboardingFlow.modelGatedResumeStep(
+            requestedStep: requestedStep, initialBackend: initial,
+            resolvedBackend: BackendOption.resolvedOnboardingBackend(initial, currentOSVersion: version),
+            currentOSVersion: version
+        ) == min(requestedStep, 1))
+    }
+
     @Test("voice notes orders push-to-talk steps without paste permission")
     func voiceNotesOrderedSteps() {
         #expect(OnboardingFlow.orderedSteps(for: .voiceNotes) == [0, 1, 2, 3, 4])
@@ -28,6 +64,14 @@ struct OnboardingFlowTests {
         #expect(OnboardingFlow.orderedSteps(for: .voiceNotesAndMeetings) == [0, 1, 2, 3, 4, 5, 6])
         #expect(OnboardingFlow.orderedSteps(for: .voiceNotesAndDictation) == [0, 1, 2, 3, 4])
         #expect(OnboardingFlow.orderedSteps(for: .everything) == [0, 1, 2, 3, 4, 5, 6])
+    }
+
+    @Test("restored calendar step uses macOS calendar access")
+    func restoredRemovedCalendarStep() {
+        for useCase: OnboardingUseCase in [.meetings, .dictationAndMeetings, .voiceNotesAndMeetings, .everything] {
+            #expect(OnboardingFlow.normalizedStep(6, for: useCase) == OnboardingFlow.Step.calendarAccess.rawValue)
+            #expect(OnboardingFlow.orderedSteps(for: useCase).last == OnboardingFlow.Step.calendarAccess.rawValue)
+        }
     }
 
     @Test("normalized step advances over skipped steps")

@@ -1,7 +1,7 @@
 import Testing
 import Foundation
 @testable import MeetsCore
-@testable import MeetsNativeApp
+@testable import MeetsApp
 
 struct Qwen3VendorTests {
 

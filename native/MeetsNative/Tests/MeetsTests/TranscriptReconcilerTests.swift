@@ -1,7 +1,7 @@
 import FluidAudio
 import Testing
 import MeetsCore
-@testable import MeetsNativeApp
+@testable import MeetsApp
 
 @Suite("TranscriptReconciler")
 struct TranscriptReconcilerTests {

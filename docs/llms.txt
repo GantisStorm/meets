@@ -12,7 +12,7 @@ Meets is a free, open-source macOS application — a meetings-only fork of Muesl
 - **Speaker Diarization**: Identifies individual speakers in system audio
 - **Meeting Insights**: Local analytics over your meeting history
 - **Local-First**: Transcription runs entirely on-device via Fluid Audio / CoreML
-- **Privacy**: Audio never leaves your Mac unless you opt into cloud summarization
+- **Privacy**: Audio never leaves your Mac unless you opt into cloud summarization; iCloud sync transfers text and sync metadata, not audio
 - **Free & Open Source**: MIT licensed, no subscriptions, no usage limits
 
 ## Technical Details
@@ -27,7 +27,7 @@ Meets is a free, open-source macOS application — a meetings-only fork of Muesl
 
 - Website: https://freedspeech.xyz
 - GitHub: https://github.com/Muesli-HQ/muesli
-- Download: https://github.com/Muesli-HQ/muesli/releases/download/v0.8.3/Muesli-0.8.3.dmg
+- Download: https://github.com/Muesli-HQ/muesli/releases/download/v0.8.4/Muesli-0.8.4.dmg
 - Support: https://buymeacoffee.com/phequals7
 - License: MIT
 
@@ -40,7 +40,7 @@ Meets is a menu bar app whose core mode is meeting transcription:
 3. **Notes**: Optional LLM summarization produces structured notes (ChatGPT subscription or BYOK providers).
 4. **Storage**: Transcripts, notes, and recordings are stored in local SQLite.
 
-The app uses Fluid Audio's CoreML models running on the Apple Neural Engine for speech-to-text, minimizing CPU/GPU usage. Optional cloud integration is available for meeting note summarization only, using bring-your-own-key configuration or a ChatGPT subscription.
+The app uses Fluid Audio's CoreML models running on the Apple Neural Engine for speech-to-text, minimizing CPU/GPU usage. Optional cloud integration is available for meeting note summarization and transcript cleanup, using bring-your-own-key configuration or a ChatGPT subscription.
 
 ## Author
 

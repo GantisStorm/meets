@@ -1,7 +1,7 @@
 import Testing
 import Foundation
 import MeetsCore
-@testable import MeetsNativeApp
+@testable import MeetsApp
 
 @Suite("ConfigStore", .serialized)
 struct ConfigStoreTests {

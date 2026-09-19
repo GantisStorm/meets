@@ -12,16 +12,16 @@ Use the Linux CI checks that mirror `.github/workflows/ci.yml` on `ubuntu-latest
 ./scripts/verify_update_flow.sh --skip-dmg
 ```
 
-Native builds and the full test suite require macOS 14.2+ with Xcode 16+:
+Native builds and the full test suite use Xcode 26.6 (Swift 6.3) on macOS 26, matching CI. MLX Swift requires Swift 6.3; the app deployment target remains macOS 14.2:
 
 ```bash
 ./scripts/dev-test.sh
-swift test --package-path native/MuesliNative
+swift test --package-path native/MeetsNative
 ```
 
 ## Build Artifacts and Worktrees
 
-SwiftPM can write build artifacts to `native/MuesliNative/.build` inside the active worktree. That can consume several GB per worktree when multiple feature worktrees are used.
+SwiftPM can write build artifacts to `native/MeetsNative/.build` inside the active worktree. That can consume several GB per worktree when multiple feature worktrees are used.
 
 Local build scripts resolve a shared SwiftPM scratch path through `scripts/muesli_spm_cache.sh`:
 
@@ -45,7 +45,7 @@ For direct or concurrent worktree builds, pass a specific path:
 
 ```bash
 MUESLI_SWIFTPM_SCRATCH_PATH="$HOME/Library/Caches/muesli-spm/worktrees/pr182/dev" ./scripts/dev-test.sh
-swift test --package-path native/MuesliNative --scratch-path "$HOME/Library/Caches/muesli-spm/worktrees/pr182/test"
+swift test --package-path native/MeetsNative --scratch-path "$HOME/Library/Caches/muesli-spm/worktrees/pr182/test"
 ```
 
 Caveat: do not run concurrent builds from different worktrees into the same scratch path. Use separate paths per channel, agent, or simultaneous build, such as `worktrees/pr182/dev`, `worktrees/pr188/dev`, or `agent-1`.
@@ -77,18 +77,18 @@ Deleting a scratch path only removes rebuildable SwiftPM artifacts. It does not 
 For direct SwiftPM test runs, pass the scratch path yourself:
 
 ```bash
-swift test --package-path native/MuesliNative --scratch-path "$HOME/Library/Caches/muesli-spm/test"
+swift test --package-path native/MeetsNative --scratch-path "$HOME/Library/Caches/muesli-spm/test"
 ```
 
 ## LocalVQE Runtime
 
-Every signed Muesli package, including `MuesliDev`, fixed dev lanes, preproduction, and stable builds, must include a complete LocalVQE runtime. The committed `.gguf` model is not sufficient by itself; packaging also requires `liblocalvqe`, the `libggml` umbrella library, `libggml-base`, and every referenced ggml backend library.
+Every signed Muesli package, including `MeetsDev`, fixed dev lanes, preproduction, and stable builds, must include a complete LocalVQE runtime. The committed `.gguf` model is not sufficient by itself; packaging also requires `liblocalvqe`, the `libggml` umbrella library, `libggml-base`, and every referenced ggml backend library.
 
-The generated runtime under `native/MuesliNative/LocalVQE/lib/` is gitignored and is not part of the SwiftPM or Xcode cache. A fresh worktree can therefore have a warm build cache while still lacking LocalVQE. Before a signed build:
+The generated runtime under `native/MeetsNative/LocalVQE/lib/` is gitignored and is not part of the SwiftPM or Xcode cache. A fresh worktree can therefore have a warm build cache while still lacking LocalVQE. Before a signed build:
 
 ```bash
 source scripts/localvqe_runtime.sh
-if ! muesli_localvqe_runtime_is_complete native/MuesliNative/LocalVQE/lib; then
+if ! muesli_localvqe_runtime_is_complete native/MeetsNative/LocalVQE/lib; then
   ./scripts/build_localvqe.sh
 fi
 ./scripts/dev-test.sh --lane B

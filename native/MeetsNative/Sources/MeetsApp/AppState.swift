@@ -65,6 +65,23 @@ enum SparkleUpdateStatus: Equatable {
     case failed(message: String)
 }
 
+enum ICloudBridgeState: Equatable {
+    case notConfigured
+    case checkingICloud
+    case syncing
+    case active
+    case needsICloud
+    case needsReconnection
+    case needsAccountReplacement
+    case error
+}
+
+enum ICloudBridgeCompanionDiscoveryState: Equatable {
+    case idle
+    case waiting
+    case timedOut
+}
+
 struct ActiveMeetingAudioWarning: Equatable {
     let meetingID: Int64
     let message: String
@@ -105,6 +122,7 @@ final class AppState {
     var selectedMeetingSummaryBackend: MeetingSummaryBackendOption = .chatGPT
     var config: AppConfig = AppConfig()
     var launchAtLoginRegistrationState: LaunchAtLoginRegistrationState = .disabled
+    var interactionPermissionSnapshot: InteractionPermissionSnapshot?
 
     // Live status
     var isMeetingRecording: Bool = false
@@ -129,6 +147,8 @@ final class AppState {
     var eventKitCalendars: [EKCalendarModel] = []
     var calendarAccounts: [EKAccountModel] = []
     var calendarEvents: [UnifiedCalendarEvent] = []
+    var openRouterTranscriptionModels: [SummaryModelPreset] = []
+    var openRouterTranscriptionCatalogState: OpenRouterModelCatalogLoadState = .idle
     var upcomingCalendarEvents: [UnifiedCalendarEvent] = []
     var hiddenCalendarEventIDs: Set<String> = []
     var sparkleUpdateStatus: SparkleUpdateStatus = .idle

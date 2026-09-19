@@ -1,5 +1,5 @@
 import Testing
-@testable import MeetsNativeApp
+@testable import MeetsApp
 import MeetsCore
 
 @Suite("Meeting export")

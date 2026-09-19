@@ -116,14 +116,28 @@ struct BackendOption: Equatable {
         recommended: false
     )
 
-    static let indicASR = BackendOption(
-        backend: "indicasr",
-        model: "phequals/indic-conformer-600m-multilingual-coreml-rnnt",
-        label: "Indic ASR",
-        sizeLabel: "~618 MB",
-        description: "Built specifically for seven Indian languages. Choose your language before recording; it can help where general multilingual models struggle, but results still vary enough to keep it experimental.",
-        recommended: false
+    static let bodhanCore = BackendOption(
+        backend: "bodhan", model: BodhanModel.core.rawValue,
+        label: "Bodhan Core FP16", sizeLabel: "~2.46 GB FP16",
+        description: "Indian-language speech in its native script. English words within Hindi or Tamil are written in that script too. Detects the language automatically, or use the language picker.", recommended: false
     )
+    static let bodhanFlex = BackendOption(
+        backend: "bodhan", model: BodhanModel.flex.rawValue,
+        label: "Bodhan Flex FP16", sizeLabel: "~2.46 GB FP16",
+        description: "For mixed-language dictation: keeps Hindi or Tamil in its own script and English words in Latin letters. Also formats spoken numbers. Try both models to compare accuracy.", recommended: false
+    )
+
+    static let bodhanCoreInt8 = BackendOption(
+        backend: "bodhan", model: BodhanModel.coreInt8.rawValue,
+        label: "Bodhan Core INT8", sizeLabel: "~1.27 GB",
+        description: "A smaller download of Core for Indian-language speech in its native script. Detects language automatically. Uses less space; transcription can differ slightly from FP16.", recommended: false
+    )
+    static let bodhanFlexInt8 = BackendOption(
+        backend: "bodhan", model: BodhanModel.flexInt8.rawValue,
+        label: "Bodhan Flex INT8", sizeLabel: "~1.27 GB",
+        description: "A smaller download of Flex for mixed-language dictation and spoken numbers. Keeps English words in Latin letters. Uses less space; transcription can differ slightly from FP16.", recommended: false
+    )
+    static let bodhanFamily: [BackendOption] = [.bodhanCore, .bodhanCoreInt8, .bodhanFlex, .bodhanFlexInt8]
 
     static let senseVoiceSmall = BackendOption(
         backend: "sensevoice",
@@ -191,7 +205,7 @@ struct BackendOption: Equatable {
     )
 
     static let experimental: [BackendOption] = [
-        .senseVoiceSmall, .indicASR, .gemma4E2BLiteRT, .gemma4E4BLiteRT, .qwen3Asr,
+        .senseVoiceSmall, .gemma4E2BLiteRT, .gemma4E4BLiteRT, .qwen3Asr,
     ]
 
     /// Native streaming backends used by low-latency product surfaces.
@@ -208,6 +222,7 @@ struct BackendOption: Equatable {
             + whisperFamily
             + [.cohereTranscribe]
             + streaming
+            + bodhanFamily
             + experimental
         // Parakeet Unified (English) and v3 (multilingual) are the preferred
         // onboarding models; Apple Speech remains available in the catalog.
@@ -269,9 +284,11 @@ struct BackendOption: Equatable {
     }
 
     static func resolve(backend: String, model: String) -> BackendOption? {
-        all.first {
-            $0.backend == backend && $0.model == model
+        // Compatibility for saved selections from the retired Indic backend.
+        if backend == "indicasr" {
+            return all.first { $0.backend == "bodhan" && $0.model == model } ?? .bodhanFlex
         }
+        return all.first { $0.backend == backend && $0.model == model }
     }
 
     var supportsMeetingTranscription: Bool {
@@ -280,6 +297,58 @@ struct BackendOption: Equatable {
 
     var isSystemManaged: Bool {
         backend == "apple-speech"
+    }
+
+    /// Shared OS requirements for model selection in onboarding and the library.
+    /// Native `#available` checks still protect calls into newer system APIs.
+    var minimumOSVersion: OperatingSystemVersion {
+        switch backend {
+        case "nemotron35", "qwen", "cohere", "bodhan", "gemma4-litert":
+            return OperatingSystemVersion(majorVersion: 15, minorVersion: 0, patchVersion: 0)
+        case "apple-speech":
+            return OperatingSystemVersion(majorVersion: 26, minorVersion: 0, patchVersion: 0)
+        default:
+            return OperatingSystemVersion(majorVersion: 14, minorVersion: 2, patchVersion: 0)
+        }
+    }
+
+    func isCompatible(currentOSVersion: OperatingSystemVersion = Self.currentOSVersion) -> Bool {
+        let minimum = minimumOSVersion
+        return (currentOSVersion.majorVersion, currentOSVersion.minorVersion, currentOSVersion.patchVersion)
+            >= (minimum.majorVersion, minimum.minorVersion, minimum.patchVersion)
+    }
+
+    /// Applies even to installed models; download state does not establish OS compatibility.
+    func incompatibilityReason(currentOSVersion: OperatingSystemVersion = Self.currentOSVersion) -> String? {
+        guard !isCompatible(currentOSVersion: currentOSVersion) else { return nil }
+        let minimum = minimumOSVersion
+        let required = minimum.minorVersion == 0 ? "\(minimum.majorVersion)" : Self.label(for: minimum)
+        return "\(label) requires macOS \(required) or later (you're on macOS \(Self.label(for: currentOSVersion)))."
+    }
+
+    /// Restore only selectable, supported onboarding models (including after an OS downgrade).
+    static func resolvedOnboardingBackend(
+        _ preferred: BackendOption,
+        currentOSVersion: OperatingSystemVersion = Self.currentOSVersion
+    ) -> BackendOption {
+        onboarding.contains(preferred) && preferred.isCompatible(currentOSVersion: currentOSVersion)
+            ? preferred : onboardingDefault
+    }
+
+    /// Resolve once per launch, including the optional `MUESLI_DEBUG_OS_VERSION=14.8`
+    /// UI preview. This does not override native API availability checks.
+    static let currentOSVersion: OperatingSystemVersion = {
+        if let raw = ProcessInfo.processInfo.environment["MUESLI_DEBUG_OS_VERSION"] {
+            let parts = raw.split(separator: ".").compactMap { Int($0) }
+            if parts.count >= 2 {
+                return OperatingSystemVersion(majorVersion: parts[0], minorVersion: parts[1], patchVersion: 0)
+            }
+        }
+        return ProcessInfo.processInfo.operatingSystemVersion
+    }()
+
+    private static func label(for version: OperatingSystemVersion) -> String {
+        "\(version.majorVersion).\(version.minorVersion)"
     }
 
     /// Multilingual WhisperKit models expose language selection (auto-detect or pinned code).
@@ -323,8 +392,8 @@ struct BackendOption: Equatable {
             return Nemotron35ModelStore.isModelDownloaded(fileManager: fm)
         case "cohere":
             return CohereTranscribeModelStore.isAvailableLocally()
-        case "indicasr":
-            return IndicASRModelStore.isAvailableLocally()
+        case "bodhan":
+            return BodhanModel(rawValue: model)?.isDownloaded ?? false
         case "sensevoice":
             return SenseVoiceTranscriber.isModelDownloaded(fileManager: fm)
         case "gemma4-litert":
@@ -621,6 +690,7 @@ enum WhisperKitLanguage: String, CaseIterable, Codable, Sendable {
 
 enum MeetingLiveCaptionBackend: String, CaseIterable, Codable, Sendable {
     case parakeetRealtimeEOU = "parakeet_realtime_eou"
+    case appleSpeech = "apple-speech"
     case nemotron35 = "nemotron35"
 
     static let defaultBackend: Self = .parakeetRealtimeEOU
@@ -628,6 +698,7 @@ enum MeetingLiveCaptionBackend: String, CaseIterable, Codable, Sendable {
     var label: String {
         switch self {
         case .parakeetRealtimeEOU: return MeetingLiveCaptionModelStore.label
+        case .appleSpeech: return BackendOption.appleSpeechAnalyzer.label
         case .nemotron35: return BackendOption.nemotron35Multilingual.label
         }
     }
@@ -635,13 +706,21 @@ enum MeetingLiveCaptionBackend: String, CaseIterable, Codable, Sendable {
     var settingsLabel: String {
         switch self {
         case .parakeetRealtimeEOU: return "\(label) (live preview only)"
+        case .appleSpeech: return "\(label) (live + final)"
         case .nemotron35: return "\(label) (live + final)"
         }
     }
 
+    var producesFinalTranscript: Bool { self == .nemotron35 || self == .appleSpeech }
+
     var isDownloaded: Bool {
         switch self {
         case .parakeetRealtimeEOU: return MeetingLiveCaptionModelStore.isDownloaded()
+        case .appleSpeech:
+            if #available(macOS 26.0, *) {
+                return AppleSpeechAnalyzerTranscriber.isSupportedOnCurrentSystem
+            }
+            return false
         case .nemotron35:
             guard #available(macOS 15, *) else { return false }
             return BackendOption.nemotron35Multilingual.isDownloaded
@@ -656,12 +735,94 @@ enum MeetingLiveCaptionBackend: String, CaseIterable, Codable, Sendable {
     }
 }
 
+enum ReasoningEffort: String, CaseIterable, Codable, Sendable {
+    case off = "none"
+    case minimal
+    case low
+    case medium
+    case high
+    case xhigh
+    case max
+
+    var label: String {
+        switch self {
+        case .off: return "None"
+        case .minimal: return "Minimal"
+        case .low: return "Low"
+        case .medium: return "Medium"
+        case .high: return "High"
+        case .xhigh: return "Extra High"
+        case .max: return "Maximum"
+        }
+    }
+}
+
+/// Centralizes the reasoning capabilities shared by OpenAI API and ChatGPT
+/// account-backed requests. Unsupported preferences fall back to the selected
+/// model's default rather than sending an invalid API value.
+enum ReasoningEffortPolicy {
+    private struct Capabilities {
+        let efforts: [ReasoningEffort]
+        let defaultEffort: ReasoningEffort
+    }
+
+    static func selectableEfforts(for model: String) -> [ReasoningEffort] {
+        capabilities(for: model)?.efforts ?? []
+    }
+
+    static func defaultEffort(for model: String) -> ReasoningEffort? {
+        capabilities(for: model)?.defaultEffort
+    }
+
+    static func resolvedEffort(
+        for model: String,
+        preferred: ReasoningEffort?
+    ) -> ReasoningEffort? {
+        guard let capabilities = capabilities(for: model) else { return nil }
+        if let preferred, capabilities.efforts.contains(preferred) {
+            return preferred
+        }
+        return capabilities.defaultEffort
+    }
+
+    static func apiValue(for model: String, preferred: ReasoningEffort? = nil) -> String? {
+        resolvedEffort(for: model, preferred: preferred)?.rawValue
+    }
+
+    private static func capabilities(for model: String) -> Capabilities? {
+        switch model.trimmingCharacters(in: .whitespacesAndNewlines) {
+        case "gpt-5.4-mini", "gpt-5.4", "gpt-5.4-nano", "gpt-5.2":
+            return Capabilities(
+                efforts: [.off, .low, .medium, .high, .xhigh],
+                defaultEffort: .off
+            )
+        case "gpt-5.4-pro":
+            return Capabilities(efforts: [.medium, .high, .xhigh], defaultEffort: .medium)
+        case "gpt-6-astra":
+            return Capabilities(
+                efforts: [.low, .medium, .high, .xhigh, .max],
+                defaultEffort: .high
+            )
+        case "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna":
+            return Capabilities(
+                efforts: [.off, .low, .medium, .high, .xhigh, .max],
+                defaultEffort: .high
+            )
+        case "gpt-5-mini":
+            return Capabilities(efforts: [.minimal, .low, .medium, .high], defaultEffort: .medium)
+        default:
+            return nil
+        }
+    }
+}
+
 struct SummaryModelPreset {
     let id: String
     let label: String
 
     static let openAIModels: [SummaryModelPreset] = [
         SummaryModelPreset(id: "gpt-5.4-mini", label: "GPT-5.4 Mini (default)"),
+        SummaryModelPreset(id: "gpt-6-astra", label: "GPT-6 Astra"),
         SummaryModelPreset(id: "gpt-5.6-sol", label: "GPT-5.6 Sol"),
         SummaryModelPreset(id: "gpt-5.6-terra", label: "GPT-5.6 Terra"),
         SummaryModelPreset(id: "gpt-5.6-luna", label: "GPT-5.6 Luna"),
@@ -675,19 +836,23 @@ struct SummaryModelPreset {
 
     static let chatGPTModels: [SummaryModelPreset] = [
         SummaryModelPreset(id: "gpt-5.4-mini", label: "GPT-5.4 Mini (default)"),
+        SummaryModelPreset(id: "gpt-6-astra", label: "GPT-6 Astra"),
         SummaryModelPreset(id: "gpt-5.6-sol", label: "GPT-5.6 Sol"),
         SummaryModelPreset(id: "gpt-5.6-terra", label: "GPT-5.6 Terra"),
         SummaryModelPreset(id: "gpt-5.6-luna", label: "GPT-5.6 Luna"),
     ]
     static let chatGPTTranscriptCleanupModels: [SummaryModelPreset] = [
         SummaryModelPreset(id: "gpt-5.6-terra", label: "GPT-5.6 Terra (default)"),
+        SummaryModelPreset(id: "gpt-6-astra", label: "GPT-6 Astra"),
         SummaryModelPreset(id: "gpt-5.4-mini", label: "GPT-5.4 Mini"),
         SummaryModelPreset(id: "gpt-5.6-sol", label: "GPT-5.6 Sol"),
         SummaryModelPreset(id: "gpt-5.6-luna", label: "GPT-5.6 Luna"),
     ]
 
 
+
     static let openRouterModels: [SummaryModelPreset] = [
+        SummaryModelPreset(id: "openrouter/free", label: "OpenRouter Free (default)"),
         SummaryModelPreset(id: "stepfun/step-3.5-flash:free", label: "Step 3.5 Flash (256k ctx)"),
         SummaryModelPreset(id: "nvidia/nemotron-3-super-120b-a12b:free", label: "Nemotron 3 Super 120B (262k ctx)"),
         SummaryModelPreset(id: "nvidia/nemotron-3-nano-30b-a3b:free", label: "Nemotron 3 Nano 30B (256k ctx)"),
@@ -709,15 +874,6 @@ struct SummaryModelPreset {
     static func supportedChatGPTModel(_ model: String) -> String {
         let trimmed = model.trimmingCharacters(in: .whitespacesAndNewlines)
         return unsupportedChatGPTModelIDs.contains(trimmed) ? "" : trimmed
-    }
-
-    static func reasoningEffort(for model: String) -> String? {
-        switch model.trimmingCharacters(in: .whitespacesAndNewlines) {
-        case "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna":
-            return "high"
-        default:
-            return nil
-        }
     }
 
     static func migratedFromGPT55(_ model: String) -> String {
@@ -882,6 +1038,41 @@ struct OpenRouterModelCatalogClient: Sendable {
         request.timeoutInterval = 30
         request.setValue(AppIdentity.displayName, forHTTPHeaderField: "X-OpenRouter-Title")
         return request
+    }
+}
+
+extension MeetingSummaryBackendOption {
+    var modelKeyPath: WritableKeyPath<AppConfig, String> {
+        switch self {
+        case .chatGPT: return \.chatGPTModel
+        case .openAI: return \.openAIModel
+        case .openRouter: return \.openRouterModel
+        case .ollama: return \.ollamaModel
+        case .lmStudio: return \.lmStudioModel
+        default: return \.customLLMModel
+        }
+    }
+
+    /// Copies the settings for one request without persisting a new default.
+    func summaryConfiguration(from config: AppConfig, model: String) -> AppConfig {
+        var snapshot = config
+        snapshot.meetingSummaryBackend = backend
+        snapshot[keyPath: modelKeyPath] = model
+        return snapshot
+    }
+
+    func summaryModels(config: AppConfig, openRouterModels: [SummaryModelPreset]) -> [SummaryModelPreset] {
+        let presets: [SummaryModelPreset]
+        switch self {
+        case .chatGPT: presets = SummaryModelPreset.chatGPTModels
+        case .openAI: presets = SummaryModelPreset.openAIModels
+        case .openRouter:
+            presets = [SummaryModelPreset.openRouterModels[0]]
+                + openRouterModels.filter { $0.id != "openrouter/free" }
+        case .ollama: presets = [SummaryModelPreset(id: "qwen3.5", label: "qwen3.5 (default)")]
+        default: presets = []
+        }
+        return SummaryModelPreset.menuPresets(presets, currentModel: config[keyPath: modelKeyPath])
     }
 }
 
@@ -1199,10 +1390,10 @@ struct PostProcessorOption: Identifiable, Equatable {
     }
 
 
-    /// S1-mini normalizes English transcripts only. Indic ASR always emits an
+    /// S1-mini normalizes English transcripts only. Bodhan can emit an
     /// Indic-language transcript, so do not offer or run S1-mini for it.
     func isCompatible(with transcriptionBackend: BackendOption) -> Bool {
-        inputFormat != .s1Mini || transcriptionBackend != .indicASR
+        inputFormat != .s1Mini || transcriptionBackend.backend != "bodhan"
     }
 
     /// Retained only so existing installs keep working. This option is not in
@@ -1368,6 +1559,7 @@ enum TranscriptCleanupPrompts {
 }
 
 struct AppConfig: Codable {
+
     var meetingRecordingHotkey: HotkeyConfig = .meetingRecordingDefault
     var enableMeetingRecordingHotkey: Bool = false
     var meetingRecordingHotkeyTriggerThresholdMS: Int = HotkeyTriggerTiming.defaultMeetingThresholdMilliseconds
@@ -1375,7 +1567,7 @@ struct AppConfig: Codable {
     var sttModel: String = BackendOption.parakeetUnified.model
     var meetingInputDeviceUID: String? = nil
     var cohereLanguage: String = CohereTranscribeLanguage.defaultLanguage.rawValue
-    var indicASRLanguage: String = IndicASRLanguage.defaultLanguage.rawValue
+    var bodhanLanguage: String = BodhanLanguage.defaultLanguage.rawValue
     var nemotron35Language: String = Nemotron35Language.defaultLanguage.rawValue
     var whisperLanguage: String = WhisperKitLanguage.defaultLanguage.rawValue
     var qwen3AsrLanguage: String = Qwen3AsrLanguage.defaultLanguage.rawValue
@@ -1410,6 +1602,7 @@ struct AppConfig: Codable {
     var openAIModel: String = ""
     var openRouterModel: String = ""
     var chatGPTModel: String = ""
+    var meetingSummaryReasoningEffort: ReasoningEffort?
     var meetingSummaryRetryCount: Int = MeetingSummaryRetryPolicy.defaultRetryCount
     var ollamaURL: String = "http://localhost:11434"
     var ollamaModel: String = "qwen3.5"
@@ -1459,6 +1652,7 @@ struct AppConfig: Codable {
     var activePostProcessorId: String = PostProcessorOption.defaultOption.id
     var postProcessorChatGPTModel: String = ""
     var postProcessorOpenAIModel: String = ""
+    var transcriptCleanupReasoningEffort: ReasoningEffort?
     var postProcessorOpenRouterModel: String = ""
     var postProcessorOllamaModel: String = ""
     var postProcessorLMStudioModel: String = ""
@@ -1491,13 +1685,16 @@ struct AppConfig: Codable {
     var contributionBuyMeCoffeeClicked: Bool = false
 
     enum CodingKeys: String, CodingKey {
+
         case meetingRecordingHotkey = "meeting_recording_hotkey"
         case enableMeetingRecordingHotkey = "enable_meeting_recording_hotkey"
+
         case sttBackend = "stt_backend"
         case sttModel = "stt_model"
         case meetingInputDeviceUID = "meeting_input_device_uid"
         case cohereLanguage = "cohere_language"
-        case indicASRLanguage = "indic_asr_language"
+        // Retained wire key for existing language preferences and synced configs.
+        case bodhanLanguage = "indic_asr_language"
         case nemotron35Language = "nemotron35_language"
         case whisperLanguage = "whisper_language"
         case qwen3AsrLanguage = "qwen3_asr_language"
@@ -1533,6 +1730,7 @@ struct AppConfig: Codable {
         case openAIModel = "openai_model"
         case openRouterModel = "openrouter_model"
         case chatGPTModel = "chatgpt_model"
+        case meetingSummaryReasoningEffort = "meeting_summary_reasoning_effort"
         case meetingSummaryRetryCount = "meeting_summary_retry_count"
         case ollamaURL = "ollama_url"
         case ollamaModel = "ollama_model"
@@ -1573,6 +1771,7 @@ struct AppConfig: Codable {
         case activePostProcessorId = "active_post_processor_id"
         case postProcessorChatGPTModel = "post_processor_chatgpt_model"
         case postProcessorOpenAIModel = "post_processor_openai_model"
+        case transcriptCleanupReasoningEffort = "transcript_cleanup_reasoning_effort"
         case postProcessorOpenRouterModel = "post_processor_openrouter_model"
         case postProcessorOllamaModel = "post_processor_ollama_model"
         case postProcessorLMStudioModel = "post_processor_lmstudio_model"
@@ -1605,13 +1804,15 @@ struct AppConfig: Codable {
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         let defaults = AppConfig()
+
         meetingRecordingHotkey = (try? c.decode(HotkeyConfig.self, forKey: .meetingRecordingHotkey)) ?? defaults.meetingRecordingHotkey
         enableMeetingRecordingHotkey = (try? c.decode(Bool.self, forKey: .enableMeetingRecordingHotkey)) ?? defaults.enableMeetingRecordingHotkey
+
         sttBackend = (try? c.decode(String.self, forKey: .sttBackend)) ?? defaults.sttBackend
         sttModel = (try? c.decode(String.self, forKey: .sttModel)) ?? defaults.sttModel
         meetingInputDeviceUID = try? c.decode(String.self, forKey: .meetingInputDeviceUID)
         cohereLanguage = CohereTranscribeLanguage.resolvedCode(try? c.decode(String.self, forKey: .cohereLanguage))
-        indicASRLanguage = IndicASRLanguage.resolvedCode(try? c.decode(String.self, forKey: .indicASRLanguage))
+        bodhanLanguage = BodhanLanguage.resolvedCode(try? c.decode(String.self, forKey: .bodhanLanguage))
         nemotron35Language = Nemotron35Language.resolvedCode(try? c.decode(String.self, forKey: .nemotron35Language))
         whisperLanguage = WhisperKitLanguage.resolvedCode(try? c.decode(String.self, forKey: .whisperLanguage))
         qwen3AsrLanguage = Qwen3AsrLanguage.resolvedCode(try? c.decode(String.self, forKey: .qwen3AsrLanguage))
@@ -1619,6 +1820,12 @@ struct AppConfig: Codable {
         appleSpeechLanguage = AppleSpeechLanguageOption.normalize(try? c.decode(String.self, forKey: .appleSpeechLanguage))
         meetingTranscriptionBackend = (try? c.decode(String.self, forKey: .meetingTranscriptionBackend)) ?? sttBackend
         meetingTranscriptionModel = (try? c.decode(String.self, forKey: .meetingTranscriptionModel)) ?? sttModel
+        if sttBackend == "indicasr", let migrated = BackendOption.resolve(backend: sttBackend, model: sttModel) {
+            sttBackend = migrated.backend; sttModel = migrated.model
+        }
+        if meetingTranscriptionBackend == "indicasr", let migrated = BackendOption.resolve(backend: meetingTranscriptionBackend, model: meetingTranscriptionModel) {
+            meetingTranscriptionBackend = migrated.backend; meetingTranscriptionModel = migrated.model
+        }
         meetingSummaryBackend = (try? c.decode(String.self, forKey: .meetingSummaryBackend)) ?? defaults.meetingSummaryBackend
         defaultMeetingTemplateID = (try? c.decode(String.self, forKey: .defaultMeetingTemplateID)) ?? defaults.defaultMeetingTemplateID
         autoRecordMeetings = (try? c.decode(Bool.self, forKey: .autoRecordMeetings)) ?? defaults.autoRecordMeetings
@@ -1680,6 +1887,10 @@ struct AppConfig: Codable {
                 (try? c.decode(String.self, forKey: .chatGPTModel)) ?? defaults.chatGPTModel
             )
         )
+        meetingSummaryReasoningEffort = try? c.decode(
+            ReasoningEffort.self,
+            forKey: .meetingSummaryReasoningEffort
+        )
         meetingSummaryRetryCount = MeetingSummaryRetryPolicy.clampedRetryCount(
             (try? c.decode(Int.self, forKey: .meetingSummaryRetryCount)) ?? defaults.meetingSummaryRetryCount
         )
@@ -1735,6 +1946,10 @@ struct AppConfig: Codable {
         activePostProcessorId = (try? c.decode(String.self, forKey: .activePostProcessorId)) ?? defaults.activePostProcessorId
         postProcessorChatGPTModel = (try? c.decode(String.self, forKey: .postProcessorChatGPTModel)) ?? defaults.postProcessorChatGPTModel
         postProcessorOpenAIModel = (try? c.decode(String.self, forKey: .postProcessorOpenAIModel)) ?? defaults.postProcessorOpenAIModel
+        transcriptCleanupReasoningEffort = try? c.decode(
+            ReasoningEffort.self,
+            forKey: .transcriptCleanupReasoningEffort
+        )
         postProcessorOpenRouterModel = (try? c.decode(String.self, forKey: .postProcessorOpenRouterModel)) ?? defaults.postProcessorOpenRouterModel
         postProcessorOllamaModel = (try? c.decode(String.self, forKey: .postProcessorOllamaModel)) ?? defaults.postProcessorOllamaModel
         postProcessorLMStudioModel = (try? c.decode(String.self, forKey: .postProcessorLMStudioModel)) ?? defaults.postProcessorLMStudioModel
@@ -1770,8 +1985,8 @@ struct AppConfig: Codable {
         CohereTranscribeLanguage.resolved(cohereLanguage)
     }
 
-    var resolvedIndicASRLanguage: IndicASRLanguage {
-        IndicASRLanguage.resolved(indicASRLanguage)
+    var resolvedBodhanLanguage: BodhanLanguage {
+        BodhanLanguage.resolved(bodhanLanguage)
     }
 
     var resolvedNemotron35Language: Nemotron35Language {

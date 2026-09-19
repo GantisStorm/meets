@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import MeetsNativeApp
+@testable import MeetsApp
 
 @Suite("Dashboard presentation readiness")
 struct DashboardPresentationReadinessTests {

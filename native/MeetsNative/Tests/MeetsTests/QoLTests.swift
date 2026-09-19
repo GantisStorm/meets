@@ -2,7 +2,7 @@ import AppKit
 import Testing
 import Foundation
 import MeetsCore
-@testable import MeetsNativeApp
+@testable import MeetsApp
 
 @Suite("Dictation backend readiness")
 struct DictationBackendReadinessTests {
@@ -600,23 +600,6 @@ struct OpenAILogoShapeTests {
 }
 
 // MARK: - DictationState
-
-@Suite("DictationState idle check")
-struct DictationStateIdleTests {
-
-    @Test("all dictation states are defined")
-    func allStates() {
-        let states: [DictationState] = [.idle, .preparing, .recording, .transcribing]
-        #expect(states.count == 4)
-    }
-
-    @Test("idle is distinct from active states")
-    func idleDistinct() {
-        #expect(DictationState.idle != .recording)
-        #expect(DictationState.idle != .preparing)
-        #expect(DictationState.idle != .transcribing)
-    }
-}
 
 // MARK: - Meeting chunk collection
 

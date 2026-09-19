@@ -6,8 +6,8 @@ builds and CI shards.
 
 ## Requirements
 
-- macOS 14.2 or newer
-- Xcode 16 or newer
+- macOS 26 build host (the app deployment target remains macOS 14.2)
+- Xcode 26.6 (Swift 6.3), matching CI; MLX Swift requires Swift 6.3
 - Apple Silicon Mac for the main app workflows
 
 ## Local Development Build
@@ -23,8 +23,8 @@ MUESLI_SKIP_SIGN=1 ./scripts/dev-test.sh
 ### Meeting echo cancellation (LocalVQE)
 
 Meeting AEC defaults to LocalVQE. The GGUF model is committed under
-`native/MuesliNative/LocalVQE/models/`, but the shared libraries under
-`native/MuesliNative/LocalVQE/lib/` are gitignored. Build them once before
+`native/MeetsNative/LocalVQE/models/`, but the shared libraries under
+`native/MeetsNative/LocalVQE/lib/` are gitignored. Build them once before
 packaging if you need the default AEC path (otherwise the app falls back to
 DTLN):
 
@@ -52,8 +52,8 @@ MUESLI_AEC_PROCESSOR=localvqe-strict MUESLI_SKIP_SIGN=1 ./scripts/dev-test.sh
 
 `localvqe-strict` does not fall back to DTLN when LocalVQE fails to load.
 
-That installs `/Applications/MuesliDev.app` with bundle ID `com.muesli.dev`
-and stores data under `~/Library/Application Support/MuesliDev/`, so it does
+That installs `/Applications/MeetsDev.app` with bundle ID `com.muesli.dev`
+and stores data under `~/Library/Application Support/MeetsDev/`, so it does
 not touch your production Muesli install or data.
 
 By default, `scripts/dev-test.sh` uses local-only entitlements. Maintainer
@@ -65,10 +65,10 @@ Developer account access for ordinary local development.
 Useful dev commands:
 
 ```bash
-MUESLI_SKIP_SIGN=1 ./scripts/dev-test.sh                # Build and launch MuesliDev
+MUESLI_SKIP_SIGN=1 ./scripts/dev-test.sh                # Build and launch MeetsDev
 MUESLI_SKIP_SIGN=1 ./scripts/dev-test.sh --reset        # Re-run onboarding, keep data
 MUESLI_SKIP_SIGN=1 ./scripts/dev-test.sh --local-only   # Force local-only entitlements
-./scripts/dev-reset-permissions.sh                      # Reset macOS privacy permissions for MuesliDev
+./scripts/dev-reset-permissions.sh                      # Reset macOS privacy permissions for MeetsDev
 ```
 
 If you do have your own signing certificate, you can override the identity:
@@ -98,7 +98,7 @@ requirement.
 ## Telemetry in Development
 
 Use `scripts/dev-test.sh` for local app testing. It routes anonymous telemetry
-to the dedicated `MuesliDev` TelemetryDeck app and labels every signal with
+to the dedicated `MeetsDev` TelemetryDeck app and labels every signal with
 `muesli.channel=dev`; named lanes A, B, and C use the same dev destination with
 their own bundle IDs. This keeps contributor and maintainer test traffic out of
 the production and preprod TelemetryDeck apps.
@@ -136,7 +136,7 @@ packaging.
 
 ## SwiftPM Build Cache
 
-SwiftPM writes build artifacts to `native/MuesliNative/.build` by default,
+SwiftPM writes build artifacts to `native/MeetsNative/.build` by default,
 which can become large across worktrees. Use a shared scratch path for local
 testing:
 
@@ -153,7 +153,7 @@ path. Use separate names such as `dev`, `test`, or `agent-1`.
 Run the native test package:
 
 ```bash
-swift test --package-path native/MuesliNative
+swift test --package-path native/MeetsNative
 ```
 
 For CI-sized local checks, use the shard script:
@@ -167,7 +167,7 @@ For CI-sized local checks, use the shard script:
 For direct SwiftPM test runs with a shared cache:
 
 ```bash
-swift test --package-path native/MuesliNative \
+swift test --package-path native/MeetsNative \
   --scratch-path "$HOME/Library/Caches/muesli-spm/test"
 ```
 
