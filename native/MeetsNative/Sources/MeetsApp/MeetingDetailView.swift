@@ -1564,10 +1564,12 @@ struct MeetingDetailView: View {
                 } label: {
                     Label("Resume recording", systemImage: "record.circle")
                 }
-                Button {
-                    controller.startFollowUpMeeting(fromMeetingID: meeting.id)
-                } label: {
-                    Label("Start a follow-up", systemImage: "arrow.turn.down.right")
+                if controller.canStartFollowUpMeeting(meeting) {
+                    Button {
+                        controller.startFollowUpMeeting(fromMeetingID: meeting.id)
+                    } label: {
+                        Label("Start a follow-up", systemImage: "arrow.turn.down.right")
+                    }
                 }
             } label: {
                 Image(systemName: "chevron.down")
@@ -1580,7 +1582,11 @@ struct MeetingDetailView: View {
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
             .fixedSize(horizontal: true, vertical: false)
-            .help("Resume recording, or start a follow-up meeting")
+            .help(
+                controller.canStartFollowUpMeeting(meeting)
+                    ? "Resume recording, or start a follow-up meeting"
+                    : "Resume recording"
+            )
         }
         .fixedSize()
         .clipShape(RoundedRectangle(cornerRadius: MeetsTheme.cornerSmall))

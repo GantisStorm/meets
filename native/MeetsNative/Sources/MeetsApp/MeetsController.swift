@@ -4542,20 +4542,23 @@ public final class MeetsController: NSObject {
 
     /// Whether `meeting` can spawn a follow-up meeting right now (also gates the UI control).
     func canStartFollowUpMeeting(_ meeting: MeetingRecord) -> Bool {
-        canStartFollowUpMeeting(status: meeting.status)
+        canStartFollowUpMeeting(status: meeting.status, isFollowUp: meeting.followUpToID != nil)
     }
 
     /// Same policy as `canStartFollowUpMeeting(_:)` for browser rows that only
-    /// carry a lightweight index entry.
-    func canStartFollowUpMeeting(status: MeetingStatus) -> Bool {
-        MeetingFollowUpPolicy.canStartFollowUp(status: status)
+    /// carry a lightweight index entry; `isFollowUp` comes from the row's
+    /// `followUpToID`.
+    func canStartFollowUpMeeting(status: MeetingStatus, isFollowUp: Bool) -> Bool {
+        MeetingFollowUpPolicy.canStartFollowUp(status: status, isFollowUp: isFollowUp)
     }
 
     /// Starts a *new* meeting linked into `meetingID`'s thread (vs. resume, which
     /// reopens the same row). Follow-ups attach to the selected meeting, so a
-    /// meeting can have more than one follow-up. The new meeting inherits the
-    /// predecessor's folder and carries its notes into the summary prompt so
-    /// open action items follow the thread.
+    /// meeting can have more than one follow-up, but a follow-up can never be the
+    /// parent of another: the guard below routes through
+    /// `canStartFollowUpMeeting(_:)` and refuses follow-ups of follow-ups. The
+    /// new meeting inherits the predecessor's folder and carries its notes into
+    /// the summary prompt so open action items follow the thread.
     func startFollowUpMeeting(fromMeetingID meetingID: Int64) {
         guard !isMeetingRecording(), !isStartingMeetingRecording else { return }
         guard let predecessor = meeting(id: meetingID),

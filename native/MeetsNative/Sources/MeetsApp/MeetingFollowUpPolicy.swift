@@ -17,9 +17,10 @@ struct MeetingThreadContext {
 enum MeetingFollowUpPolicy {
     static let titlePrefix = "Follow-up: "
 
-    /// Follow-ups hang off finalized meetings only, mirroring resume gating.
-    static func canStartFollowUp(status: MeetingStatus) -> Bool {
-        status == .completed
+    /// Follow-ups hang off finalized root meetings only; a follow-up cannot
+    /// itself be followed up, so threads stay one level deep.
+    static func canStartFollowUp(status: MeetingStatus, isFollowUp: Bool) -> Bool {
+        status == .completed && !isFollowUp
     }
 
     /// "Follow-up: <root title>" without stacking prefixes when the predecessor

@@ -9,14 +9,24 @@ import MeetsCore
 struct MeetingFollowUpPolicyTests {
     @Test("a completed meeting can spawn a follow-up")
     func completedCanStartFollowUp() {
-        #expect(MeetingFollowUpPolicy.canStartFollowUp(status: .completed))
+        #expect(MeetingFollowUpPolicy.canStartFollowUp(status: .completed, isFollowUp: false))
     }
 
     @Test("non-completed meetings cannot spawn follow-ups")
     func nonCompletedCannotStartFollowUp() {
         for status in [MeetingStatus.recording, .processing, .noteOnly, .failed] {
-            #expect(!MeetingFollowUpPolicy.canStartFollowUp(status: status))
+            #expect(!MeetingFollowUpPolicy.canStartFollowUp(status: status, isFollowUp: false))
         }
+    }
+
+    @Test("a follow-up cannot spawn a follow-up")
+    func followUpCannotSpawnFollowUp() {
+        #expect(!MeetingFollowUpPolicy.canStartFollowUp(status: .completed, isFollowUp: true))
+    }
+
+    @Test("a root with existing follow-ups can still spawn another")
+    func rootWithExistingFollowUpsCanSpawnAnother() {
+        #expect(MeetingFollowUpPolicy.canStartFollowUp(status: .completed, isFollowUp: false))
     }
 
     @Test("follow-up title prefixes the predecessor title")

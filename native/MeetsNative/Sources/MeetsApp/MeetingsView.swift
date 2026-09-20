@@ -1538,7 +1538,10 @@ struct MeetingsView: View {
             canDelete: { controller.canDeleteMeeting(id: $0.id, status: $0.entry.status) },
             canStartFollowUp: { node in
                 canStartFollowUps
-                    && controller.canStartFollowUpMeeting(status: node.entry.status)
+                    && controller.canStartFollowUpMeeting(
+                        status: node.entry.status,
+                        isFollowUp: node.entry.followUpToID != nil
+                    )
             }
         )
     }
