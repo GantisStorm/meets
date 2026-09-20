@@ -214,6 +214,46 @@ struct OnboardingProgressTests {
         #expect(!OnboardingPermissionGate.hasRequiredPermissions(permissions, for: .meetings))
     }
 
+    @Test("meetings-only legacy path resumes with Screen Recording in place of System Audio")
+    func meetingsOnlyLegacyPathResumesWithScreenRecording() {
+        let microphoneAndScreenRecording = OnboardingPermissionSnapshot(
+            microphone: true,
+            accessibility: false,
+            inputMonitoring: false,
+            systemAudio: false,
+            screenRecording: true
+        )
+
+        #expect(OnboardingPermissionGate.resumeStep(
+            requestedStep: 5,
+            permissions: microphoneAndScreenRecording,
+            useCase: .meetings,
+            permissionsStep: 3,
+            useCoreAudioTap: false
+        ) == 5)
+
+        let microphoneOnly = OnboardingPermissionSnapshot(
+            microphone: true,
+            accessibility: false,
+            inputMonitoring: false,
+            systemAudio: false,
+            screenRecording: false
+        )
+
+        #expect(!OnboardingPermissionGate.hasRequiredPermissions(
+            microphoneOnly,
+            for: .meetings,
+            useCoreAudioTap: false
+        ))
+        #expect(OnboardingPermissionGate.resumeStep(
+            requestedStep: 5,
+            permissions: microphoneOnly,
+            useCase: .meetings,
+            permissionsStep: 3,
+            useCoreAudioTap: false
+        ) == 3)
+    }
+
     @Test("voice notes require microphone and input monitoring")
     func voiceNotesRequireMicrophoneAndInputMonitoring() {
         let permissions = OnboardingPermissionSnapshot(

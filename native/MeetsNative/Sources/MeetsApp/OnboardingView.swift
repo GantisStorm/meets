@@ -31,8 +31,6 @@ struct OnboardingView: View {
 
     // Permission states — polled from OS every second
     @State private var micGranted = false
-    @State private var accessibilityGranted = false
-    @State private var inputMonitoringGranted = false
     @State private var screenRecordingGranted = false
     @State private var systemAudioGranted = false
     @State private var calendarGranted = false
@@ -658,9 +656,10 @@ struct OnboardingView: View {
 
     // MARK: - Step 3: Permissions
 
-    /// Meetings need the Microphone to record the spoken meeting and System
-    /// Audio to capture remote participants during a recorded meeting.
-    /// Microphone is required to continue; System Audio can also be enabled
+    /// Meetings need the Microphone to record the spoken meeting and one
+    /// system-audio path to capture the other participants: the CoreAudio tap
+    /// when it is enabled, otherwise Screen Recording. Microphone is required
+    /// to continue; the system-audio row and Calendar can also be enabled
     /// later from Settings.
     private struct PermissionRow {
         let icon: String
@@ -673,61 +672,44 @@ struct OnboardingView: View {
     }
 
     private var permissionRows: [PermissionRow] {
-        [
+        var rows: [PermissionRow] = [
             PermissionRow(
                 icon: "mic.fill", name: "Microphone",
                 description: "Required to record meeting audio",
                 state: micGranted ? .granted : .idle, skippable: false,
                 action: { AVCaptureDevice.requestAccess(for: .audio) { _ in } }
             ),
-            PermissionRow(
-                icon: "accessibility", name: "Accessibility",
-                description: "Meeting context and detection. Enable in System Settings if needed.",
-                state: permissionRowState(for: .accessibility), skippable: true,
-                action: { requestAccessibilityPermission() }
-            ),
-            PermissionRow(
-                icon: "keyboard.fill", name: "Input Monitoring",
-                description: "Global hotkey support. Enable in System Settings if needed.",
-                state: permissionRowState(for: .inputMonitoring), skippable: true,
-                action: { requestInputMonitoringPermission() }
-            ),
-            PermissionRow(
-                icon: "record.circle", name: "Screen Recording",
-                description: "System-audio capture fallback. Needs an app relaunch after granting.",
-                state: permissionRowState(for: .screenRecording), skippable: true,
-                action: { requestScreenRecordingPermission() }
-            ),
-            PermissionRow(
+        ]
+        if appState.config.useCoreAudioTap {
+            rows.append(PermissionRow(
                 icon: "speaker.wave.2.fill", name: "System Audio",
-                description: "Captures remote participants' audio in recorded meetings",
+                description: "Captures the other participants' audio in recorded meetings.",
                 state: systemAudioGranted ? .granted : .idle, skippable: true,
                 action: { requestSystemAudioPermission() }
-            ),
-            PermissionRow(
-                icon: "calendar", name: "Calendar",
-                description: "Syncs your meetings with Apple Calendar — Teams, Exchange, iCloud",
-                state: calendarGranted ? .granted : .idle, skippable: true,
-                action: { requestCalendarPermission() }
-            ),
-        ]
+            ))
+        } else {
+            rows.append(PermissionRow(
+                icon: "record.circle", name: "Screen Recording",
+                description: "Captures the other participants' audio (legacy path).",
+                state: screenRecordingRowState, skippable: true,
+                action: { requestScreenRecordingPermission() }
+            ))
+        }
+        rows.append(PermissionRow(
+            icon: "calendar", name: "Calendar",
+            description: "Syncs your meetings with Apple Calendar — Teams, Exchange, iCloud",
+            state: calendarGranted ? .granted : .idle, skippable: true,
+            action: { requestCalendarPermission() }
+        ))
+        return rows
     }
 
     /// Onboarding polls the OS directly every second, so a grant that lands
     /// without a request still flips the row; the coordinator supplies the
     /// in-flight and System Settings fallback states.
-    private func permissionRowState(for kind: InteractionPermissionKind) -> PermissionRowPresentation {
-        if isGranted(kind) { return .granted }
-        return controller.permissionRequests.presentation(for: kind)
-    }
-
-    private func isGranted(_ kind: InteractionPermissionKind) -> Bool {
-        switch kind {
-        case .microphone: return micGranted
-        case .accessibility: return accessibilityGranted
-        case .inputMonitoring: return inputMonitoringGranted
-        case .screenRecording: return screenRecordingGranted
-        }
+    private var screenRecordingRowState: PermissionRowPresentation {
+        if screenRecordingGranted { return .granted }
+        return controller.permissionRequests.presentation(for: .screenRecording)
     }
 
     private func requestCalendarPermission() {
@@ -741,14 +723,6 @@ struct OnboardingView: View {
                 saveProgress(atStep: currentStep)
             }
         }
-    }
-
-    private func requestAccessibilityPermission() {
-        controller.permissionRequests.request(.accessibility)
-    }
-
-    private func requestInputMonitoringPermission() {
-        controller.permissionRequests.request(.inputMonitoring)
     }
 
     private func requestScreenRecordingPermission() {
@@ -766,11 +740,12 @@ struct OnboardingView: View {
 
     /// True when the coordinator handed a permission off to System Settings
     /// and the OS still reports it ungranted (TCC often needs a relaunch before
-    /// new grants read back). Surfaces the relaunch row.
+    /// new grants read back). Only Screen Recording can reach this state, and
+    /// only while its row is shown. Surfaces the relaunch row.
     private var needsRelaunchHint: Bool {
-        InteractionPermissionKind.allCases.contains { kind in
-            appState.permissionHints[kind] == .openedSystemSettings && !isGranted(kind)
-        }
+        guard !appState.config.useCoreAudioTap else { return false }
+        return appState.permissionHints[.screenRecording] == .openedSystemSettings
+            && !screenRecordingGranted
     }
 
     private func relaunchApp() {
@@ -805,7 +780,7 @@ struct OnboardingView: View {
                     .font(MeetsTheme.title1())
                     .foregroundStyle(MeetsTheme.textPrimary)
 
-                Text("Meets records meetings on this Mac. Grant Microphone to continue; you can add System Audio now or later in Settings.")
+                Text("Meets records your microphone and the meeting's system audio. Grant Microphone to continue; System Audio and Calendar can be added now or later in Settings.")
                     .font(MeetsTheme.body())
                     .foregroundStyle(MeetsTheme.textSecondary)
                     .multilineTextAlignment(.center)
@@ -969,8 +944,6 @@ struct OnboardingView: View {
     /// after an explicit request). Microphone is cheap and polls every second.
     private func refreshPermissions(refreshSystemAudio: Bool) {
         micGranted = AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
-        accessibilityGranted = AXIsProcessTrusted()
-        inputMonitoringGranted = CGPreflightListenEventAccess()
         screenRecordingGranted = CGPreflightScreenCaptureAccess()
         if appState.calendarAuthorization == .fullAccess {
             calendarGranted = true
