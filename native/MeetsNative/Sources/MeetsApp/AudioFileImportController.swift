@@ -128,6 +128,9 @@ enum AudioFileImportController {
         let formattedNotes: String
         let durationSeconds: Double
         let wordCount: Int
+        /// Per-word timings stored for this meeting, in the same reading order as
+        /// `rawTranscript`, each carrying the speaker label of its transcript line.
+        let words: [TranscriptWordTiming]
     }
 
     struct ImportContext {
@@ -201,6 +204,10 @@ enum AudioFileImportController {
 
         // Run speaker diarization if available
         var diarizedTranscript = rawTranscript
+        // Word timings inherit the speaker attribution of the transcript they are
+        // stored with, resolved at each word's midpoint. Nil means the stored
+        // transcript carries no speaker labels, so words stay unattributed.
+        var wordSpeakerLabeler: ((Double) -> String)?
         if let diarizerManager = await transcriptionCoordinator.getDiarizerManager(),
            diarizerManager.isAvailable {
             progress("Identifying speakers...")
@@ -212,12 +219,24 @@ enum AudioFileImportController {
                     samples,
                     sampleRate: 16000
                 )
-                if !diarizationResult.segments.isEmpty {
+                let diarizationSegments = diarizationResult.segments
+                if !diarizationSegments.isEmpty {
                     diarizedTranscript = formatTranscriptWithSpeakers(
                         transcription: transcription,
-                        diarizationSegments: diarizationResult.segments,
+                        diarizationSegments: diarizationSegments,
                         meetingStart: importedTranscriptTimelineStart()
                     )
+                    if annotatesSpeakers(
+                        transcription: transcription,
+                        diarizationSegments: diarizationSegments
+                    ) {
+                        wordSpeakerLabeler = { seconds in
+                            TranscriptFormatter.speakerLabel(
+                                at: seconds,
+                                diarizationSegments: diarizationSegments
+                            )
+                        }
+                    }
                 }
             } catch is CancellationError {
                 throw CancellationError()
@@ -227,6 +246,10 @@ enum AudioFileImportController {
         }
 
         try Task.checkCancellation()
+
+        let transcriptWords = TranscriptWordTimingBuilder.tagged(transcription.words) { seconds in
+            wordSpeakerLabeler?(seconds) ?? ""
+        }
 
         let wordCount = DictationStore.countWords(in: diarizedTranscript)
         let generatedTitle: String
@@ -283,7 +306,8 @@ enum AudioFileImportController {
             selectedTemplateID: templateSnapshot.id,
             selectedTemplateName: templateSnapshot.name,
             selectedTemplateKind: templateSnapshot.kind,
-            selectedTemplatePrompt: templateSnapshot.prompt
+            selectedTemplatePrompt: templateSnapshot.prompt,
+            transcriptWords: transcriptWords
         )
 
         return ImportResult(
@@ -292,7 +316,8 @@ enum AudioFileImportController {
             rawTranscript: diarizedTranscript,
             formattedNotes: formattedNotes,
             durationSeconds: duration,
-            wordCount: wordCount
+            wordCount: wordCount,
+            words: transcriptWords
         )
     }
 
@@ -414,6 +439,30 @@ enum AudioFileImportController {
         Calendar.current.startOfDay(for: Date())
     }
 
+    /// Matches transcripts that already carry speaker labels, which are left
+    /// untouched rather than annotated a second time.
+    private static let timestampedSpeakerLabelPattern =
+        #"(?m)^\[[0-9]{2}:[0-9]{2}(?::[0-9]{2})?\]\s+(You|Others|Speaker\s+\d+):"#
+
+    /// Whether `formatTranscriptWithSpeakers` annotates speaker labels for this
+    /// transcription. Per-word timings only carry a speaker when the transcript
+    /// they are stored with does, so both consult this single predicate.
+    static func annotatesSpeakers(
+        transcription: SpeechTranscriptionResult,
+        diarizationSegments: [TimedSpeakerSegment]
+    ) -> Bool {
+        let rawText = transcription.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !rawText.isEmpty, !diarizationSegments.isEmpty else { return false }
+        guard Set(diarizationSegments.map(\.speakerId)).count > 1 else { return false }
+        guard rawText.range(
+            of: timestampedSpeakerLabelPattern,
+            options: .regularExpression
+        ) == nil else { return false }
+        return transcription.segments.contains {
+            !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+    }
+
     /// Formats transcript text with speaker labels based on diarization segments.
     /// When diarization identifies multiple speakers, the transcript is annotated with
     /// speaker labels using ASR segment timestamps so both the user and summarizer can
@@ -424,19 +473,14 @@ enum AudioFileImportController {
         meetingStart: Date
     ) -> String {
         let rawText = transcription.text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !rawText.isEmpty, !diarizationSegments.isEmpty else { return rawText }
-
-        let speakerCount = Set(diarizationSegments.map(\.speakerId)).count
-        guard speakerCount > 1 else { return rawText }
-
-        if rawText.range(of: #"(?m)^\[[0-9]{2}:[0-9]{2}(?::[0-9]{2})?\]\s+(You|Others|Speaker\s+\d+):"#, options: .regularExpression) != nil {
-            return rawText
-        }
+        guard annotatesSpeakers(
+            transcription: transcription,
+            diarizationSegments: diarizationSegments
+        ) else { return rawText }
 
         let transcribedSegments = transcription.segments.filter {
             !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         }
-        guard !transcribedSegments.isEmpty else { return rawText }
 
         let formatted = TranscriptFormatter.merge(
             micSegments: [],

@@ -243,10 +243,15 @@ public enum ManagedASRModelPlans {
     }
 
     /// Parakeet Unified 0.6B (FastConformer-RNNT), English-focused offline batch
-    /// path: int8 full-attention encoder + decoder + joint + vocabulary.
+    /// path — int8 full-attention encoder, decoder, joint, and vocabulary — plus
+    /// the int8 chunked-attention `70_13_13` encoder that
+    /// `StreamingUnifiedAsrManager` loads for per-word timings.
     public static func parakeetUnified(modelsRoot: URL? = nil) -> ManagedASRModelPlan {
         let required = [
             "parakeet_unified_encoder_int8.mlmodelc",
+            // FluidAudio `ModelNames.ParakeetUnified.streamingEncoderInt8File`
+            // for the default `UnifiedConfig` (70/13/13 frames).
+            "parakeet_unified_encoder_streaming_70_13_13_int8.mlmodelc",
             "parakeet_unified_decoder.mlmodelc",
             "parakeet_unified_joint_decision_single_step.mlmodelc",
             "vocab.json",

@@ -4823,7 +4823,8 @@ public final class MeetsController: NSObject {
         selectedTemplateID: String?,
         selectedTemplateName: String?,
         selectedTemplateKind: MeetingTemplateKind?,
-        selectedTemplatePrompt: String?
+        selectedTemplatePrompt: String?,
+        transcriptWords: [TranscriptWordTiming] = []
     ) throws -> Int64 {
         let meetingID = try dictationStore.insertMeeting(
             title: title,
@@ -4841,6 +4842,11 @@ public final class MeetsController: NSObject {
             selectedTemplatePrompt: selectedTemplatePrompt,
             source: .audioImport
         )
+        // Word timings attach to an already-stored transcript, so a failed word
+        // write leaves the meeting readable without per-word highlighting.
+        if !transcriptWords.isEmpty {
+            try? dictationStore.replaceTranscriptWords(meetingID: meetingID, words: transcriptWords)
+        }
         meetingHookDispatcher.dispatchCompletedMeetingHook(
             meetingID: meetingID,
             completedAt: endTime,
