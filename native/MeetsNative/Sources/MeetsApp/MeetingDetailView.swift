@@ -102,7 +102,7 @@ struct MeetingDetailView: View {
     @State private var documentMode: MeetingDocumentMode
     @State private var recordingMode: RecordingContentMode = .notes
     @State private var showsWrittenNotes = false
-    @State private var isHoveringWrittenNotesTab = false
+    @State private var isHoveringWrittenNotesToggle = false
     @State private var titleSaveTask: DispatchWorkItem?
     @State private var notesSaveTask: DispatchWorkItem?
     @State private var transcriptSaveTask: DispatchWorkItem?
@@ -750,22 +750,21 @@ struct MeetingDetailView: View {
     }
 
     /// Written notes are hidden by default so the summary gets the full width.
-    /// The slim tab on the left edge reveals them; when shown they read as peers
-    /// with the summary, falling back to the original stacked order in a narrow
-    /// window.
+    /// The toggle sits at the leading edge of the top-left header — the Summary
+    /// header while collapsed, the Written Notes header while expanded — so it
+    /// never moves. When shown, notes and summary read as peers, falling back to
+    /// the original stacked order in a narrow window.
     @ViewBuilder
     private func completedNotesColumn(for meeting: MeetingRecord) -> some View {
         if hasStoredManualNotes(meeting) {
-            HStack(alignment: .top, spacing: MeetsTheme.spacing12) {
-                writtenNotesTab(for: meeting)
-
+            Group {
                 if showsWrittenNotes {
                     ResponsiveHorizontalLayout(
                         wideIdentifier: "meeting.notes.wide",
                         compactIdentifier: "meeting.notes.compact"
                     ) {
                         HStack(alignment: .top, spacing: MeetsTheme.spacing24) {
-                            completedManualNotesSection(meeting, fillsHeight: true)
+                            completedManualNotesSection(meeting, fillsHeight: true, showsNotesToggle: true)
                                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
 
                             completedSummarySection(for: meeting)
@@ -773,14 +772,14 @@ struct MeetingDetailView: View {
                         }
                     } compact: {
                         VStack(alignment: .leading, spacing: MeetsTheme.spacing12) {
-                            completedManualNotesSection(meeting)
+                            completedManualNotesSection(meeting, showsNotesToggle: true)
 
                             MeetingNotesView(markdown: Self.notesContent(for: meeting))
                         }
                     }
                     .transition(.move(edge: .leading).combined(with: .opacity))
                 } else {
-                    completedSummarySection(for: meeting)
+                    completedSummarySection(for: meeting, showsNotesToggle: true)
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 }
             }
@@ -790,39 +789,37 @@ struct MeetingDetailView: View {
         }
     }
 
-    /// Vertical tab pinned to the left edge of the summary, toggling the notes
-    /// written during the meeting.
-    private func writtenNotesTab(for meeting: MeetingRecord) -> some View {
+    /// Icon button in the top-left header, toggling the notes written during the
+    /// meeting.
+    private func writtenNotesToggle(for meeting: MeetingRecord) -> some View {
         Button {
             let shown = !showsWrittenNotes
             showsWrittenNotes = shown
             MeetingViewPreferences.shared.setShowsWrittenNotes(shown, for: meeting.id)
         } label: {
-            VStack(spacing: 6) {
-                Image(systemName: "square.and.pencil")
-                    .font(.system(size: 11, weight: .semibold))
-                Text(showsWrittenNotes ? "Hide written notes" : "View written notes")
-                    .font(MeetsTheme.captionMedium())
-                    .rotationEffect(.degrees(-90))
-                    .fixedSize()
-            }
-            .foregroundStyle(MeetsTheme.textSecondary)
-            .frame(width: 28)
-            .frame(maxHeight: .infinity)
-            .background(isHoveringWrittenNotesTab ? MeetsTheme.backgroundHover : MeetsTheme.surfacePrimary)
-            .clipShape(RoundedRectangle(cornerRadius: MeetsTheme.cornerSmall))
-            .contentShape(Rectangle())
+            Image(systemName: showsWrittenNotes ? "sidebar.left" : "note.text")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(isHoveringWrittenNotesToggle ? MeetsTheme.textPrimary : MeetsTheme.textSecondary)
+                .frame(width: 28, height: 28)
+                .background(
+                    RoundedRectangle(cornerRadius: MeetsTheme.cornerSmall)
+                        .fill(isHoveringWrittenNotesToggle ? MeetsTheme.backgroundHover : Color.clear)
+                )
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .onHover { isHoveringWrittenNotesTab = $0 }
-        .help("Show the notes you wrote during the meeting")
+        .onHover { isHoveringWrittenNotesToggle = $0 }
+        .help(showsWrittenNotes ? "Hide written notes" : "Show written notes")
         .accessibilityLabel("Written notes")
         .accessibilityValue(showsWrittenNotes ? "Shown" : "Hidden")
     }
 
-    private func completedSummarySection(for meeting: MeetingRecord) -> some View {
+    private func completedSummarySection(for meeting: MeetingRecord, showsNotesToggle: Bool = false) -> some View {
         VStack(alignment: .leading, spacing: MeetsTheme.spacing8) {
             HStack(spacing: 6) {
+                if showsNotesToggle {
+                    writtenNotesToggle(for: meeting)
+                }
                 Image(systemName: "sparkles")
                     .font(.system(size: 11, weight: .semibold))
                 Text("Summary")
@@ -841,9 +838,16 @@ struct MeetingDetailView: View {
         !meeting.manualNotes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
-    private func completedManualNotesSection(_ meeting: MeetingRecord, fillsHeight: Bool = false) -> some View {
+    private func completedManualNotesSection(
+        _ meeting: MeetingRecord,
+        fillsHeight: Bool = false,
+        showsNotesToggle: Bool = false
+    ) -> some View {
         VStack(alignment: .leading, spacing: MeetsTheme.spacing8) {
             HStack(spacing: 6) {
+                if showsNotesToggle {
+                    writtenNotesToggle(for: meeting)
+                }
                 Image(systemName: "square.and.pencil")
                     .font(.system(size: 11, weight: .semibold))
                 Text("Written Notes")
