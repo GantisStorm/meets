@@ -56,8 +56,6 @@ struct OnboardingView: View {
     @State private var isModelPreparingAfterDownload = false
     @State private var modelDownloadStatus: String?
     @State private var modelDownloadError: String?
-    @State private var modelReadyIndicatorBackend: BackendOption?
-    @State private var modelReadyIndicatorTask: Task<Void, Never>?
 
     @State private var hasFinishedOnboarding = false
 
@@ -150,7 +148,7 @@ struct OnboardingView: View {
     var body: some View {
         VStack(spacing: 0) {
             // Download status lives in normal flow (centered banner), never
-            // floating over step content. Still auto-dismisses 6s after ready.
+            // floating over step content. It disappears as soon as the model is ready.
             if shouldShowModelDownloadIndicator {
                 HStack {
                     Spacer(minLength: 0)
@@ -323,11 +321,7 @@ struct OnboardingView: View {
     }
 
     private var shouldShowModelDownloadIndicator: Bool {
-        isModelStillDownloading || modelDownloadError != nil || isShowingModelReadyIndicator
-    }
-
-    private var isShowingModelReadyIndicator: Bool {
-        modelReadyIndicatorBackend == selectedBackend && !isModelStillDownloading && modelDownloadError == nil
+        isModelStillDownloading || modelDownloadError != nil
     }
 
     private var canGoBack: Bool {
@@ -399,18 +393,12 @@ struct OnboardingView: View {
         if modelDownloadError != nil {
             return "Download failed"
         }
-        if isShowingModelReadyIndicator {
-            return "\(selectedBackend.label) ready"
-        }
         return "Preparing \(selectedBackend.label)"
     }
 
     private func modelDownloadIndicatorDetail(progress: Double?) -> String {
         if let modelDownloadError {
             return modelDownloadError
-        }
-        if isShowingModelReadyIndicator {
-            return "Ready for meetings"
         }
         if let snapshot = modelDownloadSnapshot {
             return modelDownloadSnapshotDetail(snapshot)
@@ -1901,8 +1889,6 @@ struct OnboardingView: View {
                         isPreparing: false,
                         isComplete: true
                     )
-                    showModelReadyIndicator(for: backend)
-                    controller.notifyOnboardingModelReady()
                     saveProgress(atStep: currentStep)
                 }
             } catch is CancellationError {
@@ -2037,10 +2023,7 @@ struct OnboardingView: View {
         modelDownloadGeneration = UUID()
         modelDownloadTask?.cancel()
         modelDownloadTask = nil
-        modelReadyIndicatorTask?.cancel()
-        modelReadyIndicatorTask = nil
         modelReadyBackend = nil
-        modelReadyIndicatorBackend = nil
         modelDownloadBackend = nil
         modelDownloadProgress = nil
         modelDownloadSnapshot = nil
@@ -2106,19 +2089,6 @@ struct OnboardingView: View {
                 appState.modelPreparationTitle = nil
                 appState.modelPreparationDetail = nil
             }
-        }
-    }
-
-    private func showModelReadyIndicator(for backend: BackendOption) {
-        modelReadyIndicatorTask?.cancel()
-        modelReadyIndicatorBackend = backend
-        modelReadyIndicatorTask = Task { @MainActor in
-            try? await Task.sleep(for: .seconds(6))
-            guard modelReadyIndicatorBackend == backend else { return }
-            withAnimation(.easeInOut(duration: 0.2)) {
-                modelReadyIndicatorBackend = nil
-            }
-            modelReadyIndicatorTask = nil
         }
     }
 

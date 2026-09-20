@@ -2405,13 +2405,6 @@ public final class MeetsController: NSObject {
         onboardingWindowController?.prepareForNativePermissionPrompt()
     }
 
-    @MainActor
-    func notifyOnboardingModelReady() {
-        guard onboardingWindowController != nil else { return }
-        SoundController.playModelReady(enabled: config.soundEnabled)
-        bringOnboardingToFront()
-    }
-
     func continueModelPreparationAfterOnboarding(
         _ backend: BackendOption,
         onboardingUseCase: OnboardingUseCase,
