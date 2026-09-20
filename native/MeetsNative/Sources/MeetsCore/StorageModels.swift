@@ -53,6 +53,35 @@ public struct LiveTranscriptCheckpointEntry: Sendable, Equatable {
     }
 }
 
+/// One word of a saved meeting transcript, with the sample-clock timing the
+/// recording player needs to highlight it while audio plays.
+///
+/// `speaker` is the display label the transcript line uses ("You", "Others",
+/// "Speaker 1", or "" when unknown). `startSeconds`/`endSeconds` are seconds
+/// into the saved recording — the same clock `LiveTranscriptCheckpointEntry`
+/// uses — so playback position maps directly onto words.
+public struct TranscriptWordTiming: Equatable, Sendable, Codable {
+    public let ordinal: Int
+    public let speaker: String
+    public let startSeconds: Double
+    public let endSeconds: Double
+    public let text: String
+
+    public init(
+        ordinal: Int,
+        speaker: String,
+        startSeconds: Double,
+        endSeconds: Double,
+        text: String
+    ) {
+        self.ordinal = ordinal
+        self.speaker = speaker
+        self.startSeconds = startSeconds
+        self.endSeconds = endSeconds
+        self.text = text
+    }
+}
+
 public struct CalendarOccurrenceReference: Codable, Equatable, Sendable {
     /// Provider kinds persisted by this app. `.googleCalendar` is retained as
     /// a decodable value only so occurrences recorded by pre-EventKit builds

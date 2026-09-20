@@ -679,6 +679,10 @@ public final class MeetsController: NSObject {
         return try? dictationStore.meeting(id: id)
     }
 
+    func transcriptWords(for meetingID: Int64) -> [TranscriptWordTiming] {
+        (try? dictationStore.transcriptWords(meetingID: meetingID)) ?? []
+    }
+
 
 
     func meetingStats() -> MeetingStats {

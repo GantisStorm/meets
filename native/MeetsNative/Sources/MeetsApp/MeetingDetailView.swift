@@ -101,6 +101,8 @@ struct MeetingDetailView: View {
     @State private var pendingTemplateID: String
     @State private var documentMode: MeetingDocumentMode
     @State private var recordingMode: RecordingContentMode = .notes
+    @State private var showsWrittenNotes = false
+    @State private var isHoveringWrittenNotesTab = false
     @State private var titleSaveTask: DispatchWorkItem?
     @State private var notesSaveTask: DispatchWorkItem?
     @State private var transcriptSaveTask: DispatchWorkItem?
@@ -173,9 +175,13 @@ struct MeetingDetailView: View {
                 .background(MeetsTheme.backgroundBase)
                 .onAppear {
                     threadContext = controller.meetingThreadContext(for: meeting.id)
+                    showsWrittenNotes = MeetingViewPreferences.shared.showsWrittenNotes(for: meeting.id)
                     if controller.canUseSummaryProvider(.openRouter) {
                         controller.loadOpenRouterModels(.text)
                     }
+                }
+                .task(id: meeting.id) {
+                    showsWrittenNotes = MeetingViewPreferences.shared.showsWrittenNotes(for: meeting.id)
                 }
                 .onChange(of: meeting.id) { _, _ in
                     syncLocalState(with: meeting)
@@ -726,32 +732,75 @@ struct MeetingDetailView: View {
         }
     }
 
-    /// Written Notes and the generated summary read as peers when width allows,
-    /// and fall back to the original stacked order in a narrow window.
+    /// Written notes are hidden by default so the summary gets the full width.
+    /// The slim tab on the left edge reveals them; when shown they read as peers
+    /// with the summary, falling back to the original stacked order in a narrow
+    /// window.
     @ViewBuilder
     private func completedNotesColumn(for meeting: MeetingRecord) -> some View {
         if hasStoredManualNotes(meeting) {
-            ResponsiveHorizontalLayout(
-                wideIdentifier: "meeting.notes.wide",
-                compactIdentifier: "meeting.notes.compact"
-            ) {
-                HStack(alignment: .top, spacing: MeetsTheme.spacing24) {
-                    completedManualNotesSection(meeting, fillsHeight: true)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            HStack(alignment: .top, spacing: MeetsTheme.spacing12) {
+                writtenNotesTab(for: meeting)
 
+                if showsWrittenNotes {
+                    ResponsiveHorizontalLayout(
+                        wideIdentifier: "meeting.notes.wide",
+                        compactIdentifier: "meeting.notes.compact"
+                    ) {
+                        HStack(alignment: .top, spacing: MeetsTheme.spacing24) {
+                            completedManualNotesSection(meeting, fillsHeight: true)
+                                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+
+                            completedSummarySection(for: meeting)
+                                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                        }
+                    } compact: {
+                        VStack(alignment: .leading, spacing: MeetsTheme.spacing12) {
+                            completedManualNotesSection(meeting)
+
+                            MeetingNotesView(markdown: Self.notesContent(for: meeting))
+                        }
+                    }
+                    .transition(.move(edge: .leading).combined(with: .opacity))
+                } else {
                     completedSummarySection(for: meeting)
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 }
-            } compact: {
-                VStack(alignment: .leading, spacing: MeetsTheme.spacing12) {
-                    completedManualNotesSection(meeting)
-
-                    MeetingNotesView(markdown: Self.notesContent(for: meeting))
-                }
             }
+            .animation(.easeOut(duration: 0.2), value: showsWrittenNotes)
         } else {
             MeetingNotesView(markdown: Self.notesContent(for: meeting))
         }
+    }
+
+    /// Vertical tab pinned to the left edge of the summary, toggling the notes
+    /// written during the meeting.
+    private func writtenNotesTab(for meeting: MeetingRecord) -> some View {
+        Button {
+            let shown = !showsWrittenNotes
+            showsWrittenNotes = shown
+            MeetingViewPreferences.shared.setShowsWrittenNotes(shown, for: meeting.id)
+        } label: {
+            VStack(spacing: 6) {
+                Image(systemName: "square.and.pencil")
+                    .font(.system(size: 11, weight: .semibold))
+                Text(showsWrittenNotes ? "Hide written notes" : "View written notes")
+                    .font(MeetsTheme.captionMedium())
+                    .rotationEffect(.degrees(-90))
+                    .fixedSize()
+            }
+            .foregroundStyle(MeetsTheme.textSecondary)
+            .frame(width: 28)
+            .frame(maxHeight: .infinity)
+            .background(isHoveringWrittenNotesTab ? MeetsTheme.backgroundHover : MeetsTheme.surfacePrimary)
+            .clipShape(RoundedRectangle(cornerRadius: MeetsTheme.cornerSmall))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { isHoveringWrittenNotesTab = $0 }
+        .help("Show the notes you wrote during the meeting")
+        .accessibilityLabel("Written notes")
+        .accessibilityValue(showsWrittenNotes ? "Shown" : "Hidden")
     }
 
     private func completedSummarySection(for meeting: MeetingRecord) -> some View {
@@ -839,12 +888,12 @@ struct MeetingDetailView: View {
 
     private var documentModePicker: some View {
         Picker("", selection: $documentMode) {
-            Text("Notes").tag(MeetingDocumentMode.notes)
+            Text("Notes + Summary").tag(MeetingDocumentMode.notes)
             Text("Transcript").tag(MeetingDocumentMode.transcript)
         }
         .pickerStyle(.segmented)
         .tint(MeetsTheme.accent)
-        .frame(width: 220)
+        .frame(width: 260)
         .disabled(isEditingNotes || isEditingTranscript)
     }
 
