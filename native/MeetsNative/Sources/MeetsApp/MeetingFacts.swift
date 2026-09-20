@@ -2,6 +2,14 @@ import Foundation
 import SwiftUI
 import MeetsCore
 
+/// One drawn fact: a symbol with the words it stands for, kept together so a
+/// screen reader and a tooltip still say "Written notes".
+struct MeetingFactSymbol: Equatable, Identifiable {
+    let name: String
+    let label: String
+    var id: String { name }
+}
+
 /// What a list says about a meeting. Derived once here so the browser, a
 /// folder scope, and a calendar event's recordings agree on the words.
 struct MeetingFacts: Equatable {
@@ -57,28 +65,64 @@ struct MeetingFacts: Equatable {
     /// The facts line, joined into the one string every list renders. Empty
     /// when there is nothing to say, so a bare meeting keeps a bare row.
     var text: String {
-        parts.joined(separator: " · ")
+        words.joined(separator: " · ")
+    }
+
+    /// Every fact in words, in the line's order: what a text-only surface and
+    /// the row's accessibility label read.
+    var words: [String] {
+        facts.map { fact in
+            switch fact {
+            case let .words(words):
+                return words
+            case let .symbol(symbol):
+                return symbol.label
+            }
+        }
+    }
+
+    /// The facts that draw as a symbol instead of spelling themselves out, in
+    /// the line's order. Their words stay in `words` for everything that reads.
+    var symbols: [MeetingFactSymbol] {
+        facts.compactMap { fact in
+            switch fact {
+            case .words:
+                return nil
+            case let .symbol(symbol):
+                return symbol
+            }
+        }
     }
 
     /// The wording, in one place: the attached event first, then people,
-    /// written notes, and whether a summary exists.
-    private var parts: [String] {
-        var parts: [String] = []
+    /// written notes, and whether a summary exists. The event and the people
+    /// count are always words; the rest draws as the symbol the meeting page
+    /// already uses for the same thing. A summary replaces the transcript
+    /// rather than joining it.
+    private var facts: [Fact] {
+        var facts: [Fact] = []
         if let eventTitle {
-            parts.append(eventTitle)
+            facts.append(.words(eventTitle))
         }
         if peopleCount > 0 {
-            parts.append(peopleCount == 1 ? "1 person" : "\(peopleCount) people")
+            facts.append(.words(peopleCount == 1 ? "1 person" : "\(peopleCount) people"))
         }
         if hasWrittenNotes {
-            parts.append("Written notes")
+            facts.append(.symbol(MeetingFactSymbol(name: "square.and.pencil", label: "Written notes")))
         }
         if hasSummary {
-            parts.append("Summary")
+            facts.append(.symbol(MeetingFactSymbol(name: "sparkles", label: "Summary")))
         } else if hasTranscript {
-            parts.append("Transcript only")
+            facts.append(.symbol(MeetingFactSymbol(name: "doc.plaintext", label: "Transcript only")))
         }
-        return parts
+        return facts
+    }
+
+    /// One fact of the line: words it spells out, or a symbol with the words
+    /// it stands for.
+    private enum Fact {
+        case words(String)
+        case symbol(MeetingFactSymbol)
     }
 
     private static func resolvedEventTitle(_ title: String?, calendarEventID: String?) -> String? {
@@ -91,7 +135,9 @@ struct MeetingFacts: Equatable {
 }
 
 /// The facts line those lists render, in one place and one tone: the attached
-/// event first, then people, written notes, and whether a summary exists.
+/// event first, then people, written notes, and whether a summary exists. The
+/// event and the people count stay words; notes, a summary, and a bare
+/// transcript draw as symbols.
 /// Renders nothing when there is nothing to say, so a bare meeting keeps a
 /// bare row.
 struct MeetingFactsRow: View {
@@ -99,12 +145,21 @@ struct MeetingFactsRow: View {
 
     var body: some View {
         if !facts.text.isEmpty {
-            Text(facts.text)
-                .font(MeetsTheme.caption())
-                .foregroundStyle(MeetsTheme.textTertiary)
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            HStack(spacing: 6) {
+                if !facts.words.isEmpty {
+                    Text(facts.words.joined(separator: " · "))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+                ForEach(facts.symbols) { symbol in
+                    Image(systemName: symbol.name)
+                        .help(symbol.label)
+                        .accessibilityLabel(symbol.label)
+                }
+            }
+            .font(MeetsTheme.caption())
+            .foregroundStyle(MeetsTheme.textTertiary)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 }
