@@ -147,18 +147,6 @@ struct OnboardingView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Download status lives in normal flow (centered banner), never
-            // floating over step content. It disappears as soon as the model is ready.
-            if shouldShowModelDownloadIndicator {
-                HStack {
-                    Spacer(minLength: 0)
-                    modelDownloadIndicator
-                    Spacer(minLength: 0)
-                }
-                .padding(.top, MeetsTheme.spacing16)
-                .padding(.horizontal, MeetsTheme.spacing32)
-                .transition(.opacity.combined(with: .move(edge: .top)))
-            }
             Group {
                 switch currentStep {
                 case OnboardingFlow.Step.welcome.rawValue: welcomeStep
@@ -320,8 +308,10 @@ struct OnboardingView: View {
             )
     }
 
-    private var shouldShowModelDownloadIndicator: Bool {
-        isModelStillDownloading || modelDownloadError != nil
+    /// Only real downloads and errors surface in the UI; warming up an already-downloaded
+    /// model stays silent even though the flags are tracked for bookkeeping.
+    private var showsInlineModelStatus: Bool {
+        modelDownloadError != nil || (isModelStillDownloading && !isModelPreparingAfterDownload)
     }
 
     private var canGoBack: Bool {
@@ -377,7 +367,7 @@ struct OnboardingView: View {
         .shadow(color: .black.opacity(0.28), radius: 12, x: 0, y: 6)
         .frame(width: 260, alignment: .leading)
         .transition(.opacity.combined(with: .move(edge: .top)))
-        .animation(.easeInOut(duration: 0.2), value: shouldShowModelDownloadIndicator)
+        .animation(.easeInOut(duration: 0.2), value: showsInlineModelStatus)
     }
 
     private var modelDownloadIndicatorTitle: String {
@@ -545,6 +535,13 @@ struct OnboardingView: View {
                     }
                 }
                 .padding(.horizontal, MeetsTheme.spacing32)
+            }
+
+            if showsInlineModelStatus {
+                modelDownloadIndicator
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, MeetsTheme.spacing32)
+                    .padding(.top, MeetsTheme.spacing12)
             }
 
         }
