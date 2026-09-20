@@ -1012,6 +1012,19 @@ struct SettingsView: View {
             )
             .frame(height: 22)
         }
+        Divider().background(MeetsTheme.surfaceBorder)
+        settingsRow(
+            "Model",
+            description: "Model your endpoint serves for this work.",
+            controlWidth: meetingControlWidth
+        ) {
+            settingsModelTextField(
+                currentModel: appState.config.customLLMModel,
+                placeholder: appState.config.customLLMFormat == CustomLLMFormat.anthropic.rawValue
+                    ? "claude-3-5-sonnet-20241022"
+                    : "custom-model-id"
+            ) { val in controller.updateConfig { $0.customLLMModel = val } }
+        }
     }
 
     private var selectedCleanupBackend: TranscriptCleanupBackendOption {
@@ -1585,24 +1598,14 @@ struct SettingsView: View {
     }
 
     private var aiSettingsPane: some View {
-        let state = aiConnectionState
+        // One snapshot per body evaluation, shared by the connection lines and
+        // the default menus so they cannot disagree — and identical to the one
+        // the meeting detail menu and status bar read.
+        let state = controller.aiConnectionState
         return VStack(alignment: .leading, spacing: MeetsTheme.spacing20) {
             aiConnectionsSection(state: state)
             aiDefaultsSection(state: state)
         }
-    }
-
-    /// One snapshot of credentials per body evaluation, shared by the
-    /// connection lines and the default menus so they cannot disagree.
-    private var aiConnectionState: AIConnectionState {
-        AIConnectionState(
-            isChatGPTAuthenticated: appState.isChatGPTAuthenticated,
-            isOpenRouterAuthenticated: appState.isOpenRouterAuthenticated,
-            openRouterAPIKey: OpenRouterCredentialResolver.resolvedAPIKey(
-                legacyAPIKey: appState.config.openRouterAPIKey
-            ),
-            environmentOpenAIAPIKey: ProcessInfo.processInfo.environment["OPENAI_API_KEY"] ?? ""
-        )
     }
 
     /// Every service Meets can send work to, each with the one control that
@@ -1625,6 +1628,44 @@ struct SettingsView: View {
         let connected = AIProviderDirectory.isConnected(provider, config: appState.config, state: state)
         let status = connected ? "Connected" : "Not connected"
         return provider.isLocalServer ? "\(status) · Runs on a server on this Mac" : status
+    }
+
+    /// Read-only report of the agents this Mac can run. The Connections page
+    /// only shows what is connected; choosing the agent happens under Defaults.
+    /// The free-text field survives as the empty-state fallback because
+    /// discovery only knows the launchers it ships with, so a bespoke agent
+    /// would otherwise be unreachable here.
+    @ViewBuilder
+    private func acpInstalledAgentList(state: AIConnectionState) -> some View {
+        let selected = appState.config.acpAgentCommand
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if state.installedACPAgents.isEmpty {
+            PastableTextField(
+                text: appState.config.acpAgentCommand,
+                placeholder: "omp acp",
+                onChange: { val in controller.updateConfig { $0.acpAgentCommand = val } }
+            )
+            .frame(height: 22)
+        } else {
+            VStack(alignment: .trailing, spacing: MeetsTheme.spacing4) {
+                ForEach(state.installedACPAgents, id: \.command) { agent in
+                    VStack(alignment: .trailing, spacing: 2) {
+                        Text(agent.label)
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(MeetsTheme.textSecondary)
+                        Text(agent.command)
+                            .font(.system(size: 10))
+                            .foregroundStyle(MeetsTheme.textTertiary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        Image(systemName: agent.command == selected ? "checkmark.circle.fill" : "circle")
+                            .font(.system(size: 10))
+                            .foregroundStyle(agent.command == selected ? MeetsTheme.success : MeetsTheme.textTertiary)
+                    }
+                    .help(agent.command == selected ? "Used for this provider" : agent.command)
+                }
+            }
+        }
     }
 
     @ViewBuilder
@@ -1685,7 +1726,7 @@ struct SettingsView: View {
                 description: aiConnectionLine(provider, state: state),
                 controlWidth: meetingControlWidth
             ) {
-                ACPCommandPicker(appState: appState, controller: controller)
+                acpInstalledAgentList(state: state)
             }
         case .appleIntelligence:
             appleIntelligenceStatusRow
@@ -1714,6 +1755,17 @@ struct SettingsView: View {
                     onChange: { val in controller.updateConfig { $0.lmStudioURL = val } }
                 )
                 .frame(height: 22)
+            }
+            Divider().background(MeetsTheme.surfaceBorder)
+            settingsRow(
+                "Model",
+                description: "Model LM Studio serves for this work.",
+                controlWidth: meetingControlWidth
+            ) {
+                settingsModelTextField(
+                    currentModel: appState.config.lmStudioModel,
+                    placeholder: "Select a loaded LM Studio model"
+                ) { val in controller.updateConfig { $0.lmStudioModel = val } }
             }
         }
     }
