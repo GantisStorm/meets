@@ -167,7 +167,6 @@ final class AppState {
     var modelPreparationDetail: String?
     var modelPreparationProgress: Double?
     var isModelPreparingAfterDownload: Bool = false
-    var modelPreparationIsComplete: Bool = false
 
     // Search
     var searchQuery: String = ""

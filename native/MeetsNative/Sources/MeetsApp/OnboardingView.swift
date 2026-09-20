@@ -1802,13 +1802,7 @@ struct OnboardingView: View {
             isModelPreparingAfterDownload = false
             modelDownloadStatus = "\(selectedBackend.label) ready"
             modelDownloadError = nil
-            publishModelPreparationStatus(
-                title: "\(selectedBackend.label) ready",
-                detail: "Ready for transcription",
-                progress: 1.0,
-                isPreparing: false,
-                isComplete: true
-            )
+            clearModelPreparationStatus()
             return
         }
 
@@ -1842,8 +1836,7 @@ struct OnboardingView: View {
             title: "Preparing \(backend.label)",
             detail: modelDownloadStatus,
             progress: modelDownloadProgress,
-            isPreparing: isModelPreparingAfterDownload,
-            isComplete: false
+            isPreparing: isModelPreparingAfterDownload
         )
 
         modelDownloadTask = Task {
@@ -1882,13 +1875,7 @@ struct OnboardingView: View {
                     modelDownloadStatus = "\(backend.label) ready"
                     modelDownloadError = nil
                     withAnimation { isModelStillDownloading = false }
-                    publishModelPreparationStatus(
-                        title: "\(backend.label) ready",
-                        detail: "Ready for transcription",
-                        progress: 1.0,
-                        isPreparing: false,
-                        isComplete: true
-                    )
+                    clearModelPreparationStatus()
                     saveProgress(atStep: currentStep)
                 }
             } catch is CancellationError {
@@ -1913,8 +1900,7 @@ struct OnboardingView: View {
                         title: backend.isDownloaded ? "Model setup paused" : "Download paused",
                         detail: modelDownloadError,
                         progress: nil,
-                        isPreparing: false,
-                        isComplete: false
+                        isPreparing: false
                     )
                 }
                 fputs("[meets] onboarding model download failed: \(error)\n", stderr)
@@ -1959,13 +1945,16 @@ struct OnboardingView: View {
             modelDownloadStatus = snapshot.message ?? "Download failed"
         }
 
-        publishModelPreparationStatus(
-            title: modelDownloadIndicatorTitle,
-            detail: modelDownloadStatus,
-            progress: modelDownloadProgress,
-            isPreparing: isModelPreparingAfterDownload,
-            isComplete: snapshot.phase == .ready
-        )
+        if snapshot.phase == .ready {
+            clearModelPreparationStatus()
+        } else {
+            publishModelPreparationStatus(
+                title: modelDownloadIndicatorTitle,
+                detail: modelDownloadStatus,
+                progress: modelDownloadProgress,
+                isPreparing: isModelPreparingAfterDownload
+            )
+        }
     }
 
     private func applyModelPreparationProgress(
@@ -1993,8 +1982,7 @@ struct OnboardingView: View {
                 title: "Preparing \(backend.label)",
                 detail: modelDownloadStatus,
                 progress: nil,
-                isPreparing: true,
-                isComplete: false
+                isPreparing: true
             )
             saveProgress(atStep: currentStep)
             return
@@ -2012,8 +2000,7 @@ struct OnboardingView: View {
             title: "Preparing \(backend.label)",
             detail: detail,
             progress: modelDownloadProgress,
-            isPreparing: false,
-            isComplete: false
+            isPreparing: false
         )
         saveProgress(atStep: currentStep)
     }
@@ -2060,36 +2047,31 @@ struct OnboardingView: View {
         title: String,
         detail: String?,
         progress: Double?,
-        isPreparing: Bool,
-        isComplete: Bool
+        isPreparing: Bool
     ) {
         appState.modelPreparationTitle = title
         appState.modelPreparationDetail = detail
         appState.modelPreparationProgress = progress.map { min(max($0, 0), 1) }
         appState.isModelPreparingAfterDownload = isPreparing
-        appState.modelPreparationIsComplete = isComplete
-        if isComplete {
-            Task { @MainActor in
-                try? await Task.sleep(for: .seconds(5))
-                guard appState.modelPreparationTitle == title,
-                      appState.modelPreparationIsComplete else { return }
-                appState.modelPreparationTitle = nil
-                appState.modelPreparationDetail = nil
-                appState.modelPreparationProgress = nil
-                appState.isModelPreparingAfterDownload = false
-                appState.modelPreparationIsComplete = false
-            }
-        } else if !isPreparing && progress == nil {
+        if !isPreparing && progress == nil {
             Task { @MainActor in
                 try? await Task.sleep(for: .seconds(12))
                 guard appState.modelPreparationTitle == title,
                       appState.modelPreparationProgress == nil,
-                      !appState.isModelPreparingAfterDownload,
-                      !appState.modelPreparationIsComplete else { return }
+                      !appState.isModelPreparingAfterDownload else { return }
                 appState.modelPreparationTitle = nil
                 appState.modelPreparationDetail = nil
             }
         }
+    }
+
+    /// A finished preparation shows nothing: the sidebar card only reports work
+    /// that is still in flight, so completion clears it.
+    private func clearModelPreparationStatus() {
+        appState.modelPreparationTitle = nil
+        appState.modelPreparationDetail = nil
+        appState.modelPreparationProgress = nil
+        appState.isModelPreparingAfterDownload = false
     }
 
     private var calendarAccessStep: some View {
@@ -2136,13 +2118,14 @@ struct OnboardingView: View {
                 initialStatus: modelDownloadStatus,
                 isPreparing: isModelPreparingAfterDownload
             )
-        } else if isModelStillDownloading || modelReadyBackend == selectedBackend {
+        } else if modelReadyBackend == selectedBackend {
+            clearModelPreparationStatus()
+        } else if isModelStillDownloading {
             publishModelPreparationStatus(
-                title: modelReadyBackend == selectedBackend ? "\(selectedBackend.label) ready" : "Preparing \(selectedBackend.label)",
-                detail: modelReadyBackend == selectedBackend ? "Ready for transcription" : modelDownloadStatus,
-                progress: modelReadyBackend == selectedBackend ? 1.0 : modelDownloadProgress,
-                isPreparing: isModelPreparingAfterDownload,
-                isComplete: modelReadyBackend == selectedBackend
+                title: "Preparing \(selectedBackend.label)",
+                detail: modelDownloadStatus,
+                progress: modelDownloadProgress,
+                isPreparing: isModelPreparingAfterDownload
             )
         }
         controller.completeOnboarding(

@@ -2417,8 +2417,7 @@ public final class MeetsController: NSObject {
             title: "Preparing \(backend.label)",
             detail: initialStatus ?? "Preparing \(backend.label)...",
             progress: initialProgress,
-            isPreparing: isPreparing,
-            isComplete: false
+            isPreparing: isPreparing
         )
 
         onboardingModelPreparationTask = Task { [weak self] in
@@ -2439,13 +2438,7 @@ public final class MeetsController: NSObject {
                 }
                 await MainActor.run {
                     self.onboardingModelPreparationTask = nil
-                    self.updateModelPreparationStatus(
-                        title: "\(backend.label) ready",
-                        detail: "Ready for transcription",
-                        progress: 1.0,
-                        isPreparing: false,
-                        isComplete: true
-                    )
+                    self.clearModelPreparationStatus()
                     SoundController.playModelReady(enabled: self.config.soundEnabled)
                     self.statusBarController?.refresh()
                 }
@@ -2460,8 +2453,7 @@ public final class MeetsController: NSObject {
                         title: backend.isDownloaded ? "Model setup paused" : "Download paused",
                         detail: self.modelPreparationFailureMessage(for: backend),
                         progress: nil,
-                        isPreparing: false,
-                        isComplete: false
+                        isPreparing: false
                     )
                 }
                 fputs("[meets] post-onboarding model preparation failed: \(error)\n", stderr)
@@ -2553,8 +2545,7 @@ public final class MeetsController: NSObject {
                 title: "Preparing \(backend.label)",
                 detail: "Optimizing \(backend.label) for this Mac...",
                 progress: nil,
-                isPreparing: true,
-                isComplete: false
+                isPreparing: true
             )
             return
         }
@@ -2563,8 +2554,7 @@ public final class MeetsController: NSObject {
             title: "Preparing \(backend.label)",
             detail: detail,
             progress: progress,
-            isPreparing: false,
-            isComplete: false
+            isPreparing: false
         )
     }
 
@@ -2572,36 +2562,31 @@ public final class MeetsController: NSObject {
         title: String,
         detail: String?,
         progress: Double?,
-        isPreparing: Bool,
-        isComplete: Bool
+        isPreparing: Bool
     ) {
         appState.modelPreparationTitle = title
         appState.modelPreparationDetail = detail
         appState.modelPreparationProgress = progress.map { min(max($0, 0), 1) }
         appState.isModelPreparingAfterDownload = isPreparing
-        appState.modelPreparationIsComplete = isComplete
-        if isComplete {
-            Task { @MainActor in
-                try? await Task.sleep(for: .seconds(5))
-                guard appState.modelPreparationTitle == title,
-                      appState.modelPreparationIsComplete else { return }
-                appState.modelPreparationTitle = nil
-                appState.modelPreparationDetail = nil
-                appState.modelPreparationProgress = nil
-                appState.isModelPreparingAfterDownload = false
-                appState.modelPreparationIsComplete = false
-            }
-        } else if !isPreparing && progress == nil {
+        if !isPreparing && progress == nil {
             Task { @MainActor in
                 try? await Task.sleep(for: .seconds(12))
                 guard appState.modelPreparationTitle == title,
                       appState.modelPreparationProgress == nil,
-                      !appState.isModelPreparingAfterDownload,
-                      !appState.modelPreparationIsComplete else { return }
+                      !appState.isModelPreparingAfterDownload else { return }
                 appState.modelPreparationTitle = nil
                 appState.modelPreparationDetail = nil
             }
         }
+    }
+
+    /// A finished preparation shows nothing: the sidebar card only reports work
+    /// that is still in flight, so completion clears it.
+    private func clearModelPreparationStatus() {
+        appState.modelPreparationTitle = nil
+        appState.modelPreparationDetail = nil
+        appState.modelPreparationProgress = nil
+        appState.isModelPreparingAfterDownload = false
     }
 
     private func modelPreparationFailureMessage(for backend: BackendOption) -> String {

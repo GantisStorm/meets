@@ -443,11 +443,7 @@ struct SidebarView: View {
         if let title = appState.modelPreparationTitle {
             HStack(spacing: MeetsTheme.spacing8) {
                 Group {
-                    if appState.modelPreparationIsComplete {
-                        Image(systemName: "checkmark.circle.fill")
-                            .font(.system(size: 15, weight: .semibold))
-                            .foregroundStyle(MeetsTheme.success)
-                    } else if appState.isModelPreparingAfterDownload || appState.modelPreparationProgress == nil {
+                    if appState.isModelPreparingAfterDownload || appState.modelPreparationProgress == nil {
                         ProgressView()
                             .controlSize(.small)
                             .frame(width: 16, height: 16)
