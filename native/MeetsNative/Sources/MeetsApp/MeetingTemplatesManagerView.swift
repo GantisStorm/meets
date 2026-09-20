@@ -25,7 +25,10 @@ struct MeetingTemplatesManagerView: View {
                     Text("Create reusable prompt-based note formats for meetings.")
                         .font(MeetsTheme.callout())
                         .foregroundStyle(MeetsTheme.textSecondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
 
                 Spacer()
 
@@ -75,11 +78,12 @@ struct MeetingTemplatesManagerView: View {
                         customTemplateEditor
                     }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.bottom, MeetsTheme.spacing4)
             }
         }
         .padding(MeetsTheme.spacing24)
-        .frame(minWidth: 760, minHeight: 520)
+        .frame(width: 820, height: 620)
         .background(MeetsTheme.backgroundBase)
         .alert(
             "Delete \"\(templateToDelete?.name ?? "")\"?",
@@ -125,18 +129,23 @@ struct MeetingTemplatesManagerView: View {
                         Text(template.title)
                             .font(MeetsTheme.captionMedium())
                             .foregroundStyle(MeetsTheme.textPrimary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
                     }
                     Text(template.promptBody)
                         .font(MeetsTheme.caption())
                         .foregroundStyle(MeetsTheme.textSecondary)
-                        .lineLimit(2)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
-                Spacer()
+                .frame(maxWidth: .infinity, alignment: .leading)
+
                 HStack(spacing: MeetsTheme.spacing8) {
                     actionButton("Duplicate", systemImage: "doc.on.doc") {
                         beginDuplicatingTemplate(template)
                     }
                 }
+                .fixedSize()
             }
         }
         .padding(MeetsTheme.spacing12)
@@ -166,6 +175,8 @@ struct MeetingTemplatesManagerView: View {
             Text("No custom templates yet.")
                 .font(MeetsTheme.callout())
                 .foregroundStyle(MeetsTheme.textTertiary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .padding(.horizontal, MeetsTheme.spacing12)
         .padding(.vertical, 10)
@@ -189,13 +200,17 @@ struct MeetingTemplatesManagerView: View {
                         Text(template.name)
                             .font(MeetsTheme.captionMedium())
                             .foregroundStyle(MeetsTheme.textPrimary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
                     }
                     Text(template.prompt)
                         .font(MeetsTheme.caption())
                         .foregroundStyle(MeetsTheme.textSecondary)
-                        .lineLimit(2)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
-                Spacer()
+                .frame(maxWidth: .infinity, alignment: .leading)
+
                 HStack(spacing: MeetsTheme.spacing8) {
                     actionButton("Edit", systemImage: "pencil") {
                         beginEditingTemplate(template)
@@ -204,6 +219,7 @@ struct MeetingTemplatesManagerView: View {
                         templateToDelete = template
                     }
                 }
+                .fixedSize()
             }
         }
         .padding(MeetsTheme.spacing12)
@@ -228,6 +244,7 @@ struct MeetingTemplatesManagerView: View {
                     .foregroundStyle(MeetsTheme.textSecondary)
                 TextField("Customer follow-up", text: $draftTemplateName)
                     .textFieldStyle(.roundedBorder)
+                    .frame(maxWidth: .infinity)
                     .overlay {
                         RoundedRectangle(cornerRadius: 6)
                             .strokeBorder(
@@ -244,6 +261,8 @@ struct MeetingTemplatesManagerView: View {
                     Text("Enter a template name.")
                         .font(MeetsTheme.caption())
                         .foregroundStyle(MeetsTheme.recording)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
 
@@ -262,7 +281,8 @@ struct MeetingTemplatesManagerView: View {
                     .font(.system(size: 12))
                     .foregroundStyle(MeetsTheme.textPrimary)
                     .scrollContentBackground(.hidden)
-                    .frame(minHeight: 140)
+                    .frame(minHeight: 160, maxHeight: 260)
+                    .frame(maxWidth: .infinity)
                     .padding(MeetsTheme.spacing8)
                     .background(MeetsTheme.backgroundBase)
                     .clipShape(RoundedRectangle(cornerRadius: MeetsTheme.cornerSmall))
@@ -282,6 +302,8 @@ struct MeetingTemplatesManagerView: View {
                     Text("Enter the prompt instructions for this template.")
                         .font(MeetsTheme.caption())
                         .foregroundStyle(MeetsTheme.recording)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
 
@@ -296,6 +318,7 @@ struct MeetingTemplatesManagerView: View {
             }
         }
         .padding(MeetsTheme.spacing12)
+        .frame(maxWidth: .infinity)
         .background(MeetsTheme.surfacePrimary.opacity(0.45))
         .clipShape(RoundedRectangle(cornerRadius: MeetsTheme.cornerMedium))
         .overlay(

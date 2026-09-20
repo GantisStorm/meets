@@ -338,7 +338,6 @@ struct SettingsView: View {
                     controller: controller,
                     onClose: { isShowingCleanupPromptManager = false }
                 )
-                .frame(minWidth: 560, minHeight: 480)
             }
             .sheet(isPresented: $isShowingCalendarSettings) {
                 CalendarSettingsView(
@@ -346,7 +345,7 @@ struct SettingsView: View {
                     controller: controller,
                     onClose: { isShowingCalendarSettings = false }
                 )
-                .frame(minWidth: 560, minHeight: 520)
+                .frame(width: 720, height: 600)
             }
     }
 

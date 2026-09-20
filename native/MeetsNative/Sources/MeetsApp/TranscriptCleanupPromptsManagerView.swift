@@ -55,11 +55,12 @@ struct TranscriptCleanupPromptsManagerView: View {
                         promptEditor
                     }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.bottom, MeetsTheme.spacing4)
             }
         }
         .padding(MeetsTheme.spacing24)
-        .frame(minWidth: 760, minHeight: 560)
+        .frame(width: 820, height: 620)
         .background(MeetsTheme.backgroundBase)
         .alert(
             "Delete \"\(promptToDelete?.name ?? "")\"?",
@@ -93,7 +94,10 @@ struct TranscriptCleanupPromptsManagerView: View {
                 Text("Create reusable prompts for local and cloud transcript cleanup.")
                     .font(MeetsTheme.callout())
                     .foregroundStyle(MeetsTheme.textSecondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .fixedSize(horizontal: false, vertical: true)
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
 
             Spacer()
 
@@ -135,6 +139,8 @@ struct TranscriptCleanupPromptsManagerView: View {
             Text("No custom cleanup presets yet.")
                 .font(MeetsTheme.callout())
                 .foregroundStyle(MeetsTheme.textTertiary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .padding(.horizontal, MeetsTheme.spacing12)
         .padding(.vertical, 10)
@@ -203,6 +209,8 @@ struct TranscriptCleanupPromptsManagerView: View {
                         Text(name)
                             .font(MeetsTheme.captionMedium())
                             .foregroundStyle(MeetsTheme.textPrimary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
                         if isActive {
                             Text("Active")
                                 .font(.system(size: 10, weight: .semibold))
@@ -216,12 +224,15 @@ struct TranscriptCleanupPromptsManagerView: View {
                     Text(prompt)
                         .font(MeetsTheme.caption())
                         .foregroundStyle(MeetsTheme.textSecondary)
-                        .lineLimit(2)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
-                Spacer()
+                .frame(maxWidth: .infinity, alignment: .leading)
+
                 HStack(spacing: MeetsTheme.spacing8) {
                     actions()
                 }
+                .fixedSize()
             }
         }
         .padding(MeetsTheme.spacing12)
@@ -245,6 +256,7 @@ struct TranscriptCleanupPromptsManagerView: View {
                     .foregroundStyle(MeetsTheme.textSecondary)
                 TextField("Context-aware cleanup", text: $draftPromptName)
                     .textFieldStyle(.roundedBorder)
+                    .frame(maxWidth: .infinity)
                     .overlay {
                         RoundedRectangle(cornerRadius: 6)
                             .strokeBorder(
@@ -261,6 +273,8 @@ struct TranscriptCleanupPromptsManagerView: View {
                     Text(nameValidationMessage)
                         .font(MeetsTheme.caption())
                         .foregroundStyle(MeetsTheme.recording)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
 
@@ -272,7 +286,8 @@ struct TranscriptCleanupPromptsManagerView: View {
                     .font(.system(size: 12, design: .monospaced))
                     .foregroundStyle(MeetsTheme.textPrimary)
                     .scrollContentBackground(.hidden)
-                    .frame(minHeight: 180)
+                    .frame(minHeight: 160, maxHeight: 260)
+                    .frame(maxWidth: .infinity)
                     .padding(MeetsTheme.spacing8)
                     .background(MeetsTheme.backgroundBase)
                     .clipShape(RoundedRectangle(cornerRadius: MeetsTheme.cornerSmall))
@@ -292,6 +307,8 @@ struct TranscriptCleanupPromptsManagerView: View {
                     Text("Enter cleanup instructions for this preset.")
                         .font(MeetsTheme.caption())
                         .foregroundStyle(MeetsTheme.recording)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
 
@@ -306,6 +323,7 @@ struct TranscriptCleanupPromptsManagerView: View {
             }
         }
         .padding(MeetsTheme.spacing12)
+        .frame(maxWidth: .infinity)
         .background(MeetsTheme.surfacePrimary.opacity(0.45))
         .clipShape(RoundedRectangle(cornerRadius: MeetsTheme.cornerMedium))
         .overlay(
