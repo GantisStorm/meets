@@ -250,7 +250,7 @@ struct SettingsView: View {
                 if appState.selectedMeetingSummaryBackend == .openRouter {
                     loadOpenRouterFreeModelsIfNeeded()
                 }
-                if selectedPane == .meetings || selectedPane == .ai {
+                if selectedPane == .ai {
                     loadACPConfigOptionsIfNeeded()
                 }
             }
@@ -281,7 +281,7 @@ struct SettingsView: View {
                 guard appState.selectedTab == .settings else { return }
                 refreshAudioInputDevices()
                 refreshPermissionStatuses(for: .appActivated)
-                if selectedPane == .meetings {
+                if selectedPane == .calendar {
                     Task {
                         await controller.calendarAccessDidChange()
                     }
@@ -310,7 +310,7 @@ struct SettingsView: View {
                 }
             }
             .onChange(of: selectedPane) { _, pane in
-                if pane != .meetings && pane != .ai {
+                if pane != .ai {
                     acpConfigOptionsLoadTask?.cancel()
                     acpConfigOptionsLoadTask = nil
                     acpConfigOptions = nil
@@ -372,11 +372,11 @@ struct SettingsView: View {
     }
 
     private func handlePaneSelection(_ pane: SettingsPane) {
-        if pane == .meetings {
+        if pane == .recording {
             loadCachedAudioInputDevices()
         }
         // ACP agent rows live in the AI pane, next to the defaults that use
-        // them, so leaving Meetings no longer means leaving them behind.
+        // them.
         loadACPConfigOptionsIfNeeded()
     }
 
@@ -607,8 +607,21 @@ struct SettingsView: View {
     }
 
     private var settingsPanePicker: some View {
+        ViewThatFits(in: .horizontal) {
+            settingsPanePickerRow(SettingsPane.allCases)
+            VStack(alignment: .trailing, spacing: MeetsTheme.spacing8) {
+                let half = (SettingsPane.allCases.count + 1) / 2
+                settingsPanePickerRow(Array(SettingsPane.allCases.prefix(half)))
+                settingsPanePickerRow(Array(SettingsPane.allCases.suffix(from: half)))
+            }
+        }
+    }
+
+    /// One row of pane buttons. The switcher uses a single row when the pane
+    /// titles fit beside the page title and two rows when they do not.
+    private func settingsPanePickerRow(_ panes: [SettingsPane]) -> some View {
         HStack(spacing: MeetsTheme.spacing20) {
-            ForEach(SettingsPane.allCases) { pane in
+            ForEach(panes) { pane in
                 Button {
                     withAnimation(.easeOut(duration: 0.16)) {
                         selectedPane = pane
@@ -653,8 +666,12 @@ struct SettingsView: View {
     private var selectedPaneIcon: String {
         switch selectedPane {
         case .general: "gearshape"
-        case .meetings: "person.2.wave.2"
+        case .permissions: "hand.raised"
+        case .recording: "record.circle"
+        case .calendar: "calendar"
+        case .notes: "doc.text"
         case .ai: "sparkles"
+        case .advanced: "terminal"
         case .appearance: "paintbrush"
         }
     }
@@ -663,10 +680,18 @@ struct SettingsView: View {
         switch selectedPane {
         case .general:
             "Startup behavior, permissions, and the meeting data stored on this Mac."
-        case .meetings:
-            "Choose how meetings are captured, transcribed, and turned into useful notes."
+        case .permissions:
+            "Grant the macOS permissions Meets uses to capture and read your meetings."
+        case .recording:
+            "Choose how meetings are captured and transcribed."
+        case .calendar:
+            "Connect your calendars and decide which meetings Meets watches."
+        case .notes:
+            "Pick the templates that shape the notes Meets generates."
         case .ai:
             "Connect the AI services Meets can use, then pick the defaults for summaries and transcript cleanup."
+        case .advanced:
+            "Run a script of your own after each meeting."
         case .appearance:
             "Tune Meets’s menu bar and recording controls to fit your workspace."
         }
@@ -708,10 +733,18 @@ struct SettingsView: View {
         switch selectedPane {
         case .general:
             generalSettingsPane
-        case .meetings:
-            meetingsSettingsPane
+        case .permissions:
+            permissionsSettingsPane
+        case .recording:
+            recordingSettingsPane
+        case .calendar:
+            calendarSettingsPane
+        case .notes:
+            notesSettingsPane
         case .ai:
             aiSettingsPane
+        case .advanced:
+            advancedSettingsPane
         case .appearance:
             appearanceSettingsPane
         }
@@ -753,8 +786,6 @@ struct SettingsView: View {
                 }
             }
 
-            permissionsSection
-
             settingsDisclosureSection(
                 "Data Management",
                 summary: "Clear meetings and their stored transcripts, notes, and audio.",
@@ -774,6 +805,12 @@ struct SettingsView: View {
                     .foregroundStyle(MeetsTheme.textTertiary)
                     .padding(.top, MeetsTheme.spacing8)
             }
+        }
+    }
+
+    private var permissionsSettingsPane: some View {
+        VStack(alignment: .leading, spacing: MeetsTheme.spacing20) {
+            permissionsSection
         }
     }
 
@@ -973,7 +1010,7 @@ struct SettingsView: View {
     private var meetingSummarySettingsSection: some View {
         settingsDisclosureSection(
             "Meeting Summaries",
-            summary: "\(appState.selectedMeetingSummaryBackend.label) writes notes after each meeting. Providers and models are set in AI.",
+            summary: "\(appState.selectedMeetingSummaryBackend.label) writes notes after each meeting.",
             icon: "sparkles",
         ) {
             settingsRow("Include written notes") {
@@ -982,6 +1019,26 @@ struct SettingsView: View {
                 }
             }
             settingsDescription("Feed your written notes into AI summaries alongside the transcript. Notes are always kept verbatim either way.")
+
+            Divider().background(MeetsTheme.surfaceBorder)
+            settingsRow("Summary retries", controlWidth: meetingControlWidth) {
+                integerInput(
+                    label: "Summary retries",
+                    value: Binding(
+                        get: {
+                            MeetingSummaryRetryPolicy.clampedRetryCount(appState.config.meetingSummaryRetryCount)
+                        },
+                        set: { newValue in
+                            controller.updateConfig {
+                                $0.meetingSummaryRetryCount = MeetingSummaryRetryPolicy.clampedRetryCount(newValue)
+                            }
+                        }
+                    ),
+                    range: 0...MeetingSummaryRetryPolicy.maximumRetryCount,
+                    unit: { $0 == 1 ? "retry" : "retries" }
+                )
+            }
+            settingsDescription("Retry transient AI summary failures before saving failed notes.")
         }
     }
 
@@ -1092,60 +1149,13 @@ struct SettingsView: View {
         }
     }
 
-    private var meetingsSettingsPane: some View {
+    private var recordingSettingsPane: some View {
         VStack(alignment: .leading, spacing: MeetsTheme.spacing20) {
             VStack(alignment: .leading, spacing: MeetsTheme.spacing8) {
                 sectionHeading("Recording Shortcut", icon: "command")
                 ShortcutsView(appState: appState, controller: controller).meetingRecordingShortcutSection
             }
             meetingTranscriptionSettingsSection
-
-            meetingSummarySettingsSection
-
-            settingsDisclosureSection(
-                "Meeting Notes",
-                summary: "Templates and retry behavior for generated notes.",
-                icon: "doc.text",
-            ) {
-                settingsRow(
-                    "Default template",
-                    description: "Template applied to new meeting summaries.",
-                    controlWidth: meetingControlWidth
-                ) {
-                    meetingTemplateMenu(selectionID: appState.config.defaultMeetingTemplateID) { id in
-                        controller.updateDefaultMeetingTemplate(id: id)
-                    }
-                }
-                Divider().background(MeetsTheme.surfaceBorder)
-                settingsRow("Summary retries", controlWidth: meetingControlWidth) {
-                    integerInput(
-                        label: "Summary retries",
-                        value: Binding(
-                            get: {
-                                MeetingSummaryRetryPolicy.clampedRetryCount(appState.config.meetingSummaryRetryCount)
-                            },
-                            set: { newValue in
-                                controller.updateConfig {
-                                    $0.meetingSummaryRetryCount = MeetingSummaryRetryPolicy.clampedRetryCount(newValue)
-                                }
-                            }
-                        ),
-                        range: 0...MeetingSummaryRetryPolicy.maximumRetryCount,
-                        unit: { $0 == 1 ? "retry" : "retries" }
-                    )
-                }
-                settingsDescription("Retry transient AI summary failures before saving failed notes.")
-                Divider().background(MeetsTheme.surfaceBorder)
-                settingsRow(
-                    "Templates",
-                    description: "Create and edit summary templates.",
-                    controlWidth: meetingControlWidth
-                ) {
-                    actionButton("Manage Templates…") {
-                        controller.showMeetingTemplatesManager()
-                    }
-                }
-            }
 
             settingsSection("Recording", iconName: "record.circle") {
                 settingsRow(
@@ -1175,112 +1185,6 @@ struct SettingsView: View {
                 }
             }
 
-
-            settingsDisclosureSection(
-                "Meeting Notifications",
-                summary: notificationSettingsSummary,
-                icon: "bell",
-            ) {
-                settingsRow("Scheduled meetings") {
-                    settingsSwitch(isOn: appState.config.showScheduledMeetingNotifications) { newValue in
-                        controller.updateConfig { $0.showScheduledMeetingNotifications = newValue }
-                        if newValue { controller.ensureMeetingNotificationAuth() }
-                    }
-                }
-                settingsDescription("Show notifications for calendar meetings with a join link.")
-
-                if appState.config.showScheduledMeetingNotifications {
-                    Divider().background(MeetsTheme.surfaceBorder)
-
-                    settingsRow("Reminder timing") {
-                        settingsMenu(
-                            selection: scheduledMeetingLeadTimeLabel(for: appState.config.scheduledMeetingNotificationLeadTime),
-                            options: ScheduledMeetingNotificationLeadTime.allCases.map(scheduledMeetingLeadTimeLabel(for:))
-                        ) { label in
-                            guard let leadTime = scheduledMeetingLeadTime(for: label) else { return }
-                            controller.updateConfig { $0.scheduledMeetingNotificationLeadTime = leadTime }
-                        }
-                    }
-                    settingsDescription("At start time avoids early calendar-only prompts before you join.")
-                }
-
-                Divider().background(MeetsTheme.surfaceBorder)
-
-                settingsRow(
-                    "Auto-record calendar meetings",
-                    description: "Start recording automatically when a calendar meeting begins."
-                ) {
-                    settingsSwitch(isOn: appState.config.autoRecordMeetings) { newValue in
-                        controller.updateConfig { $0.autoRecordMeetings = newValue }
-                    }
-                }
-
-                Divider().background(MeetsTheme.surfaceBorder)
-
-                settingsRow("Default action") {
-                    settingsMenu(
-                        selection: appState.config.meetingJoinDefaultAction.buttonLabel,
-                        options: MeetingJoinDefaultAction.allCases.map(\.buttonLabel)
-                    ) { label in
-                        guard let action = meetingJoinDefaultAction(for: label) else { return }
-                        controller.updateConfig { $0.meetingJoinDefaultAction = action }
-                    }
-                }
-                settingsDescription("Primary button for notifications and Coming Up. Pick “Transcribe Only” if you join in another browser.")
-
-                Divider().background(MeetsTheme.surfaceBorder)
-
-                settingsRow("Auto-detected meetings") {
-                    settingsSwitch(isOn: appState.config.showMeetingDetectionNotification) { newValue in
-                        controller.updateConfig { $0.showMeetingDetectionNotification = newValue }
-                        if newValue { controller.ensureMeetingNotificationAuth() }
-                    }
-                }
-                settingsDescription("Show notifications when a call is detected from browser, camera, microphone, or app audio activity.")
-
-                if appState.config.showMeetingDetectionNotification {
-                    Divider().background(MeetsTheme.surfaceBorder)
-                    customMeetingDetectionAppsControl
-                        .padding(.top, MeetsTheme.spacing8)
-                    mutedMeetingDetectionAppsControl
-                }
-            }
-
-            settingsDisclosureSection(
-                "Calendars",
-                summary: calendarSettingsSummary,
-                icon: "calendar",
-            ) {
-                calendarSyncRow
-                Divider().background(MeetsTheme.surfaceBorder)
-                settingsRow(
-                    "Use calendars already connected to your Mac",
-                    description: "Add or remove accounts in macOS System Settings."
-                ) {
-                    actionButton("Manage accounts…", action: CalendarIntegration.openAccounts)
-                }
-                Divider().background(MeetsTheme.surfaceBorder)
-                settingsRow(
-                    "Upcoming meetings",
-                    description: "Controls how many calendar days appear in Coming Up, the menu bar, and scheduled meeting checks.",
-                    controlWidth: meetingControlWidth
-                ) {
-                    settingsMenu(
-                        selection: selectedUpcomingMeetingsWindow.label,
-                        options: UpcomingMeetingsWindow.allCases.map(\.label)
-                    ) { label in
-                        guard let window = UpcomingMeetingsWindow.allCases.first(where: { $0.label == label }) else { return }
-                        controller.updateUpcomingMeetingsWindow(dayCount: window.dayCount)
-                    }
-                }
-                Divider().background(MeetsTheme.surfaceBorder)
-                settingsRow("Apple Calendar", description: "See what’s synced: accounts, calendars, per-calendar toggles, rename and delete.") {
-                    inlineLinkButton("Manage…", systemImage: "arrow.right.circle") {
-                        isShowingCalendarSettings = true
-                    }
-                    .help("Manage Apple Calendar accounts and calendars")
-                }
-            }
 
             settingsDisclosureSection(
                 "Sync & Export",
@@ -1420,7 +1324,154 @@ struct SettingsView: View {
                     settingsDescription("Meetings are saved to \(cloudSyncFolderName) as Markdown notes (+ audio). Open that folder in iCloud Drive / Dropbox / Drive on your iPhone to read them.")
                 }
             }
+        }
+    }
 
+    private var calendarSettingsPane: some View {
+        VStack(alignment: .leading, spacing: MeetsTheme.spacing20) {
+            settingsDisclosureSection(
+                "Calendars",
+                summary: calendarSettingsSummary,
+                icon: "calendar",
+            ) {
+                calendarSyncRow
+                Divider().background(MeetsTheme.surfaceBorder)
+                settingsRow(
+                    "Use calendars already connected to your Mac",
+                    description: "Add or remove accounts in macOS System Settings."
+                ) {
+                    actionButton("Manage accounts…", action: CalendarIntegration.openAccounts)
+                }
+                Divider().background(MeetsTheme.surfaceBorder)
+                settingsRow(
+                    "Upcoming meetings",
+                    description: "Controls how many calendar days appear in Coming Up, the menu bar, and scheduled meeting checks.",
+                    controlWidth: meetingControlWidth
+                ) {
+                    settingsMenu(
+                        selection: selectedUpcomingMeetingsWindow.label,
+                        options: UpcomingMeetingsWindow.allCases.map(\.label)
+                    ) { label in
+                        guard let window = UpcomingMeetingsWindow.allCases.first(where: { $0.label == label }) else { return }
+                        controller.updateUpcomingMeetingsWindow(dayCount: window.dayCount)
+                    }
+                }
+                Divider().background(MeetsTheme.surfaceBorder)
+                settingsRow("Apple Calendar", description: "See what’s synced: accounts, calendars, per-calendar toggles, rename and delete.") {
+                    inlineLinkButton("Manage…", systemImage: "arrow.right.circle") {
+                        isShowingCalendarSettings = true
+                    }
+                    .help("Manage Apple Calendar accounts and calendars")
+                }
+            }
+
+            settingsDisclosureSection(
+                "Meeting Notifications",
+                summary: notificationSettingsSummary,
+                icon: "bell",
+            ) {
+                settingsRow("Scheduled meetings") {
+                    settingsSwitch(isOn: appState.config.showScheduledMeetingNotifications) { newValue in
+                        controller.updateConfig { $0.showScheduledMeetingNotifications = newValue }
+                        if newValue { controller.ensureMeetingNotificationAuth() }
+                    }
+                }
+                settingsDescription("Show notifications for calendar meetings with a join link.")
+
+                if appState.config.showScheduledMeetingNotifications {
+                    Divider().background(MeetsTheme.surfaceBorder)
+
+                    settingsRow("Reminder timing") {
+                        settingsMenu(
+                            selection: scheduledMeetingLeadTimeLabel(for: appState.config.scheduledMeetingNotificationLeadTime),
+                            options: ScheduledMeetingNotificationLeadTime.allCases.map(scheduledMeetingLeadTimeLabel(for:))
+                        ) { label in
+                            guard let leadTime = scheduledMeetingLeadTime(for: label) else { return }
+                            controller.updateConfig { $0.scheduledMeetingNotificationLeadTime = leadTime }
+                        }
+                    }
+                    settingsDescription("At start time avoids early calendar-only prompts before you join.")
+                }
+
+                Divider().background(MeetsTheme.surfaceBorder)
+
+                settingsRow(
+                    "Auto-record calendar meetings",
+                    description: "Start recording automatically when a calendar meeting begins."
+                ) {
+                    settingsSwitch(isOn: appState.config.autoRecordMeetings) { newValue in
+                        controller.updateConfig { $0.autoRecordMeetings = newValue }
+                    }
+                }
+
+                Divider().background(MeetsTheme.surfaceBorder)
+
+                settingsRow("Default action") {
+                    settingsMenu(
+                        selection: appState.config.meetingJoinDefaultAction.buttonLabel,
+                        options: MeetingJoinDefaultAction.allCases.map(\.buttonLabel)
+                    ) { label in
+                        guard let action = meetingJoinDefaultAction(for: label) else { return }
+                        controller.updateConfig { $0.meetingJoinDefaultAction = action }
+                    }
+                }
+                settingsDescription("Primary button for notifications and Coming Up. Pick “Transcribe Only” if you join in another browser.")
+
+                Divider().background(MeetsTheme.surfaceBorder)
+
+                settingsRow("Auto-detected meetings") {
+                    settingsSwitch(isOn: appState.config.showMeetingDetectionNotification) { newValue in
+                        controller.updateConfig { $0.showMeetingDetectionNotification = newValue }
+                        if newValue { controller.ensureMeetingNotificationAuth() }
+                    }
+                }
+                settingsDescription("Show notifications when a call is detected from browser, camera, microphone, or app audio activity.")
+
+                if appState.config.showMeetingDetectionNotification {
+                    Divider().background(MeetsTheme.surfaceBorder)
+                    customMeetingDetectionAppsControl
+                        .padding(.top, MeetsTheme.spacing8)
+                    mutedMeetingDetectionAppsControl
+                }
+            }
+        }
+        .onAppear {
+            refreshMeetingCalendarSourcesIfNeeded()
+        }
+    }
+
+    private var notesSettingsPane: some View {
+        VStack(alignment: .leading, spacing: MeetsTheme.spacing20) {
+            settingsDisclosureSection(
+                "Meeting Notes",
+                summary: "Templates applied to generated notes.",
+                icon: "doc.text",
+            ) {
+                settingsRow(
+                    "Default template",
+                    description: "Template applied to new meeting summaries.",
+                    controlWidth: meetingControlWidth
+                ) {
+                    meetingTemplateMenu(selectionID: appState.config.defaultMeetingTemplateID) { id in
+                        controller.updateDefaultMeetingTemplate(id: id)
+                    }
+                }
+                Divider().background(MeetsTheme.surfaceBorder)
+                settingsRow(
+                    "Templates",
+                    description: "Create and edit summary templates.",
+                    controlWidth: meetingControlWidth
+                ) {
+                    actionButton("Manage Templates…") {
+                        controller.showMeetingTemplatesManager()
+                    }
+                }
+            }
+        }
+    }
+
+    private var advancedSettingsPane: some View {
+        VStack(alignment: .leading, spacing: MeetsTheme.spacing20) {
             settingsDisclosureSection(
                 "Automation",
                 summary: appState.config.meetingHookEnabled ? "Post-meeting hook enabled" : "Run an optional script after meetings",
@@ -1452,9 +1503,6 @@ struct SettingsView: View {
                     meetingHookTimeoutControl
                 }
             }
-        }
-        .onAppear {
-            refreshMeetingCalendarSourcesIfNeeded()
         }
     }
 
@@ -1608,6 +1656,7 @@ struct SettingsView: View {
         return VStack(alignment: .leading, spacing: MeetsTheme.spacing20) {
             aiConnectionsSection(state: state)
             aiDefaultsSection(state: state)
+            meetingSummarySettingsSection
         }
     }
 
