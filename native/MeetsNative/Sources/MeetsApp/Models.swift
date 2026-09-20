@@ -1661,7 +1661,7 @@ struct AppConfig: Codable {
     var hiddenCalendarEventIDs: [String] = []
     var hiddenCalendarEventSourceHints: [String: String] = [:]
     var disabledCalendarIDs: [String] = []
-    var calendarHideCancelled: Bool = false
+    var calendarHideCancelled: Bool = true
     var enablePostProcessor: Bool = false
     var postProcessorBackend: String = TranscriptCleanupBackendOption.local.backend
     var postProcessorGemmaModel: String = Gemma4LiteRTModel.e2b.repoID
