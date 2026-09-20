@@ -4041,7 +4041,7 @@ public final class MeetsController: NSObject {
 
     func createFolderAndMoveMeeting(name: String, meetingID: Int64) {
         guard let folderID = try? dictationStore.createFolder(name: name) else { return }
-        try? dictationStore.moveMeeting(id: meetingID, toFolder: folderID)
+        try? dictationStore.moveMeetingFamily(rootID: meetingID, toFolder: folderID)
         syncAppState()
     }
 
@@ -4098,8 +4098,10 @@ public final class MeetsController: NSObject {
         }
     }
 
+    /// Moves a meeting to a folder (or unfiles it with nil). The meeting's whole
+    /// follow-up subtree moves with it, at every depth.
     func moveMeeting(id: Int64, toFolder folderID: Int64?) {
-        try? dictationStore.moveMeeting(id: id, toFolder: folderID)
+        try? dictationStore.moveMeetingFamily(rootID: id, toFolder: folderID)
         syncAppState()
     }
 

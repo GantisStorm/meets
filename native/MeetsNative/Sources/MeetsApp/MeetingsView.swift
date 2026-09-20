@@ -28,30 +28,6 @@ enum MeetingBrowserSort: Hashable {
     }
 }
 
-/// How the meetings browser lays out its shelves. Persisted with `@AppStorage`
-/// so the choice survives relaunches.
-enum MeetingBrowserLayout: String, CaseIterable, Hashable {
-    case grid
-    case list
-
-    static let storageKey = "meetings.browser.layout"
-    static let defaultLayout: MeetingBrowserLayout = .grid
-
-    var label: String {
-        switch self {
-        case .grid: return "Grid"
-        case .list: return "List"
-        }
-    }
-
-    var symbolName: String {
-        switch self {
-        case .grid: return "square.grid.2x2"
-        case .list: return "list.bullet"
-        }
-    }
-}
-
 /// A predecessor that is not part of the shelf it is displayed in, so a scoped
 /// shelf root can still navigate up to the meeting it follows on from.
 struct MeetingBrowserParentLink: Equatable {
@@ -122,36 +98,11 @@ struct MeetingBrowserShelfPresentation {
     )
 }
 
-/// Which descendants a collapsed shelf shows, and what the overflow control
-/// must account for. A filtered thread can otherwise bury its only matching
-/// meeting behind context ancestors.
-struct MeetingBrowserDescendantPlan: Equatable {
-    let visibleCount: Int
-    let hiddenCount: Int
-    /// Hidden descendants that satisfy the active date range.
-    let hiddenMatchCount: Int
-
-    /// Label for the overflow control. The hidden-match count is reported
-    /// whenever a date range is active and something hidden matches — a chain
-    /// whose visible window is all context can hide the only match. "All time"
-    /// passes `false`: there is no range, so there is nothing to compare
-    /// against.
-    func summary(annotatingMatches: Bool) -> String {
-        let followUps = "\(hiddenCount) more follow-up\(hiddenCount == 1 ? "" : "s")"
-        guard annotatingMatches, hiddenMatchCount > 0 else { return followUps }
-        return "\(followUps) \u{00B7} \(hiddenMatchCount) in range"
-    }
-}
-
 enum MeetingBrowserLogic {
     /// Deepest nesting level that still earns extra indentation. Descendants
     /// below it keep their place in the shelf and instead name the parent they
     /// hang from, so nothing is dropped from view.
     static let indentationCapDepth = 3
-
-    /// Descendants a shelf shows before it collapses the rest behind a
-    /// "show all" control.
-    static let initialDescendantLimit = 3
 
     static func availableFilters(
         for meetings: [MeetingRecord],
@@ -193,30 +144,35 @@ enum MeetingBrowserLogic {
         return filters
     }
 
-    /// Descendants a shelf shows while collapsed, and how many of the hidden
-    /// ones match the active range. Thread order is preserved: the overflow
-    /// control reports hidden matches instead of reordering the thread.
-    static func descendantPlan(
-        matchFlags: [Bool],
+    /// Label for a shelf's disclosure control: what activating it does, and —
+    /// while the shelf is collapsed under an active date range — how many
+    /// follow-ups it is holding back that fall inside that range.
+    ///
+    /// The fold is all or nothing, so the label never varies with how many
+    /// follow-ups it covers; `descendantCount` is passed by the caller that
+    /// renders the count capsule beside it. The range annotation only appears
+    /// collapsed, because an expanded shelf already shows every match. "All
+    /// time" passes `false`: there is no range, so there is nothing to report.
+    static func followUpDisclosureLabel(
+        descendantCount: Int,
+        hiddenMatchCount: Int,
         isExpanded: Bool,
-        limit: Int = initialDescendantLimit
-    ) -> MeetingBrowserDescendantPlan {
-        guard !isExpanded else {
-            return MeetingBrowserDescendantPlan(
-                visibleCount: matchFlags.count,
-                hiddenCount: 0,
-                hiddenMatchCount: 0
-            )
-        }
-        let visibleCount = min(limit, matchFlags.count)
-        let hidden = matchFlags[visibleCount...]
-        return MeetingBrowserDescendantPlan(
-            visibleCount: visibleCount,
-            hiddenCount: hidden.count,
-            hiddenMatchCount: hidden.reduce(into: 0) { total, matches in
-                if matches { total += 1 }
-            }
-        )
+        annotatesMatches: Bool
+    ) -> String {
+        let action = isExpanded ? "Collapse follow-ups" : "Expand follow-ups"
+        guard !isExpanded, annotatesMatches, hiddenMatchCount > 0 else { return action }
+        return "\(action) \u{00B7} \(hiddenMatchCount) in range"
+    }
+
+    /// Whether a shelf opens expanded before the user touches its disclosure.
+    ///
+    /// Collapsed is the default, because the library reads as its roots. The
+    /// exception is a thread kept on screen only because a follow-up inside the
+    /// range needed its ancestors: there the match sits below the fold, hidden
+    /// behind a control the user has no reason to expect, so the shelf opens
+    /// with it. The user can still collapse it.
+    static func shelfStartsExpanded(rootMatchesRange: Bool, annotatesMatches: Bool) -> Bool {
+        annotatesMatches && !rootMatchesRange
     }
 
     /// Flat, shelf-ordered meeting list. Follow-up families stay together and
@@ -643,11 +599,11 @@ struct MeetingsView: View {
     let controller: MeetsController
     @State private var selectedFilter: MeetingBrowserFilter = .all
     @State private var selectedSort: MeetingBrowserSort = .newestFirst
-    /// Shelves the user expanded past the initial descendant limit.
-    @State private var expandedShelfIDs: Set<Int64> = []
-    /// Persisted layout choice; the grid is the default.
-    @AppStorage(MeetingBrowserLayout.storageKey)
-    private var layout: MeetingBrowserLayout = MeetingBrowserLayout.defaultLayout
+    /// Shelves whose disclosure state the user has overridden. Kept as a toggle
+    /// rather than a set of expanded ids because a filtered thread can also
+    /// open itself (see `shelfStartsExpanded`), and either direction has to
+    /// survive that.
+    @State private var toggledShelfIDs: Set<Int64> = []
 
     /// Complete browse index for the current scope, so shelves keep every
     /// follow-up member even when it sits outside the recently loaded window.
@@ -709,7 +665,7 @@ struct MeetingsView: View {
     @ViewBuilder
     private var browserView: some View {
         // The window's detail column can be as narrow as ~280 points once the
-        // sidebar is subtracted, so page padding and grid columns follow the
+        // sidebar is subtracted, so page padding and the folder grid follow the
         // space actually available instead of assuming a wide canvas.
         GeometryReader { proxy in
             let contentWidth = proxy.size.width
@@ -775,19 +731,8 @@ struct MeetingsView: View {
         width < 640 ? 16 : 40
     }
 
-    /// Card grid columns, or a single flexible column when a multi-column grid
-    /// cannot hold its minimum card width without clipping. A family card holds
-    /// a parent block plus its follow-up rows, so the minimum is wider than a
-    /// plain list row and two columns is the common desktop result.
-    static func shelfColumns(for width: CGFloat) -> [GridItem] {
-        guard width >= 640 else {
-            return [GridItem(.flexible(minimum: 0, maximum: .infinity), spacing: 0, alignment: .top)]
-        }
-        return [GridItem(.adaptive(minimum: 380, maximum: 560), spacing: MeetsTheme.spacing16, alignment: .top)]
-    }
-
-    /// Folder-tile columns: same rule, with the smaller folder-tile minimum, so
-    /// a folder level reads as one quiet row of tiles.
+    /// Folder-tile columns: folder tiles stay a grid, with the smaller
+    /// folder-tile minimum, so a folder level reads as one quiet row of tiles.
     static func folderColumns(for width: CGFloat) -> [GridItem] {
         guard width >= 640 else {
             return [GridItem(.flexible(minimum: 0, maximum: .infinity), spacing: 0, alignment: .top)]
@@ -799,19 +744,11 @@ struct MeetingsView: View {
     /// preview line.
     static let compactCardWidth: CGFloat = 300
 
-    /// Rendered width of one shelf card at the given page width, derived from
-    /// the same column policy `shelfColumns(for:)` uses.
-    static func cardWidth(for width: CGFloat) -> CGFloat {
-        let content = width - horizontalPadding(for: width) * 2
-        guard width >= 640 else { return max(0, content) }
-        let spacing = MeetsTheme.spacing16
-        let columns = max(1, Int((content + spacing) / (380 + spacing)))
-        return max(0, (content - CGFloat(columns - 1) * spacing) / CGFloat(columns))
-    }
-
-    /// True when cards must stack their actions under a full-width title.
+    /// True when a card must tighten its padding and drop to one preview line.
+    /// Shelves are one full-width column, so the rendered card width is the
+    /// page width less both gutters.
     static func usesCompactCardHeader(for width: CGFloat) -> Bool {
-        cardWidth(for: width) < compactCardWidth
+        width - horizontalPadding(for: width) * 2 < compactCardWidth
     }
 
     // MARK: - Coming Up
@@ -1115,7 +1052,6 @@ struct MeetingsView: View {
         MeetingBrowserHeader(
             filter: $selectedFilter,
             sort: $selectedSort,
-            layout: $layout,
             availableFilters: MeetingBrowserLogic.availableFilters(
                 oldestStartDate: presentation.oldestStartDate
             ),
@@ -1364,25 +1300,17 @@ struct MeetingsView: View {
 
     // MARK: - Shelves
 
+    /// The shelves, one full-width list column: a family's root with its
+    /// follow-ups folded beneath it, read top to bottom like the archive it
+    /// summarizes.
     @ViewBuilder
     private func shelfLayout(
         shelves: [MeetingBrowserShelf],
         meetingIDsWithFollowUps: Set<Int64>,
         width: CGFloat
     ) -> some View {
-        switch layout {
-        case .grid:
-            LazyVGrid(
-                columns: Self.shelfColumns(for: width),
-                alignment: .leading,
-                spacing: MeetsTheme.spacing16
-            ) {
-                shelfCells(shelves: shelves, meetingIDsWithFollowUps: meetingIDsWithFollowUps, width: width)
-            }
-        case .list:
-            LazyVStack(alignment: .leading, spacing: MeetsTheme.spacing8) {
-                shelfCells(shelves: shelves, meetingIDsWithFollowUps: meetingIDsWithFollowUps, width: width)
-            }
+        LazyVStack(alignment: .leading, spacing: MeetsTheme.spacing12) {
+            shelfCells(shelves: shelves, meetingIDsWithFollowUps: meetingIDsWithFollowUps, width: width)
         }
     }
 
@@ -1395,19 +1323,21 @@ struct MeetingsView: View {
         let actions = shelfActions
         let breadcrumbs = folderBreadcrumbsByID
         let compact = Self.usesCompactCardHeader(for: width)
-        let dense = layout == .list
+        let annotatesMatches = selectedFilter != .all
         ForEach(shelves) { shelf in
             MeetingShelfView(
                 shelf: shelf,
                 isSelected: appState.selectedMeetingID == shelf.root.id,
-                isExpanded: expandedShelfIDs.contains(shelf.id),
+                isExpanded: MeetingBrowserLogic.shelfStartsExpanded(
+                    rootMatchesRange: shelf.root.matchesFilter,
+                    annotatesMatches: annotatesMatches
+                ) != toggledShelfIDs.contains(shelf.id),
                 rootHasFollowUps: meetingIDsWithFollowUps.contains(shelf.root.id),
                 selectedMeetingID: appState.selectedMeetingID,
                 folders: appState.folders,
                 folderBreadcrumbs: breadcrumbs,
                 compact: compact,
-                dense: dense,
-                annotatesHiddenMatches: selectedFilter != .all,
+                annotatesHiddenMatches: annotatesMatches,
                 actions: actions
             )
         }
@@ -1421,10 +1351,10 @@ struct MeetingsView: View {
         MeetingShelfActions(
             open: { controller.showMeetingDocument(id: $0) },
             toggleExpanded: { shelfID in
-                if expandedShelfIDs.contains(shelfID) {
-                    expandedShelfIDs.remove(shelfID)
+                if toggledShelfIDs.contains(shelfID) {
+                    toggledShelfIDs.remove(shelfID)
                 } else {
-                    expandedShelfIDs.insert(shelfID)
+                    toggledShelfIDs.insert(shelfID)
                 }
             },
             move: { meetingID, folderID in

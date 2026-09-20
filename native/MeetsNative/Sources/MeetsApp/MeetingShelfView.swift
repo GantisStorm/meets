@@ -15,14 +15,14 @@ struct MeetingShelfActions {
     let canStartFollowUp: (MeetingBrowserNode) -> Bool
 }
 
-/// One follow-up family as a single card: the parent row, then its descendants
-/// inside the same enclosure below a divider.
+/// One follow-up family as a single card: the root meeting, then — while the
+/// card is expanded — every descendant in an inset panel below the disclosure.
 ///
 /// Everything a family owns is drawn between one border, so a thread reads as
-/// one object instead of a card followed by a pile of loose rows. Depth inside
-/// the enclosure is carried by a single thread rail and modest indentation; a
-/// branch deep enough that indentation stops meaning anything names its parent
-/// in words instead.
+/// one object instead of a card followed by a pile of loose rows. The card's
+/// root is the row itself; depth inside the panel is carried by modest
+/// indentation, and a branch deep enough that indentation stops meaning
+/// anything names its parent in words instead.
 struct MeetingShelfView: View {
     let shelf: MeetingBrowserShelf
     let isSelected: Bool
@@ -34,41 +34,26 @@ struct MeetingShelfView: View {
     /// True when the rendered card is too narrow for generous padding and two
     /// preview lines.
     let compact: Bool
-    /// True in the list layout, where a family is a compact library row rather
-    /// than a spacious grid card.
-    let dense: Bool
-    /// True when a date range is active, so the overflow control may report
-    /// how many hidden follow-ups fall inside it.
+    /// True when a date range is active, so the disclosure may report how many
+    /// follow-ups it holds back that fall inside it.
     let annotatesHiddenMatches: Bool
     let actions: MeetingShelfActions
+    @State private var isHoveringDisclosure = false
 
-    /// Leading inset of the descendant block inside the enclosure: enough that
-    /// children read as nested under the parent, without a decorative spine.
-    private static let descendantInset: CGFloat = 20
+    /// One speed for the chevron and the panel it opens, so a disclosure that
+    /// turns and a panel that unfolds read as one movement.
+    private static let disclosureAnimationDuration: Double = 0.18
 
-    /// What the collapsed shelf shows and what the overflow control reports.
-    /// A filtered thread can otherwise hide its only matching meeting behind
-    /// context ancestors.
-    private var descendantPlan: MeetingBrowserDescendantPlan {
-        MeetingBrowserLogic.descendantPlan(
-            matchFlags: shelf.descendants.map(\.matchesFilter),
-            isExpanded: isExpanded
-        )
-    }
+    /// Follow-ups this card holds below its root.
+    private var descendantCount: Int { shelf.descendants.count }
 
-    private var visibleDescendants: [MeetingBrowserNode] {
-        let visibleCount = descendantPlan.visibleCount
-        return visibleCount == shelf.descendants.count
-            ? shelf.descendants
-            : Array(shelf.descendants.prefix(visibleCount))
-    }
-
-    /// A shelf only ever expands past the initial limit, so a shelf with more
-    /// descendants than the limit always keeps its footer. That is the control
-    /// that used to disappear the moment the thread was expanded, leaving no
-    /// way back to the collapsed shelf.
-    private var showsThreadFooter: Bool {
-        shelf.descendants.count > MeetingBrowserLogic.initialDescendantLimit
+    /// Descendants that satisfy the active date range. While the card is
+    /// collapsed those are exactly the meetings the fold is hiding, which is
+    /// what the disclosure has to admit to.
+    private var hiddenMatchCount: Int {
+        shelf.descendants.reduce(into: 0) { total, node in
+            if node.matchesFilter { total += 1 }
+        }
     }
 
     /// True when any member of the family is the open meeting, so the
@@ -84,13 +69,12 @@ struct MeetingShelfView: View {
                 display: MeetingListItemDisplay(entry: shelf.root.entry, record: shelf.root.record),
                 isSelected: isSelected,
                 hasFollowUps: rootHasFollowUps,
-                followUpCount: shelf.descendants.count,
+                followUpCount: descendantCount,
                 folders: folders,
                 folderBreadcrumbs: folderBreadcrumbs,
                 externalParent: shelf.root.externalParent,
                 isOutsideRange: !shelf.root.matchesFilter,
                 compact: compact,
-                dense: dense,
                 canStartFollowUp: actions.canStartFollowUp(shelf.root),
                 canDelete: actions.canDelete(shelf.root),
                 onSelect: { actions.open(shelf.root.id) },
@@ -101,8 +85,18 @@ struct MeetingShelfView: View {
                 onOpenParent: { actions.open($0) }
             )
 
-            if !shelf.descendants.isEmpty {
-                descendants
+            if descendantCount > 0 {
+                disclosure
+
+                if isExpanded {
+                    MeetingFollowUpListView(
+                        shelf: shelf,
+                        selectedMeetingID: selectedMeetingID,
+                        folders: folders,
+                        folderBreadcrumbs: folderBreadcrumbs,
+                        actions: actions
+                    )
+                }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -117,38 +111,72 @@ struct MeetingShelfView: View {
         )
     }
 
-    private var descendants: some View {
+    /// The card's last element: one full-width row that says what the card is
+    /// holding back and folds it open or shut in place. The whole row is the hit
+    /// target — a disclosure that only answers on its own text is a miss waiting
+    /// to happen — and the count capsule keeps the number visible once the label
+    /// is the only thing left of the thread.
+    private var disclosure: some View {
         VStack(alignment: .leading, spacing: 0) {
             Divider()
                 .foregroundStyle(MeetsTheme.surfaceBorder)
 
-            VStack(alignment: .leading, spacing: 0) {
-                ForEach(visibleDescendants) { node in
-                    MeetingThreadRow(
-                        node: node,
-                        isSelected: node.id == selectedMeetingID,
-                        folders: folders,
-                        folderBreadcrumbs: folderBreadcrumbs,
-                        dense: dense,
-                        actions: actions
-                    )
+            Button {
+                withAnimation(.easeInOut(duration: Self.disclosureAnimationDuration)) {
+                    actions.toggleExpanded(shelf.id)
                 }
+            } label: {
+                HStack(spacing: MeetsTheme.spacing8) {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(MeetsTheme.textSecondary)
+                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                        .animation(.easeInOut(duration: Self.disclosureAnimationDuration), value: isExpanded)
 
-                if showsThreadFooter {
-                    MeetingThreadOverflowControl(
-                        shelf: shelf,
-                        plan: descendantPlan,
-                        annotatesHiddenMatches: annotatesHiddenMatches,
+                    Text(MeetingBrowserLogic.followUpDisclosureLabel(
+                        descendantCount: descendantCount,
+                        hiddenMatchCount: hiddenMatchCount,
                         isExpanded: isExpanded,
-                        onToggle: { actions.toggleExpanded(shelf.id) }
-                    )
-                    .padding(.top, 2)
+                        annotatesMatches: annotatesHiddenMatches
+                    ))
+                    .font(MeetsTheme.captionMedium())
+                    .foregroundStyle(MeetsTheme.textSecondary)
+                    // The label is the whole control, so it wraps rather than
+                    // truncating: at the narrowest detail column the in-range
+                    // note would otherwise be the first thing ellipsised away.
+                    .multilineTextAlignment(.leading)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                    Text("\(descendantCount)")
+                        .font(MeetsTheme.caption())
+                        .monospacedDigit()
+                        .foregroundStyle(MeetsTheme.textSecondary)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 1)
+                        .background(MeetsTheme.surfacePrimary)
+                        .clipShape(Capsule())
+
+                    Spacer(minLength: 0)
                 }
+                .padding(.horizontal, compact ? MeetsTheme.spacing12 : MeetsTheme.spacing16)
+                .padding(.vertical, 9)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(isHoveringDisclosure ? MeetsTheme.backgroundHover : Color.clear)
+                .contentShape(Rectangle())
             }
-            .padding(.leading, Self.descendantInset)
-            .padding(.trailing, compact ? MeetsTheme.spacing12 : MeetsTheme.spacing16)
-            .padding(.bottom, dense ? MeetsTheme.spacing8 : MeetsTheme.spacing12)
+            .buttonStyle(.plain)
+            .onHover { isHoveringDisclosure = $0 }
+            .help(disclosureHelp)
+            .accessibilityLabel("Follow-ups")
+            .accessibilityValue(isExpanded ? "Expanded" : "Collapsed")
+            .accessibilityHint("Shows the follow-up meetings for this meeting")
         }
+    }
+
+    private var disclosureHelp: String {
+        let followUps = "\(descendantCount) follow-up meeting\(descendantCount == 1 ? "" : "s")"
+        return isExpanded ? "Collapse this follow-up thread" : "Show the \(followUps) in this thread"
     }
 }
 
@@ -165,8 +193,6 @@ struct MeetingThreadRow: View {
     let isSelected: Bool
     let folders: [MeetingFolder]
     let folderBreadcrumbs: [Int64: String]
-    /// True in the list layout, which tightens the row's vertical rhythm.
-    let dense: Bool
     let actions: MeetingShelfActions
     @State private var isHovering = false
 
@@ -188,7 +214,7 @@ struct MeetingThreadRow: View {
         }
         .padding(.leading, CGFloat(indentLevels) * Self.indentStep)
         .padding(.trailing, MeetsTheme.spacing8)
-        .padding(.vertical, dense ? 5 : 7)
+        .padding(.vertical, 7)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(rowBackground)
         .contentShape(Rectangle())
@@ -321,151 +347,49 @@ struct MeetingThreadRow: View {
     }
 }
 
-/// Collapsed-descendant control. Hovering previews the whole thread in a
-/// scrollable popover; activating it — by click or keyboard — expands or
-/// collapses the shelf in place.
-struct MeetingThreadOverflowControl: View {
+/// Every follow-up of one shelf, in thread order, inside an inset panel under
+/// the root card's disclosure.
+///
+/// The panel is filled with the base background, so the thread reads as a
+/// recess in the raised card rather than a second card stacked under it. Rows
+/// keep the rest of the browser's rhythm — hairline dividers, the same metadata
+/// line, the same one actions menu — so a follow-up looks like the meeting it
+/// is, just nested.
+struct MeetingFollowUpListView: View {
     let shelf: MeetingBrowserShelf
-    let plan: MeetingBrowserDescendantPlan
-    /// True when a date range is active, so hidden matches are worth reporting.
-    let annotatesHiddenMatches: Bool
-    let isExpanded: Bool
-    let onToggle: () -> Void
-    @State private var showsPreview = false
-    @State private var isHovering = false
-    @State private var hideWorkItem: DispatchWorkItem?
-
-    private var label: String {
-        isExpanded ? "Show fewer follow-ups" : plan.summary(annotatingMatches: annotatesHiddenMatches)
-    }
+    let selectedMeetingID: Int64?
+    let folders: [MeetingFolder]
+    let folderBreadcrumbs: [Int64: String]
+    let actions: MeetingShelfActions
 
     var body: some View {
-        Button {
-            cancelHide()
-            showsPreview = false
-            onToggle()
-        } label: {
-            HStack(spacing: 4) {
-                Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                    .font(.system(size: 9, weight: .semibold))
-                Text(label)
-                    .font(.system(size: 11, weight: .medium))
-            }
-            .foregroundStyle(isHovering ? MeetsTheme.textPrimary : MeetsTheme.textSecondary)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 4)
-            .background(isHovering ? MeetsTheme.backgroundHover : Color.clear)
-            .clipShape(RoundedRectangle(cornerRadius: MeetsTheme.cornerSmall))
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .help(helpText)
-        .accessibilityLabel(accessibilityLabel)
-        .onHover { hovering in
-            isHovering = hovering
-            guard !isExpanded else { return }
-            if hovering { showPreview() } else { scheduleHide() }
-        }
-        .onChange(of: isExpanded) { _, expanded in
-            guard expanded else { return }
-            cancelHide()
-            showsPreview = false
-        }
-        .onDisappear { cancelHide() }
-        .popover(isPresented: $showsPreview, arrowEdge: .bottom) {
-            preview
-        }
-    }
-
-    private var helpText: String {
-        guard !isExpanded else { return "Collapse this follow-up thread" }
-        guard plan.hiddenMatchCount > 0 else { return "Show every follow-up in this thread" }
-        return "\(plan.hiddenCount) follow-ups are hidden, \(plan.hiddenMatchCount) of them inside the active date range"
-    }
-
-    private var accessibilityLabel: String {
-        guard !isExpanded else { return "Collapse follow-up thread" }
-        let base = "Show all \(shelf.descendants.count) follow-ups"
-        guard plan.hiddenMatchCount > 0 else { return base }
-        return "\(base), \(plan.hiddenMatchCount) matching the active date range"
-    }
-
-    /// The popover outlives the cursor leaving the button so the thread can be
-    /// scrolled; it closes shortly after the pointer leaves both.
-    private var preview: some View {
-        VStack(alignment: .leading, spacing: MeetsTheme.spacing8) {
-            Text("Follow-up thread \u{00B7} \(shelf.totalCount) meetings")
-                .font(MeetsTheme.captionMedium())
-                .foregroundStyle(MeetsTheme.textSecondary)
-
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: MeetsTheme.spacing8) {
-                    ForEach(shelf.descendants) { node in
-                        previewRow(node)
-                    }
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(Array(shelf.descendants.enumerated()), id: \.element.id) { index, node in
+                if index > 0 {
+                    Divider()
+                        .foregroundStyle(MeetsTheme.surfaceBorder)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.trailing, 4)
+
+                MeetingThreadRow(
+                    node: node,
+                    isSelected: node.id == selectedMeetingID,
+                    folders: folders,
+                    folderBreadcrumbs: folderBreadcrumbs,
+                    actions: actions
+                )
             }
-            .frame(height: previewHeight)
         }
-        .padding(MeetsTheme.spacing12)
-        .frame(width: 340)
-        .onHover { inside in
-            if inside { cancelHide() } else { scheduleHide() }
-        }
-    }
-
-    /// Sized to the thread so a short thread does not open a mostly empty
-    /// panel; long threads cap at 300 pt and scroll.
-    private var previewHeight: CGFloat {
-        let rowHeight: CGFloat = 32
-        let rowSpacing: CGFloat = MeetsTheme.spacing8
-        let count = CGFloat(max(shelf.descendants.count, 1))
-        return min(300, count * rowHeight + (count - 1) * rowSpacing)
-    }
-
-    private func previewRow(_ node: MeetingBrowserNode) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            HStack(spacing: 6) {
-                Text(node.entry.title)
-                    .font(MeetsTheme.captionMedium())
-                    .foregroundStyle(MeetsTheme.textPrimary)
-                    .lineLimit(1)
-                if node.entry.status != .completed {
-                    MeetingStatusBadge(status: node.entry.status)
-                }
-                Spacer(minLength: 0)
-            }
-            Text(MeetingListItemFormat.meta(
-                startTime: node.entry.startTime,
-                durationSeconds: node.entry.durationSeconds
-            ))
-            .font(.system(size: 11))
-            .foregroundStyle(MeetsTheme.textSecondary)
-            .lineLimit(1)
-        }
-        .padding(.leading, CGFloat(min(node.depth, MeetingBrowserLogic.indentationCapDepth + 1)) * 12)
-    }
-
-    private func showPreview() {
-        hideWorkItem?.cancel()
-        hideWorkItem = nil
-        showsPreview = true
-    }
-
-    private func scheduleHide() {
-        hideWorkItem?.cancel()
-        let workItem = DispatchWorkItem {
-            showsPreview = false
-        }
-        hideWorkItem = workItem
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35, execute: workItem)
-    }
-
-    private func cancelHide() {
-        hideWorkItem?.cancel()
-        hideWorkItem = nil
+        .padding(MeetsTheme.spacing8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(MeetsTheme.backgroundBase)
+        .clipShape(RoundedRectangle(cornerRadius: MeetsTheme.cornerMedium))
+        .overlay(
+            RoundedRectangle(cornerRadius: MeetsTheme.cornerMedium)
+                .strokeBorder(MeetsTheme.surfaceBorder, lineWidth: 1)
+        )
+        .padding(.horizontal, MeetsTheme.spacing12)
+        .padding(.bottom, MeetsTheme.spacing12)
+        .transition(.opacity.combined(with: .move(edge: .top)))
     }
 }
 

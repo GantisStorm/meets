@@ -1525,6 +1525,100 @@ struct DictationStoreTests {
         #expect(try store.recentMeetings(limit: 1).first!.folderID == nil)
     }
 
+    // MARK: - Move Meeting Family to Folder
+
+    /// `createLiveMeeting` is the store entry point that carries both the
+    /// folder and the follow-up link; `insertMeeting` accepts neither.
+    @discardableResult
+    private func insertFollowUpMeeting(
+        in store: DictationStore,
+        title: String,
+        folderID: Int64? = nil,
+        followUpToID: Int64? = nil
+    ) throws -> Int64 {
+        try store.createLiveMeeting(
+            title: title,
+            calendarEventID: nil,
+            startTime: Date(),
+            folderID: folderID,
+            followUpToID: followUpToID
+        )
+    }
+
+    private func storedFolderID(of meetingID: Int64, in store: DictationStore) throws -> Int64? {
+        let meetings = try store.recentMeetings()
+        return try #require(meetings.first(where: { $0.id == meetingID })).folderID
+    }
+
+    @Test("moving a follow-up chain root moves the whole chain, and unfiles it")
+    func moveMeetingFamilyMovesChain() throws {
+        let store = try makeStore()
+        let folderID = try store.createFolder(name: "Family")
+
+        let rootID = try insertFollowUpMeeting(in: store, title: "Root")
+        let childID = try insertFollowUpMeeting(in: store, title: "Child", followUpToID: rootID)
+        let grandchildID = try insertFollowUpMeeting(in: store, title: "Grandchild", followUpToID: childID)
+
+        try store.moveMeetingFamily(rootID: rootID, toFolder: folderID)
+        #expect(try storedFolderID(of: rootID, in: store) == folderID)
+        #expect(try storedFolderID(of: childID, in: store) == folderID)
+        #expect(try storedFolderID(of: grandchildID, in: store) == folderID)
+
+        try store.moveMeetingFamily(rootID: rootID, toFolder: nil)
+        #expect(try storedFolderID(of: rootID, in: store) == nil)
+        #expect(try storedFolderID(of: childID, in: store) == nil)
+        #expect(try storedFolderID(of: grandchildID, in: store) == nil)
+    }
+
+    @Test("moving a follow-up root moves sibling branches and their children")
+    func moveMeetingFamilyMovesSiblingBranches() throws {
+        let store = try makeStore()
+        let folderID = try store.createFolder(name: "Family")
+
+        let rootID = try insertFollowUpMeeting(in: store, title: "Root")
+        let firstChildID = try insertFollowUpMeeting(in: store, title: "First Child", followUpToID: rootID)
+        let secondChildID = try insertFollowUpMeeting(in: store, title: "Second Child", followUpToID: rootID)
+        let grandchildID = try insertFollowUpMeeting(in: store, title: "Grandchild", followUpToID: firstChildID)
+
+        try store.moveMeetingFamily(rootID: rootID, toFolder: folderID)
+        #expect(try storedFolderID(of: rootID, in: store) == folderID)
+        #expect(try storedFolderID(of: firstChildID, in: store) == folderID)
+        #expect(try storedFolderID(of: secondChildID, in: store) == folderID)
+        #expect(try storedFolderID(of: grandchildID, in: store) == folderID)
+    }
+
+    @Test("moving a middle follow-up moves only its subtree, not its parent")
+    func moveMeetingFamilyLeavesAncestorsPut() throws {
+        let store = try makeStore()
+        let ancestorFolderID = try store.createFolder(name: "Ancestor Folder")
+        let subtreeFolderID = try store.createFolder(name: "Subtree Folder")
+
+        let rootID = try insertFollowUpMeeting(in: store, title: "Root", folderID: ancestorFolderID)
+        let childID = try insertFollowUpMeeting(in: store, title: "Child", followUpToID: rootID)
+        let grandchildID = try insertFollowUpMeeting(in: store, title: "Grandchild", followUpToID: childID)
+
+        try store.moveMeetingFamily(rootID: childID, toFolder: subtreeFolderID)
+
+        #expect(try storedFolderID(of: rootID, in: store) == ancestorFolderID)
+        #expect(try storedFolderID(of: childID, in: store) == subtreeFolderID)
+        #expect(try storedFolderID(of: grandchildID, in: store) == subtreeFolderID)
+    }
+
+    @Test("moveMeetingFamily returns exactly the moved ids")
+    func moveMeetingFamilyReturnsMovedIDs() throws {
+        let store = try makeStore()
+        let folderID = try store.createFolder(name: "Family")
+
+        let rootID = try insertFollowUpMeeting(in: store, title: "Root")
+        let childID = try insertFollowUpMeeting(in: store, title: "Child", followUpToID: rootID)
+        let grandchildID = try insertFollowUpMeeting(in: store, title: "Grandchild", followUpToID: childID)
+        let unrelatedID = try insertFollowUpMeeting(in: store, title: "Unrelated")
+
+        let moved = try store.moveMeetingFamily(rootID: rootID, toFolder: folderID)
+        #expect(moved.sorted() == [rootID, childID, grandchildID].sorted())
+        #expect(!moved.contains(unrelatedID))
+    }
+
     @Test("delete folder moves its meetings to unfiled")
     func deleteFolderUnfilesMeetings() throws {
         let store = try makeStore()

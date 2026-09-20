@@ -3499,6 +3499,73 @@ public final class DictationStore {
         }
     }
 
+    /// Moves `rootID` and its entire follow-up family — every meeting whose
+    /// `follow_up_to_id` chain leads to `rootID`, at any depth, including
+    /// sibling branches — into `folderID`, or to unfiled when `folderID` is
+    /// nil. Ancestors of `rootID` stay put: moving a child moves only that
+    /// child's own subtree. Returns the moved meeting ids in ascending order.
+    @discardableResult
+    public func moveMeetingFamily(rootID: Int64, toFolder folderID: Int64?) throws -> [Int64] {
+        let db = try openDatabase()
+        defer { sqlite3_close(db) }
+        guard sqlite3_exec(db, "BEGIN TRANSACTION", nil, nil, nil) == SQLITE_OK else {
+            throw lastError(db)
+        }
+
+        do {
+            // `UNION` rather than `UNION ALL` so a malformed cycle terminates.
+            let familyCTE = """
+            WITH RECURSIVE family(id) AS (
+                SELECT ?1
+                UNION
+                SELECT m.id FROM meetings m JOIN family f ON m.follow_up_to_id = f.id
+            )
+            """
+
+            var idsStatement: OpaquePointer?
+            guard sqlite3_prepare_v2(db, familyCTE + "SELECT id FROM family ORDER BY id", -1, &idsStatement, nil) == SQLITE_OK else {
+                throw lastError(db)
+            }
+            defer { sqlite3_finalize(idsStatement) }
+            sqlite3_bind_int64(idsStatement, 1, rootID)
+
+            var movedIDs: [Int64] = []
+            idLoop: while true {
+                switch sqlite3_step(idsStatement) {
+                case SQLITE_ROW:
+                    movedIDs.append(sqlite3_column_int64(idsStatement, 0))
+                case SQLITE_DONE:
+                    break idLoop
+                default:
+                    throw lastError(db)
+                }
+            }
+
+            var updateStatement: OpaquePointer?
+            guard sqlite3_prepare_v2(db, familyCTE + "UPDATE meetings SET folder_id = ?2 WHERE id IN (SELECT id FROM family)", -1, &updateStatement, nil) == SQLITE_OK else {
+                throw lastError(db)
+            }
+            defer { sqlite3_finalize(updateStatement) }
+            sqlite3_bind_int64(updateStatement, 1, rootID)
+            if let folderID {
+                sqlite3_bind_int64(updateStatement, 2, folderID)
+            } else {
+                sqlite3_bind_null(updateStatement, 2)
+            }
+            guard sqlite3_step(updateStatement) == SQLITE_DONE else {
+                throw lastError(db)
+            }
+
+            guard sqlite3_exec(db, "COMMIT", nil, nil, nil) == SQLITE_OK else {
+                throw lastError(db)
+            }
+            return movedIDs
+        } catch {
+            sqlite3_exec(db, "ROLLBACK", nil, nil, nil)
+            throw error
+        }
+    }
+
     public func moveFolder(id: Int64, toParent newParentID: Int64?) throws {
         let db = try openDatabase()
         defer { sqlite3_close(db) }

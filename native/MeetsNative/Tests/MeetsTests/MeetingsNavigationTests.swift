@@ -2013,120 +2013,112 @@ struct MeetingBrowserShelfTests {
         #expect(presentation.shelves.allSatisfy { $0.root.record != nil })
     }
 
-    @Test("a collapsed shelf shows the limit and counts the rest")
-    func collapsedShelfShowsLimitAndCountsRest() {
-        let four = [false, false, false, false]
-
-        let collapsed = MeetingBrowserLogic.descendantPlan(matchFlags: four, isExpanded: false)
-        #expect(collapsed.visibleCount == 3)
-        #expect(collapsed.hiddenCount == 1)
-        #expect(collapsed.hiddenMatchCount == 0)
-        #expect(collapsed.summary(annotatingMatches: false) == "1 more follow-up")
-
-        let expanded = MeetingBrowserLogic.descendantPlan(matchFlags: four, isExpanded: true)
-        #expect(expanded.visibleCount == 4)
-        #expect(expanded.hiddenCount == 0)
-
-        let exactLimit = MeetingBrowserLogic.descendantPlan(
-            matchFlags: [false, false, false],
-            isExpanded: false
-        )
-        #expect(exactLimit.visibleCount == 3)
-        #expect(exactLimit.hiddenCount == 0)
-    }
-
-    @Test("the hidden-match annotation appears only for an active date range")
-    func hiddenMatchAnnotationIsSuppressedWhenRedundant() {
-        // All time: nothing is out of range, so the count is noise.
-        let allMatching = MeetingBrowserLogic.descendantPlan(
-            matchFlags: [true, true, true, true, true, true],
-            isExpanded: false
-        )
-        #expect(allMatching.hiddenMatchCount == 3)
-        #expect(allMatching.summary(annotatingMatches: false) == "3 more follow-ups")
-
-        // A range is active and every hidden follow-up is inside it: the label
-        // has to say so, because the visible window can be entirely context.
-        #expect(allMatching.summary(annotatingMatches: true) == "3 more follow-ups \u{00B7} 3 in range")
-
-        // Mixed hidden set under an active range.
-        let mixed = MeetingBrowserLogic.descendantPlan(
-            matchFlags: [true, true, true, false, true, true],
-            isExpanded: false
-        )
-        #expect(mixed.hiddenMatchCount == 2)
-        #expect(mixed.summary(annotatingMatches: true) == "3 more follow-ups \u{00B7} 2 in range")
-
-        // Active range with no hidden match: nothing to report.
-        let noneMatching = MeetingBrowserLogic.descendantPlan(
-            matchFlags: [true, true, true, false, false, false],
-            isExpanded: false
-        )
-        #expect(noneMatching.summary(annotatingMatches: true) == "3 more follow-ups")
-    }
-
-    @Test("a collapsed filtered chain reports the matches it hides")
-    func collapsedFilteredChainReportsHiddenMatches() throws {
-        // Seven-deep thread where only the last two meetings fall in range: the
-        // collapsed shelf shows three context ancestors, so the control has to
-        // say that matching meetings are still behind it.
-        var entries: [MeetingBrowserEntry] = []
-        for index in 1...7 {
-            let parent: Int64? = index == 1 ? nil : Int64(index - 1)
-            let daysAgo: Double = index >= 6 ? Double(8 - index) : Double(40 - index)
-            entries.append(entry(Int64(index), daysAgo: daysAgo, followUpTo: parent))
+    @Test("the disclosure label names the action and reports in-range follow-ups")
+    func followUpDisclosureLabelNamesActionAndRange() {
+        // One follow-up or many, the fold is all or nothing: the label stays the
+        // same and the count capsule beside it carries the number.
+        for descendantCount in [1, 5] {
+            #expect(MeetingBrowserLogic.followUpDisclosureLabel(
+                descendantCount: descendantCount,
+                hiddenMatchCount: 0,
+                isExpanded: false,
+                annotatesMatches: false
+            ) == "Expand follow-ups")
+            #expect(MeetingBrowserLogic.followUpDisclosureLabel(
+                descendantCount: descendantCount,
+                hiddenMatchCount: 0,
+                isExpanded: true,
+                annotatesMatches: false
+            ) == "Collapse follow-ups")
         }
-
-        let presentation = shelves(entries, filter: .lastWeek)
-        let shelf = try #require(presentation.shelves.first)
-        let plan = MeetingBrowserLogic.descendantPlan(
-            matchFlags: shelf.descendants.map(\.matchesFilter),
-            isExpanded: false
-        )
-
-        #expect(shelf.matchCount == 2)
-        #expect(shelf.nodes.count == 7)
-        #expect(plan.visibleCount == 3)
-        #expect(plan.hiddenCount == 3)
-        #expect(plan.hiddenMatchCount == 2)
-        #expect(plan.summary(annotatingMatches: true) == "3 more follow-ups \u{00B7} 2 in range")
-        #expect(plan.summary(annotatingMatches: false) == "3 more follow-ups")
-        // Thread order is untouched: the hidden matches stay where they belong.
-        #expect(shelf.nodes.map(\.id) == [1, 2, 3, 4, 5, 6, 7])
     }
 
-    @Test("a chain whose only match is the sole hidden descendant still says so")
-    func soleHiddenMatchIsReported() throws {
-        // Root plus four follow-ups: the visible window is entirely old context
-        // and the one meeting inside the range is the one the control hides.
-        var entries: [MeetingBrowserEntry] = [entry(1, daysAgo: 40)]
-        let daysAgo: [Double] = [35, 30, 25, 2]
-        for (offset, days) in daysAgo.enumerated() {
-            let id = Int64(offset + 2)
-            entries.append(entry(id, daysAgo: days, followUpTo: id - 1))
-        }
+    @Test("the in-range note appears only for a collapsed shelf under an active range")
+    func inRangeNoteNeedsActiveRangeAndHiddenMatches() {
+        #expect(MeetingBrowserLogic.followUpDisclosureLabel(
+            descendantCount: 4,
+            hiddenMatchCount: 2,
+            isExpanded: false,
+            annotatesMatches: true
+        ) == "Expand follow-ups \u{00B7} 2 in range")
 
-        let presentation = shelves(entries, filter: .lastWeek)
-        let shelf = try #require(presentation.shelves.first)
-        let plan = MeetingBrowserLogic.descendantPlan(
-            matchFlags: shelf.descendants.map(\.matchesFilter),
-            isExpanded: false
-        )
+        // "All time": every follow-up matches, so a count would be noise.
+        #expect(MeetingBrowserLogic.followUpDisclosureLabel(
+            descendantCount: 4,
+            hiddenMatchCount: 4,
+            isExpanded: false,
+            annotatesMatches: false
+        ) == "Expand follow-ups")
 
-        #expect(shelf.nodes.map(\.id) == [1, 2, 3, 4, 5])
-        #expect(shelf.matchCount == 1)
-        #expect(plan.visibleCount == 3)
-        #expect(plan.hiddenCount == 1)
-        #expect(plan.hiddenMatchCount == 1)
-        #expect(plan.summary(annotatingMatches: true) == "1 more follow-up \u{00B7} 1 in range")
-        #expect(plan.summary(annotatingMatches: false) == "1 more follow-up")
+        // A range with nothing of its own behind the fold.
+        #expect(MeetingBrowserLogic.followUpDisclosureLabel(
+            descendantCount: 4,
+            hiddenMatchCount: 0,
+            isExpanded: false,
+            annotatesMatches: true
+        ) == "Expand follow-ups")
 
-        let expanded = MeetingBrowserLogic.descendantPlan(
-            matchFlags: shelf.descendants.map(\.matchesFilter),
-            isExpanded: true
-        )
-        #expect(expanded.visibleCount == 4)
-        #expect(expanded.hiddenCount == 0)
+        // Expanded: the matches are on screen, so there is nothing to announce.
+        #expect(MeetingBrowserLogic.followUpDisclosureLabel(
+            descendantCount: 4,
+            hiddenMatchCount: 2,
+            isExpanded: true,
+            annotatesMatches: true
+        ) == "Collapse follow-ups")
+    }
+
+    @Test("a shelf opens itself only when a range is keeping an out-of-range root")
+    func shelfStartsExpandedOnlyForRetainedRoots() {
+        #expect(!MeetingBrowserLogic.shelfStartsExpanded(rootMatchesRange: true, annotatesMatches: false))
+        #expect(!MeetingBrowserLogic.shelfStartsExpanded(rootMatchesRange: false, annotatesMatches: false))
+        #expect(!MeetingBrowserLogic.shelfStartsExpanded(rootMatchesRange: true, annotatesMatches: true))
+        #expect(MeetingBrowserLogic.shelfStartsExpanded(rootMatchesRange: false, annotatesMatches: true))
+    }
+
+    @Test("a thread kept only for a matching follow-up opens itself")
+    func retainedThreadOpensItself() throws {
+        let entries = [
+            entry(1, daysAgo: 20),
+            entry(2, daysAgo: 15, followUpTo: 1),
+            entry(3, daysAgo: 1, followUpTo: 2)
+        ]
+
+        let shelf = try #require(shelves(entries, filter: .lastWeek).shelves.first)
+
+        #expect(!shelf.root.matchesFilter)
+        #expect(MeetingBrowserLogic.shelfStartsExpanded(
+            rootMatchesRange: shelf.root.matchesFilter,
+            annotatesMatches: true
+        ))
+        #expect(!MeetingBrowserLogic.shelfStartsExpanded(
+            rootMatchesRange: shelf.root.matchesFilter,
+            annotatesMatches: false
+        ))
+    }
+
+    @Test("a collapsed filtered thread reports the matches it is hiding")
+    func collapsedFilteredThreadReportsHiddenMatches() throws {
+        let entries = [
+            entry(1, daysAgo: 4),
+            entry(2, daysAgo: 3, followUpTo: 1),
+            entry(3, daysAgo: 1, followUpTo: 2),
+            entry(4, daysAgo: 6)
+        ]
+
+        let shelf = try #require(shelves(entries, filter: .lastWeek).shelves.first { $0.id == 1 })
+
+        // The root matched, so the shelf stays folded — and both follow-ups
+        // inside the range are behind the fold. Thread order is untouched: the
+        // disclosure reports the matches instead of reordering the thread.
+        #expect(shelf.root.matchesFilter)
+        #expect(shelf.nodes.map(\.id) == [1, 2, 3])
+        #expect(shelf.descendants.map(\.matchesFilter) == [true, true])
+        #expect(MeetingBrowserLogic.followUpDisclosureLabel(
+            descendantCount: shelf.descendants.count,
+            hiddenMatchCount: shelf.descendants.filter(\.matchesFilter).count,
+            isExpanded: false,
+            annotatesMatches: true
+        ) == "Expand follow-ups \u{00B7} 2 in range")
     }
 
     @Test("the shelf presentation provides the oldest date for the range menu")

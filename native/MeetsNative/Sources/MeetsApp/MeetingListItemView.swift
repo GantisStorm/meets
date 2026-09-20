@@ -126,9 +126,6 @@ struct MeetingListItemView: View {
     /// True when the card is too narrow for generous padding and two preview
     /// lines: the row tightens its inset and shows one.
     let compact: Bool
-    /// True in the list layout: the same meeting, rendered as a compact library
-    /// row rather than a spacious grid card.
-    let dense: Bool
     let canStartFollowUp: Bool
     let canDelete: Bool
     let onSelect: () -> Void
@@ -145,7 +142,7 @@ struct MeetingListItemView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: dense || compact ? MeetsTheme.spacing4 : 6) {
+        VStack(alignment: .leading, spacing: compact ? MeetsTheme.spacing4 : 6) {
             HStack(alignment: .top, spacing: MeetsTheme.spacing8) {
                 openButton
                 actionMenu
@@ -159,8 +156,8 @@ struct MeetingListItemView: View {
 
             previewLine
         }
-        .padding(.horizontal, dense || compact ? MeetsTheme.spacing12 : MeetsTheme.spacing16)
-        .padding(.vertical, dense ? 10 : (compact ? MeetsTheme.spacing12 : 14))
+        .padding(.horizontal, compact ? MeetsTheme.spacing12 : MeetsTheme.spacing16)
+        .padding(.vertical, compact ? MeetsTheme.spacing12 : 14)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(rowBackground)
         .contentShape(Rectangle())
@@ -169,14 +166,13 @@ struct MeetingListItemView: View {
     }
 
     /// A prominent title that keeps the row to itself, with the whole family's
-    /// actions folded into one menu beside it. The list layout steps it down to
-    /// a library-row size; the grid keeps the card's own weight.
+    /// actions folded into one menu beside it.
     private var openButton: some View {
         Button(action: onSelect) {
             Text(display.title)
-                .font(dense ? .system(size: 15, weight: .semibold) : MeetsTheme.title3())
+                .font(MeetsTheme.title3())
                 .foregroundStyle(MeetsTheme.textPrimary)
-                .lineLimit(dense ? 1 : 2)
+                .lineLimit(compact ? 1 : 2)
                 .multilineTextAlignment(.leading)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
@@ -277,9 +273,9 @@ struct MeetingListItemView: View {
     private var previewLine: some View {
         if let previewText = display.previewText {
             Text(previewText)
-                .font(dense ? .system(size: 11) : MeetsTheme.caption())
+                .font(MeetsTheme.caption())
                 .foregroundStyle(MeetsTheme.textSecondary)
-                .lineLimit(dense || compact ? 1 : 2)
+                .lineLimit(compact ? 1 : 2)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
@@ -305,7 +301,7 @@ struct MeetingListItemView: View {
             startTime: display.startTime,
             durationSeconds: display.durationSeconds
         ))
-        .font(dense ? .system(size: 11) : MeetsTheme.caption())
+        .font(MeetsTheme.caption())
         .foregroundStyle(MeetsTheme.textSecondary)
         .lineLimit(1)
         .help(MeetingBrowserLogic.formatStartTime(display.startTime))
@@ -339,14 +335,14 @@ struct MeetingListItemView: View {
         }
     }
 
-    /// Narrow rows show only the leaf folder so a middle-truncated path cannot
+    /// Narrow cards show only the leaf folder so a middle-truncated path cannot
     /// read as two folder names fused together; the full path stays in help
     /// and accessibility.
     @ViewBuilder
     private var folderChip: some View {
         if let name = currentFolderName {
-            let label = dense || compact ? MeetingFolderBreadcrumbs.leafName(of: name) : name
-            meetingChip(icon: "folder", label: label, truncationMode: dense || compact ? .tail : .middle)
+            let label = compact ? MeetingFolderBreadcrumbs.leafName(of: name) : name
+            meetingChip(icon: "folder", label: label, truncationMode: compact ? .tail : .middle)
                 .help(name)
                 .accessibilityLabel("Folder: \(name)")
         }
@@ -363,7 +359,7 @@ struct MeetingListItemView: View {
             Image(systemName: icon)
                 .font(.system(size: 9))
             Text(label)
-                .font(dense ? .system(size: 11) : MeetsTheme.caption())
+                .font(MeetsTheme.caption())
                 .lineLimit(1)
                 .truncationMode(truncationMode)
         }

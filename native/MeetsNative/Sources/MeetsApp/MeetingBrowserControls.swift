@@ -10,7 +10,6 @@ import SwiftUI
 struct MeetingBrowserHeader: View {
     @Binding var filter: MeetingBrowserFilter
     @Binding var sort: MeetingBrowserSort
-    @Binding var layout: MeetingBrowserLayout
     /// Ranges worth offering, derived from the oldest meeting in scope.
     let availableFilters: [MeetingBrowserFilter]
     let matchCount: Int
@@ -86,7 +85,6 @@ struct MeetingBrowserHeader: View {
         MeetingBrowserDisplayControls(
             filter: $filter,
             sort: $sort,
-            layout: $layout,
             availableFilters: availableFilters
         )
     }
@@ -140,7 +138,7 @@ struct MeetingBrowserHeader: View {
     }
 }
 
-/// Sort, date-range, and layout controls for the meetings browser.
+/// Sort and date-range controls for the meetings browser.
 ///
 /// Extracted from `MeetingsView` so the header and the narrow-width render
 /// harness exercise the same controls: each group falls back to a tighter
@@ -149,37 +147,26 @@ struct MeetingBrowserHeader: View {
 struct MeetingBrowserDisplayControls: View {
     @Binding var filter: MeetingBrowserFilter
     @Binding var sort: MeetingBrowserSort
-    @Binding var layout: MeetingBrowserLayout
     /// Ranges worth offering, derived from the oldest meeting in scope.
     let availableFilters: [MeetingBrowserFilter]
 
     var body: some View {
         // Full labels first. Then the sort label drops to its symbol, which
-        // costs nothing because the menu still reports the active order. Only
-        // when even that will not fit do the groups stack.
+        // costs nothing because the menu still reports the active order; the
+        // active range is always named, so it is the last thing to give up
+        // space.
         ViewThatFits(in: .horizontal) {
             HStack(spacing: MeetsTheme.spacing8) {
                 sortButton(showsLabel: true)
                 dateFilterButton
-                layoutControl
             }
             .fixedSize(horizontal: true, vertical: false)
 
             HStack(spacing: MeetsTheme.spacing8) {
                 sortButton(showsLabel: false)
                 dateFilterButton
-                layoutControl
             }
             .fixedSize(horizontal: true, vertical: false)
-
-            VStack(alignment: .trailing, spacing: MeetsTheme.spacing8) {
-                HStack(spacing: MeetsTheme.spacing8) {
-                    sortButton(showsLabel: false)
-                    dateFilterButton
-                }
-                .fixedSize(horizontal: true, vertical: false)
-                layoutControl
-            }
         }
     }
 
@@ -237,23 +224,6 @@ struct MeetingBrowserDisplayControls: View {
         .fixedSize()
         .help("Filter by date range, \(filter.label)")
         .accessibilityLabel("Filter by date range, \(filter.label)")
-    }
-
-    /// Grid/list switch. A native segmented picker keeps the choice on the
-    /// keyboard focus ring instead of hiding it behind a menu.
-    private var layoutControl: some View {
-        Picker("Meeting layout", selection: $layout) {
-            ForEach(MeetingBrowserLayout.allCases, id: \.self) { option in
-                Label(option.label, systemImage: option.symbolName)
-                    .labelStyle(.iconOnly)
-                    .tag(option)
-            }
-        }
-        .pickerStyle(.segmented)
-        .labelsHidden()
-        .fixedSize()
-        .help("Switch between the card grid and the list")
-        .accessibilityLabel("Meeting layout")
     }
 
     /// One compact toolbar control: same height, corner, and neutral fill for
