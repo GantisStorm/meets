@@ -4,10 +4,11 @@ import MeetsCore
 // DIRECTION — Meetings browser (seed 0e51c253, Operate, distilled)
 // THESIS: A list of meetings by day. Text and spacing only.
 // FIRST VIEWPORT: title, a line of folders, a plain toolbar, "Today",
-//   rows of time · title · duration. Nothing filled, nothing bordered.
+//   rows of time · title · duration, one family opened from its chevron.
 // MATERIAL: base canvas; hover fill is the only surface. Three text tones.
-// MOTION: none authored; native hover only.
-// REFUSE: cards, chips, pills, badges, counts, rules, previews, icons in rows.
+//   Nothing filled, nothing bordered.
+// MOTION: one moment — follow-ups unfolding under their parent, 180ms ease-out.
+// REFUSE: cards, chips, pills, badges, rules, previews, decorative icons in rows.
 
 enum MeetingBrowserFilter: Hashable {
     case all, last2Days, lastWeek, last2Weeks, lastMonth, last3Months
@@ -136,23 +137,27 @@ enum MeetingLedgerSectionKind: Hashable {
     }
 }
 
-/// A run of rows that share one date section: the pinned heading and
+/// A run of families that share one date section: the pinned heading and
 /// everything under it.
 ///
-/// Rows arrive already time-sorted, so a section is one consecutive run of
-/// them and the section kind is the group's whole identity. Sorting by each
-/// row's own start time is what keeps a kind from ever repeating.
+/// `ledgerGroups` orders the families by the meeting each one started from
+/// before it groups them, so a section is always exactly one run and the
+/// section kind is the group's whole identity.
 struct MeetingLedgerGroup: Identifiable {
     let kind: MeetingLedgerSectionKind
-    var rows: [MeetingBrowserNode]
+    var shelves: [MeetingBrowserShelf]
 
     var id: MeetingLedgerSectionKind { kind }
+
+    /// Meetings under this heading, an open family's follow-ups included: the
+    /// count describes what the heading covers, not just the roots it lists.
+    var meetingCount: Int { shelves.reduce(0) { $0 + $1.totalCount } }
 }
 
 enum MeetingBrowserLogic {
-    /// Deepest nesting level that still earns extra indentation. Descendants
-    /// below it keep their place in the shelf and instead name the parent they
-    /// hang from, so nothing is dropped from view.
+    /// Deepest nesting level at which a row can rely on its place alone.
+    /// Descendants below it name the parent they hang from in their tooltip, so
+    /// a thread deeper than the fold can count on stays readable.
     static let indentationCapDepth = 3
 
     static func availableFilters(
@@ -221,6 +226,32 @@ enum MeetingBrowserLogic {
         }
     }
 
+    /// Gutter label for a follow-up row. A follow-up's time only means
+    /// something beside its root, so a child on the same calendar day as that
+    /// root shows the time alone and anything else shows its date instead —
+    /// with the year once the child is not from the current one. Without this,
+    /// a yesterday follow-up under a "Today" root reads "9:30 AM" and looks
+    /// like this morning.
+    static func ledgerChildGutterLabel(
+        childDate: Date,
+        rootDate: Date,
+        now: Date,
+        calendar: Calendar = .current,
+        locale: Locale = .current
+    ) -> String {
+        let timeZone = calendar.timeZone
+        if calendar.isDate(childDate, inSameDayAs: rootDate) {
+            return dateFormatters.string(from: childDate, template: "jm", locale: locale, timeZone: timeZone)
+        }
+        let sameYear = calendar.isDate(childDate, equalTo: now, toGranularity: .year)
+        return dateFormatters.string(
+            from: childDate,
+            template: sameYear ? "MMMd" : "MMMyyyy",
+            locale: locale,
+            timeZone: timeZone
+        )
+    }
+
     /// Which section a meeting belongs to. Weeks follow the calendar's own
     /// first weekday, so "earlier this week" means what the user's calendar
     /// says it means. A future date — a scheduled meeting that has not
@@ -246,67 +277,82 @@ enum MeetingBrowserLogic {
         return monthKind(for: date, calendar: calendar)
     }
 
-    /// Every node in the shelves — roots and descendants alike — as one flat,
-    /// time-sorted list of rows.
+    /// Sections for a family list, in the order the user asked for.
     ///
-    /// The ledger is a list of meetings by day, so a follow-up is filed under
-    /// its own date rather than under the meeting it follows on from. The sort
-    /// follows the active sort, is stable — rows sharing a timestamp keep the
-    /// order the shelves gave them, which is thread order — and puts a row
-    /// whose timestamp does not parse last either way rather than landing it
-    /// among the dated ones.
+    /// The ledger's spine is each family's *root*: a family is filed under the
+    /// meeting it started from, never under how recent its follow-ups are. The
+    /// shelves arrive ordered by activity instead, so a root from an old month
+    /// whose follow-up is recent would otherwise surface among the recent days
+    /// and split that month's heading in two. Sorting on the root here is what
+    /// lets a section be one run of consecutive families, and therefore one
+    /// heading.
     ///
-    /// `startDate` is already parsed when the node is built, so the ordering
-    /// reads that value instead of parsing every timestamp a second time;
-    /// `.distantPast` is the sentinel `shelves` writes for an unparseable
-    /// timestamp.
-    static func flatRows(
-        from shelves: [MeetingBrowserShelf],
-        sort: MeetingBrowserSort
-    ) -> [MeetingBrowserNode] {
-        func sortableDate(_ node: MeetingBrowserNode) -> Date? {
-            node.startDate == .distantPast ? nil : node.startDate
-        }
-        return shelves
-            .flatMap(\.nodes)
-            .enumerated()
-            .sorted { left, right in
-                switch (sortableDate(left.element), sortableDate(right.element)) {
-                case let (leftDate?, rightDate?):
-                    guard leftDate != rightDate else { return left.offset < right.offset }
-                    return sort == .newestFirst ? leftDate > rightDate : leftDate < rightDate
-                case (nil, nil):
-                    return left.offset < right.offset
-                case (nil, _):
-                    return false
-                case (_, nil):
-                    return true
-                }
-            }
-            .map(\.element)
-    }
-
-    /// Date sections for an already time-sorted row list.
-    ///
-    /// Because the rows arrive in date order, a section is one consecutive run
-    /// of them and its kind never repeats. An unparseable timestamp still lands
-    /// in a section rather than disappearing: the sentinel date reads as the
-    /// oldest month there is.
+    /// The sort is stable and follows the active sort, so families that share a
+    /// root time keep the order they arrived in. A root whose timestamp does
+    /// not parse — `.distantPast` is the sentinel `shelves` writes — sorts last
+    /// either way rather than landing among the dated ones.
     static func ledgerGroups(
-        from rows: [MeetingBrowserNode],
+        from shelves: [MeetingBrowserShelf],
+        sort: MeetingBrowserSort,
         now: Date,
         calendar: Calendar
     ) -> [MeetingLedgerGroup] {
+        func sortableDate(_ shelf: MeetingBrowserShelf) -> Date? {
+            shelf.root.startDate == .distantPast ? nil : shelf.root.startDate
+        }
+        let ordered = shelves.enumerated().sorted { left, right in
+            switch (sortableDate(left.element), sortableDate(right.element)) {
+            case let (leftDate?, rightDate?):
+                guard leftDate != rightDate else { return left.offset < right.offset }
+                return sort == .newestFirst ? leftDate > rightDate : leftDate < rightDate
+            case (nil, nil):
+                return left.offset < right.offset
+            case (nil, _):
+                return false
+            case (_, nil):
+                return true
+            }
+        }
+
         var groups: [MeetingLedgerGroup] = []
-        for row in rows {
-            let kind = ledgerSectionKind(for: row.startDate, now: now, calendar: calendar)
+        for shelf in ordered.map(\.element) {
+            let kind = ledgerSectionKind(for: shelf.root.startDate, now: now, calendar: calendar)
             if let last = groups.indices.last, groups[last].kind == kind {
-                groups[last].rows.append(row)
+                groups[last].shelves.append(shelf)
                 continue
             }
-            groups.append(MeetingLedgerGroup(kind: kind, rows: [row]))
+            groups.append(MeetingLedgerGroup(kind: kind, shelves: [shelf]))
         }
         return groups
+    }
+
+    /// Label for a root's follow-up count: how many follow-ups hang under the
+    /// meeting, and — while the thread is folded, a date range is active and
+    /// some of them are inside it — how many the range is looking for. Folded,
+    /// the count is all the information there is. Unfolded, those follow-ups
+    /// are on screen under the root and the count alone is what remains.
+    /// "All time" passes `false`: there is no range, so there is nothing to
+    /// report.
+    static func followUpCountLabel(
+        descendantCount: Int,
+        hiddenMatchCount: Int,
+        annotatesMatches: Bool,
+        isExpanded: Bool
+    ) -> String {
+        let base = "\(descendantCount) follow-up\(descendantCount == 1 ? "" : "s")"
+        guard !isExpanded, annotatesMatches, hiddenMatchCount > 0 else { return base }
+        return "\(base) \u{00B7} \(hiddenMatchCount) in range"
+    }
+
+    /// Whether a thread opens expanded before the user touches its fold.
+    ///
+    /// Collapsed is the default, because the library reads as its roots. The
+    /// exception is a thread kept on screen only because a follow-up inside the
+    /// range needed its ancestors: there the match sits below the fold, hidden
+    /// behind a control the user has no reason to expect, so the thread opens
+    /// with it. The user can still fold it.
+    static func shelfStartsExpanded(rootMatchesRange: Bool, annotatesMatches: Bool) -> Bool {
+        annotatesMatches && !rootMatchesRange
     }
 
     /// Standalone month name for a month number, from the same bounded
@@ -755,6 +801,10 @@ struct MeetingsView: View {
     let controller: MeetsController
     @State private var selectedFilter: MeetingBrowserFilter = .all
     @State private var selectedSort: MeetingBrowserSort = .newestFirst
+    /// Threads whose fold the user has overridden. Kept as a toggle rather than
+    /// a set of expanded ids because a filtered thread can also open itself
+    /// (see `shelfStartsExpanded`), and either direction has to survive that.
+    @State private var toggledShelfIDs: Set<Int64> = []
 
     /// Complete browse index for the current scope, so shelves keep every
     /// follow-up member even when it sits outside the recently loaded window.
@@ -1431,25 +1481,34 @@ struct MeetingsView: View {
     // MARK: - Ledger
 
     /// The ledger: one column of date sections, each a pinned heading over the
-    /// meetings whose own start time falls inside it.
+    /// follow-up families that started inside it. A family's root opens its
+    /// follow-ups from the fold in its own row.
     @ViewBuilder
     private func ledger(
         presentation: MeetingBrowserShelfPresentation,
         now: Date,
         width: CGFloat
     ) -> some View {
+        let annotatesMatches = selectedFilter != .all
         MeetingLedgerView(
             groups: MeetingBrowserLogic.ledgerGroups(
-                from: MeetingBrowserLogic.flatRows(from: presentation.shelves, sort: selectedSort),
+                from: presentation.shelves,
+                sort: selectedSort,
                 now: now,
                 calendar: .current
             ),
             now: now,
+            expandedResolver: { shelf in
+                MeetingBrowserLogic.shelfStartsExpanded(
+                    rootMatchesRange: shelf.root.matchesFilter,
+                    annotatesMatches: annotatesMatches
+                ) != toggledShelfIDs.contains(shelf.id)
+            },
             folders: appState.folders,
             folderBreadcrumbs: folderBreadcrumbsByID,
             currentFolderID: appState.selectedFolderID,
             compact: Self.usesCompactLedger(for: width),
-            annotatesRange: selectedFilter != .all,
+            annotatesRange: annotatesMatches,
             actions: shelfActions
         )
     }
@@ -1461,6 +1520,13 @@ struct MeetingsView: View {
     private var shelfActions: MeetingShelfActions {
         MeetingShelfActions(
             open: { controller.showMeetingDocument(id: $0) },
+            toggleExpanded: { shelfID in
+                if toggledShelfIDs.contains(shelfID) {
+                    toggledShelfIDs.remove(shelfID)
+                } else {
+                    toggledShelfIDs.insert(shelfID)
+                }
+            },
             move: { meetingID, folderID in
                 controller.moveMeeting(id: meetingID, toFolder: folderID)
             },

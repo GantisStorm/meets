@@ -6,6 +6,9 @@ import MeetsCore
 /// stay free of the controller.
 struct MeetingShelfActions {
     let open: (Int64) -> Void
+    /// Opens or folds one family's follow-ups. The browser owns the fold state,
+    /// so a row only ever asks for the toggle.
+    let toggleExpanded: (Int64) -> Void
     let move: (Int64, Int64?) -> Void
     let createFolderAndMove: (String, Int64) -> Void
     let delete: (Int64) -> Void
@@ -13,6 +16,10 @@ struct MeetingShelfActions {
     let canDelete: (MeetingBrowserNode) -> Bool
     let canStartFollowUp: (MeetingBrowserNode) -> Bool
 }
+
+/// One speed for a family's unfold, so the rows it reveals and the chevron that
+/// revealed them move as one thing.
+private let ledgerUnfoldDuration: Double = 0.18
 
 /// Geometry shared by the ledger's rows.
 enum MeetingLedgerMetrics {
@@ -33,9 +40,23 @@ enum MeetingLedgerMetrics {
     /// The space a row always keeps between its title and the duration that
     /// trails it.
     static let minimumTitleGap: CGFloat = 8
+    /// The slot a root's fold control sits in, left of the time gutter. Every
+    /// row reserves its width — a row with nothing to fold leaves it empty — so
+    /// the gutter and every title stay aligned down the column. The slot takes
+    /// its height from the row's own text, not from the control drawn into it.
+    static let disclosureWidth: CGFloat = 20
+    /// The fold control's hit area, drawn inside that slot. Taller than the line
+    /// it marks, because a 20-point target is easier to hit than a 10-point
+    /// chevron, and drawn over the row rather than laid out in it, so a row with
+    /// follow-ups is exactly as tall as one without.
+    static let disclosureHitSize: CGFloat = 20
+    /// How far an open family's follow-ups sit in from their root, measured
+    /// past the time gutter: one step for all of them, whatever their depth, so
+    /// a long thread stays a list rather than a staircase.
+    static let followUpIndent: CGFloat = 20
 }
 
-/// One ledger section: a pinned date heading over the meetings that belong to
+/// One ledger section: a pinned date heading over the families that belong to
 /// it.
 ///
 /// The heading is the spine of the page — "Today", "Yesterday", "Last week",
@@ -62,26 +83,31 @@ struct MeetingLedgerSectionHeader: View {
     }
 }
 
-/// The browser's meetings as a list by day: pinned date sections over one flat,
-/// time-sorted column of rows.
+/// The browser's meetings as a ledger: one column of date sections, each
+/// holding the follow-up families that started inside it.
 ///
-/// One column and no cards — the archive is read top to bottom, and the only
-/// things that carry structure are the section headings and the fixed time
-/// gutter. A follow-up keeps its own place in the date order and is marked with
-/// an arrow rather than indented under the meeting it follows on from, so
-/// nothing is ever nested and no row ever grows past one line.
+/// One column and no cards — the archive is read top to bottom. A family is its
+/// root row plus, once that root's fold is open, every follow-up in thread
+/// order directly beneath it, indented one step past the time gutter. Folded,
+/// the family is the root alone, and its count says what is behind the fold.
 struct MeetingLedgerView: View {
     let groups: [MeetingLedgerGroup]
-    /// The page's single clock, so the section headings and the rows they hold
-    /// can never be computed from two different "now"s.
+    /// The page's single clock, so a row's gutter label and the section it sits
+    /// in can never be computed from two different "now"s. A follow-up from
+    /// last month under a "Today" root reads "17 · 9:00 AM" rather than a time
+    /// that would read as this morning's.
     let now: Date
+    /// Whether a family's follow-ups are on screen. Resolution stays with
+    /// `MeetingsView`, which owns the user's fold overrides.
+    let expandedResolver: (MeetingBrowserShelf) -> Bool
     let folders: [MeetingFolder]
     let folderBreadcrumbs: [Int64: String]
     let currentFolderID: Int64?
     /// True on a narrow ledger: the time column collapses and the date moves
     /// next to the title.
     let compact: Bool
-    /// True when a date range is active, so a row the range excluded says so.
+    /// True when a date range is active, so a folded family can report the
+    /// matches it is holding back.
     let annotatesRange: Bool
     let actions: MeetingShelfActions
 
@@ -89,10 +115,12 @@ struct MeetingLedgerView: View {
         LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
             ForEach(groups) { group in
                 Section {
-                    ForEach(group.rows) { node in
-                        MeetingLedgerRow(
-                            node: node,
-                            sectionKind: group.kind,
+                    ForEach(group.shelves) { shelf in
+                        MeetingLedgerFamily(
+                            shelf: shelf,
+                            kind: group.kind,
+                            isExpanded: expandedResolver(shelf),
+                            now: now,
                             folders: folders,
                             folderBreadcrumbs: folderBreadcrumbs,
                             currentFolderID: currentFolderID,
@@ -113,18 +141,122 @@ struct MeetingLedgerView: View {
     }
 }
 
-/// One meeting as a row: time in the gutter, title and state in the body, the
-/// duration and the actions control on the trailing edge.
+/// One follow-up family: the root meeting, then — while its fold is open —
+/// every follow-up in thread order, indented one step beneath it.
+struct MeetingLedgerFamily: View {
+    let shelf: MeetingBrowserShelf
+    /// The section the family is filed under — its root's, since `ledgerGroups`
+    /// orders families by the meeting each one started from. The gutter label a
+    /// root reads is the one this heading does not already carry.
+    let kind: MeetingLedgerSectionKind
+    let isExpanded: Bool
+    let now: Date
+    let folders: [MeetingFolder]
+    let folderBreadcrumbs: [Int64: String]
+    let currentFolderID: Int64?
+    let compact: Bool
+    let annotatesRange: Bool
+    let actions: MeetingShelfActions
+
+    /// Every descendant is counted, not a visible prefix: folded, the count
+    /// hides all of them, so all of them are what the range is looking for
+    /// behind it.
+    private var hiddenMatchCount: Int {
+        shelf.descendants.filter(\.matchesFilter).count
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            MeetingLedgerRow(
+                node: shelf.root,
+                kind: .root,
+                gutterLabel: MeetingBrowserLogic.ledgerGutterLabel(for: shelf.root.startDate, in: kind),
+                followUpCount: shelf.descendants.isEmpty
+                    ? nil
+                    : MeetingBrowserLogic.followUpCountLabel(
+                        descendantCount: shelf.descendants.count,
+                        hiddenMatchCount: hiddenMatchCount,
+                        annotatesMatches: annotatesRange,
+                        isExpanded: isExpanded
+                    ),
+                isExpanded: isExpanded,
+                onToggle: {
+                    withAnimation(.easeOut(duration: ledgerUnfoldDuration)) {
+                        actions.toggleExpanded(shelf.id)
+                    }
+                },
+                folders: folders,
+                folderBreadcrumbs: folderBreadcrumbs,
+                currentFolderID: currentFolderID,
+                compact: compact,
+                annotatesRange: annotatesRange,
+                actions: actions
+            )
+
+            if isExpanded, !shelf.descendants.isEmpty {
+                followUpList
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// Every descendant, in thread order, as one flat list.
+    private var followUpList: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(shelf.descendants) { node in
+                MeetingLedgerRow(
+                    node: node,
+                    kind: .child,
+                    // A follow-up's time only means something beside its root, so
+                    // it is read against that root rather than the section: the
+                    // time alone on the root's own day, its date otherwise.
+                    gutterLabel: MeetingBrowserLogic.ledgerChildGutterLabel(
+                        childDate: node.startDate,
+                        rootDate: shelf.root.startDate,
+                        now: now
+                    ),
+                    followUpCount: nil,
+                    isExpanded: false,
+                    onToggle: {},
+                    folders: folders,
+                    folderBreadcrumbs: folderBreadcrumbs,
+                    currentFolderID: currentFolderID,
+                    compact: compact,
+                    annotatesRange: annotatesRange,
+                    actions: actions
+                )
+            }
+        }
+    }
+}
+
+/// Which place in a family a row occupies. Roots carry the fold and the count
+/// of what is under them; follow-ups are the same row, indented one step.
+enum MeetingLedgerRowKind: Hashable {
+    case root
+    case child
+}
+
+/// One meeting as a row: the fold slot, time in the gutter, title and state in
+/// the body, the actions control on the trailing edge.
 ///
 /// Nothing is drawn around it — no border, no fill at rest — so the row's own
 /// text is the only thing separating it from its neighbours. Hover is the row's
 /// single transient state.
 struct MeetingLedgerRow: View {
     let node: MeetingBrowserNode
-    /// The date section this row is filed under. `ledgerGroups` derives it from
-    /// the row's own start time, so the gutter never has to guess which section
-    /// it is rendering inside.
-    let sectionKind: MeetingLedgerSectionKind
+    let kind: MeetingLedgerRowKind
+    /// The row's time-gutter text, which the family derives: a root reads the
+    /// section its heading names, and a follow-up reads its own date against
+    /// the root above it.
+    let gutterLabel: String
+    /// How many follow-ups hang under this meeting, already counted into a
+    /// label. Roots with a family carry one; every other row passes `nil`.
+    let followUpCount: String?
+    /// Whether those follow-ups are on screen under this row.
+    let isExpanded: Bool
+    let onToggle: () -> Void
     let folders: [MeetingFolder]
     let folderBreadcrumbs: [Int64: String]
     let currentFolderID: Int64?
@@ -134,10 +266,7 @@ struct MeetingLedgerRow: View {
     let annotatesRange: Bool
     let actions: MeetingShelfActions
     @State private var isHovering = false
-
-    private var gutterLabel: String {
-        MeetingBrowserLogic.ledgerGutterLabel(for: node.startDate, in: sectionKind)
-    }
+    @State private var isHoveringDisclosure = false
 
     /// The meeting this one follows on from, when the shelves could name it: the
     /// browse entry carries it, and the node carries the copy the shelves
@@ -171,17 +300,16 @@ struct MeetingLedgerRow: View {
     }
 
     var body: some View {
-        if let helpText {
-            row.help(helpText)
-        } else {
-            row
-        }
+        row
     }
 
     private var row: some View {
-        HStack(alignment: .firstTextBaseline, spacing: MeetingLedgerMetrics.gutterSpacing) {
-            openButton
-            actionMenu
+        HStack(spacing: 0) {
+            disclosure
+            HStack(alignment: .firstTextBaseline, spacing: MeetingLedgerMetrics.gutterSpacing) {
+                openButton
+                actionMenu
+            }
         }
         .padding(.horizontal, MeetingLedgerMetrics.rowHorizontalPadding)
         .padding(.vertical, MeetingLedgerMetrics.rowVerticalPadding)
@@ -192,11 +320,42 @@ struct MeetingLedgerRow: View {
         .opacity(node.matchesFilter ? 1 : 0.55)
     }
 
+    /// The fold control, left of the time gutter and outside the row's open
+    /// button, so unfolding a family never opens the meeting. A row with no
+    /// follow-ups leaves the slot empty rather than absent, which is what keeps
+    /// every gutter and title on the same vertical line.
+    private var disclosure: some View {
+        Color.clear
+            .frame(width: MeetingLedgerMetrics.disclosureWidth)
+            .overlay {
+                if followUpCount != nil {
+                    Button(action: onToggle) {
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(isHoveringDisclosure ? MeetsTheme.textPrimary : MeetsTheme.textTertiary)
+                            .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                            .animation(.easeOut(duration: ledgerUnfoldDuration), value: isExpanded)
+                            .frame(
+                                width: MeetingLedgerMetrics.disclosureHitSize,
+                                height: MeetingLedgerMetrics.disclosureHitSize
+                            )
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .onHover { isHoveringDisclosure = $0 }
+                    .help(isExpanded ? "Hide follow-ups" : "Show follow-ups")
+                    .accessibilityLabel("Follow-ups")
+                    .accessibilityValue(isExpanded ? "Expanded" : "Collapsed")
+                }
+            }
+    }
+
     /// The row is one plain button, so the whole line opens the meeting and
     /// stays reachable from the keyboard. The actions menu is its sibling,
     /// never its child, so both keep their own clicks.
+    @ViewBuilder
     private var openButton: some View {
-        Button {
+        let button = Button {
             actions.open(node.id)
         } label: {
             openButtonLabel
@@ -204,6 +363,14 @@ struct MeetingLedgerRow: View {
         .buttonStyle(.plain)
         .accessibilityLabel(accessibilityLabel)
         .accessibilityHint("Opens the meeting")
+
+        // The tooltip sits on the button rather than on the whole row, so it
+        // never covers the fold control's own.
+        if let helpText {
+            button.help(helpText)
+        } else {
+            button
+        }
     }
 
     /// The row's whole content, on one line.
@@ -232,16 +399,25 @@ struct MeetingLedgerRow: View {
     private func labelLine(showsDate: Bool, showsDuration: Bool) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: MeetingLedgerMetrics.gutterSpacing) {
             gutter
-            followUpArrow
-            title
-            statusWord
-            if showsDate {
-                compactDate
+
+            // A follow-up indents past the gutter, never the gutter itself:
+            // the time column is what the whole ledger is read down, so it has
+            // to hold one position for roots and children alike.
+            HStack(alignment: .firstTextBaseline, spacing: MeetingLedgerMetrics.gutterSpacing) {
+                followUpArrow
+                title
+                countLabel
+                statusWord
+                if showsDate {
+                    compactDate
+                }
+                Spacer(minLength: MeetingLedgerMetrics.minimumTitleGap)
+                if showsDuration {
+                    duration
+                }
             }
-            Spacer(minLength: MeetingLedgerMetrics.minimumTitleGap)
-            if showsDuration {
-                duration
-            }
+            .padding(.leading, kind == .child ? MeetingLedgerMetrics.followUpIndent : 0)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
@@ -259,8 +435,8 @@ struct MeetingLedgerRow: View {
         }
     }
 
-    /// A follow-up is marked, not indented: the row keeps its own place in the
-    /// date order, and the arrow says the meeting belongs to a thread.
+    /// A follow-up is marked, not weighed: the row names the meeting it hangs
+    /// from in its tooltip, and the arrow says there is one.
     @ViewBuilder
     private var followUpArrow: some View {
         if node.entry.followUpToID != nil {
@@ -280,6 +456,21 @@ struct MeetingLedgerRow: View {
             .lineLimit(compact ? 2 : 1)
             .truncationMode(.tail)
             .multilineTextAlignment(.leading)
+    }
+
+    /// What the fold is holding: the follow-up count, and — while a range is
+    /// active and the fold is closed over some of its matches — how many the
+    /// range is looking for. A count, not a badge: same size as the duration,
+    /// in the quietest tone, and it wraps rather than truncating when a narrow
+    /// column leaves it no room.
+    @ViewBuilder
+    private var countLabel: some View {
+        if let followUpCount {
+            Text(followUpCount)
+                .font(MeetsTheme.caption())
+                .foregroundStyle(MeetsTheme.textTertiary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 
     /// Status as a word in the status colour, not a badge: the row keeps one
@@ -336,10 +527,13 @@ struct MeetingLedgerRow: View {
 
     private var accessibilityLabel: String {
         var parts = [
-            node.entry.title,
-            gutterLabel,
-            MeetingListItemFormat.duration(node.entry.durationSeconds)
+            node.entry.title
         ]
+        if let followUpCount {
+            parts.append(followUpCount)
+        }
+        parts.append(gutterLabel)
+        parts.append(MeetingListItemFormat.duration(node.entry.durationSeconds))
         if node.entry.status != .completed {
             parts.append("status \(node.entry.status.displayLabel)")
         }
