@@ -3106,6 +3106,12 @@ public final class MeetsController: NSObject {
                     throw MeetingRetranscriptionError.failedToSave(underlying: error)
                 }
 
+                // No diarization runs on this path, so every word is unattributed.
+                try? self.dictationStore.replaceTranscriptWords(
+                    meetingID: meeting.id,
+                    words: TranscriptWordTimingBuilder.tagged(transcription.words) { _ in "" }
+                )
+
                 self.syncAppState()
                 self.historyWindowController?.reload()
                 completion(.success(()))
@@ -5876,6 +5882,7 @@ public final class MeetsController: NSObject {
                 visualContext: result.visualContext
             )
         }
+        try? dictationStore.replaceTranscriptWords(meetingID: meetingID, words: result.transcriptWords)
         return CompletedMeetingPersistenceResult(meetingID: meetingID, recordingSaveError: recordingSaveError)
     }
 

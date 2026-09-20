@@ -5,26 +5,34 @@ import Foundation
 import MeetsCore
 import os
 
+/// One chunk's transcription: its segments plus the word timings the backend
+/// produced for the same audio. Words survive a streaming-text override because
+/// they are timed against the audio, not against the segments.
+struct MeetingChunkTranscription: Sendable {
+    var segments: [SpeechSegment] = []
+    var words: [SpeechWord] = []
+}
+
 final class MeetingChunkCollector {
     private struct PendingTask {
         let id: UUID
-        let task: Task<[SpeechSegment], Never>
+        let task: Task<MeetingChunkTranscription, Never>
     }
 
     private struct State {
         // Only in-flight tasks live here. Completed tasks are retired into
-        // completedSegments so Task objects and their captured state don't
+        // completedChunks so Task objects and their captured state don't
         // accumulate for the full meeting duration.
         var pendingTasks: [PendingTask] = []
-        var completedSegments: [SpeechSegment] = []
+        var completedChunks: [MeetingChunkTranscription] = []
         var isClosed = false
     }
 
     private let lock = OSAllocatedUnfairLock(initialState: State())
 
-    /// Register a transcription task. Returns the retire ID to pass to retire(id:segments:)
+    /// Register a transcription task. Returns the retire ID to pass to retire(id:transcription:)
     /// once the task completes.
-    func add(_ task: Task<[SpeechSegment], Never>, id: UUID = UUID()) -> (registered: Bool, retireID: UUID) {
+    func add(_ task: Task<MeetingChunkTranscription, Never>, id: UUID = UUID()) -> (registered: Bool, retireID: UUID) {
         let registered = lock.withLock { state in
             guard !state.isClosed else { return false }
             state.pendingTasks.append(PendingTask(id: id, task: task))
@@ -35,36 +43,39 @@ final class MeetingChunkCollector {
 
     /// Move a completed task's result into the collector and drop the Task reference.
     /// Must be called from the watcher Task after awaiting the transcription task's value.
-    func retire(id: UUID, segments: [SpeechSegment]) -> Bool {
+    func retire(id: UUID, transcription: MeetingChunkTranscription) -> Bool {
         lock.withLock { state in
             guard !state.isClosed else { return false }
-            state.completedSegments.append(contentsOf: segments)
+            state.completedChunks.append(transcription)
             state.pendingTasks.removeAll { $0.id == id }
             return true
         }
     }
 
-    func closeAndDrainSortedSegments() async -> [SpeechSegment] {
+    func closeAndDrain() async -> MeetingChunkTranscription {
         let (tasksToAwait, alreadyCompleted) = lock.withLock { state in
             state.isClosed = true
             let tasks = state.pendingTasks.map { $0.task }
-            let completed = state.completedSegments
+            let completed = state.completedChunks
             state.pendingTasks.removeAll()
-            state.completedSegments.removeAll()
+            state.completedChunks.removeAll()
             return (tasks, completed)
         }
 
-        var segments = alreadyCompleted
+        var chunks = alreadyCompleted
         for task in tasksToAwait {
-            segments.append(contentsOf: await task.value)
+            chunks.append(await task.value)
         }
 
-        return segments.sorted { lhs, rhs in
-            if lhs.start == rhs.start {
-                return lhs.text < rhs.text
-            }
-            return lhs.start < rhs.start
-        }
+        return MeetingChunkTranscription(
+            segments: chunks.flatMap(\.segments).sorted { lhs, rhs in
+                if lhs.start == rhs.start {
+                    return lhs.text < rhs.text
+                }
+                return lhs.start < rhs.start
+            },
+            words: chunks.flatMap(\.words).sorted { $0.start < $1.start }
+        )
     }
 
     func waitUntilRetired() async {
@@ -83,7 +94,7 @@ final class MeetingChunkCollector {
             state.isClosed = true
             let tasks = state.pendingTasks.map { $0.task }
             state.pendingTasks.removeAll()
-            state.completedSegments.removeAll()
+            state.completedChunks.removeAll()
             return tasks
         }
         tasksToCancel.forEach { $0.cancel() }
@@ -107,6 +118,10 @@ struct MeetingSessionResult {
     let systemRecordingURL: URL?
     let templateSnapshot: MeetingTemplateSnapshot
     var visualContext: String? = nil
+    /// Per-word timings against the retained recording, so playback can
+    /// highlight the transcript word by word. Empty when the backend reported
+    /// no word timings.
+    var transcriptWords: [TranscriptWordTiming] = []
 }
 
 extension MeetingSessionResult {
@@ -136,7 +151,8 @@ extension MeetingSessionResult {
             retainedRecordingError: retainedRecordingError,
             systemRecordingURL: systemRecordingURL,
             templateSnapshot: templateSnapshot,
-            visualContext: newVisualContext ?? visualContext
+            visualContext: newVisualContext ?? visualContext,
+            transcriptWords: transcriptWords
         )
     }
 }
@@ -556,11 +572,13 @@ final class MeetingSession {
     static func resolveChunkTranscript(
         timing: MeetingChunkTimingSnapshot,
         finalizedText: () async -> String?,
-        recordedAudio: () async -> [SpeechSegment]
-    ) async -> [SpeechSegment] {
-        guard !Task.isCancelled else { return [] }
-        if let text = await finalizedText() { return segmentsFromFinalizedText(text, timing: timing) }
-        guard !Task.isCancelled else { return [] }
+        recordedAudio: () async -> MeetingChunkTranscription
+    ) async -> MeetingChunkTranscription {
+        guard !Task.isCancelled else { return MeetingChunkTranscription() }
+        if let text = await finalizedText() {
+            return MeetingChunkTranscription(segments: segmentsFromFinalizedText(text, timing: timing))
+        }
+        guard !Task.isCancelled else { return MeetingChunkTranscription() }
         return await recordedAudio()
     }
 
@@ -685,6 +703,8 @@ final class MeetingSession {
         let endTime = Date()
         var micSegments: [SpeechSegment] = []
         var systemSegments: [SpeechSegment] = []
+        var micWords: [SpeechWord] = []
+        var systemWords: [SpeechWord] = []
         let usesStreamingFinalTranscript = config.enableLiveStreamingPartials
             && config.resolvedMeetingLiveCaptionBackend.producesFinalTranscript
 
@@ -762,12 +782,13 @@ final class MeetingSession {
 
         // Recorded audio fills a tail the selected streaming backend could not finalize.
         if !micTailFinalized {
-            let finalMicSegments = await transcribeMicChunk(
+            let finalMicChunk = await transcribeMicChunk(
                 rawURL: lastRawMicURL,
                 chunkTiming: lastChunkTiming,
                 isFinalChunk: true
             )
-            micSegments.append(contentsOf: finalMicSegments)
+            micSegments.append(contentsOf: finalMicChunk.segments)
+            micWords.append(contentsOf: finalMicChunk.words)
         } else if let lastRawMicURL {
             try? FileManager.default.removeItem(at: lastRawMicURL)
         }
@@ -798,6 +819,7 @@ final class MeetingSession {
                         systemChunkHealthTracker.noteSuccessfulChunk()
                     }
                     systemSegments.append(contentsOf: normalizedSegments)
+                    systemWords.append(contentsOf: TranscriptWordTimingBuilder.offset(result.words, by: chunkOffset))
                 } catch {
                     systemChunkHealthTracker.noteFailedChunk()
                     fputs("[meeting] final system chunk transcription failed: \(error)\n", stderr)
@@ -814,7 +836,9 @@ final class MeetingSession {
             }
         }
 
-        micSegments.append(contentsOf: await micChunkCollector.closeAndDrainSortedSegments())
+        let micChunkDrain = await micChunkCollector.closeAndDrain()
+        micSegments.append(contentsOf: micChunkDrain.segments)
+        micWords.append(contentsOf: micChunkDrain.words)
         micSegments.sort { lhs, rhs in
             if lhs.start == rhs.start {
                 return lhs.text < rhs.text
@@ -822,7 +846,9 @@ final class MeetingSession {
             return lhs.start < rhs.start
         }
 
-        systemSegments.append(contentsOf: await systemChunkCollector.closeAndDrainSortedSegments())
+        let systemChunkDrain = await systemChunkCollector.closeAndDrain()
+        systemSegments.append(contentsOf: systemChunkDrain.segments)
+        systemWords.append(contentsOf: systemChunkDrain.words)
         systemSegments.sort { lhs, rhs in
             if lhs.start == rhs.start {
                 return lhs.text < rhs.text
@@ -873,6 +899,20 @@ final class MeetingSession {
             diarizationSegments: diarizationSegments
         )
         let protectedTranscriptInputs = reconciledTranscriptInputs
+
+        // Words are attributed with the same speaker labels the transcript
+        // lines use: mic audio is always "You", system audio takes its diarized
+        // label (or "Others" without diarization).
+        let transcriptWords = TranscriptWordTimingBuilder.tagged(
+            micWords.map { (word: $0, speaker: "You") }
+                + systemWords.map { word in
+                    (word: word, speaker: TranscriptFormatter.speakerLabel(
+                        at: (word.start + word.end) / 2,
+                        diarizationSegments: protectedTranscriptInputs.diarizationSegments
+                    ))
+                }
+        )
+        fputs("[meeting] \(transcriptWords.count) word timings captured\n", stderr)
 
         let rawTranscript = TranscriptFormatter.merge(
             micSegments: protectedTranscriptInputs.micSegments,
@@ -967,7 +1007,8 @@ final class MeetingSession {
             retainedRecordingError: retainedRecordingWriterError,
             systemRecordingURL: systemAudioURL,
             templateSnapshot: templateSnapshot,
-            visualContext: visualContext.isEmpty ? nil : visualContext
+            visualContext: visualContext.isEmpty ? nil : visualContext,
+            transcriptWords: transcriptWords
         )
     }
 
@@ -1026,11 +1067,11 @@ final class MeetingSession {
         let segmentID = UUID()
         let partialSession = micPartialSession()
         partialSession?.markSegmentBoundary(id: segmentID)
-        let task = Task { [weak self] () -> [SpeechSegment] in
+        let task = Task { [weak self] () -> MeetingChunkTranscription in
             defer {
                 if let rawChunkURL { try? FileManager.default.removeItem(at: rawChunkURL) }
             }
-            guard let self else { return [] }
+            guard let self else { return MeetingChunkTranscription() }
             return await Self.resolveChunkTranscript(timing: chunkTiming, finalizedText: {
                 await self.appleStreamingText(session: partialSession, id: segmentID)
             }, recordedAudio: {
@@ -1042,16 +1083,17 @@ final class MeetingSession {
             // Bind this frozen prefix to the collector ID because chunk tasks
             // may finish out of submission order.
             Task { [weak self] in
-                let segments = await task.value
+                let chunk = await task.value
                 guard let self else { return }
                 let resolvedSegments = await self.segmentsUsingStreamingTranscript(
-                    segments,
+                    chunk.segments,
                     partialSession: self.micPartialSession(),
                     segmentID: retireID,
                     start: chunkOffset,
                     end: chunkOffset + max(chunkTiming.durationSeconds, 0.1)
                 )
-                guard self.micChunkCollector.retire(id: retireID, segments: resolvedSegments) else { return }
+                let transcription = MeetingChunkTranscription(segments: resolvedSegments, words: chunk.words)
+                guard self.micChunkCollector.retire(id: retireID, transcription: transcription) else { return }
                 self.commitMicPartialSegment(id: retireID)
                 guard !resolvedSegments.isEmpty else { return }
                 self.onChunkTranscribed?(resolvedSegments, "You")
@@ -1081,11 +1123,11 @@ final class MeetingSession {
         let segmentID = UUID()
         let partialSession = systemPartialSession()
         partialSession?.markSegmentBoundary(id: segmentID)
-        let task = Task { [weak self] () -> [SpeechSegment] in
+        let task = Task { [weak self] () -> MeetingChunkTranscription in
             defer {
                 try? FileManager.default.removeItem(at: chunkURL)
             }
-            guard let self else { return [] }
+            guard let self else { return MeetingChunkTranscription() }
             return await Self.resolveChunkTranscript(timing: chunkTiming, finalizedText: {
                 await self.appleStreamingText(session: partialSession, id: segmentID)
             }, recordedAudio: {
@@ -1113,29 +1155,33 @@ final class MeetingSession {
                         } else {
                             self.systemChunkHealthTracker.noteSuccessfulChunk()
                         }
-                        return normalizedSegments
+                        return MeetingChunkTranscription(
+                            segments: normalizedSegments,
+                            words: TranscriptWordTimingBuilder.offset(result.words, by: chunkOffset)
+                        )
                     }
                     self.systemChunkHealthTracker.noteEmptyChunk()
                 } catch {
                     self.systemChunkHealthTracker.noteFailedChunk()
                     fputs("[meeting] system chunk transcription failed: \(error)\n", stderr)
                 }
-                return []
+                return MeetingChunkTranscription()
             })
         }
         let (registered, retireID) = systemChunkCollector.add(task, id: segmentID)
         if registered {
             Task { [weak self] in
-                let segments = await task.value
+                let chunk = await task.value
                 guard let self else { return }
                 let resolvedSegments = await self.segmentsUsingStreamingTranscript(
-                    segments,
+                    chunk.segments,
                     partialSession: self.systemPartialSession(),
                     segmentID: retireID,
                     start: chunkOffset,
                     end: chunkOffset + max(chunkDuration, 0.1)
                 )
-                guard self.systemChunkCollector.retire(id: retireID, segments: resolvedSegments) else { return }
+                let transcription = MeetingChunkTranscription(segments: resolvedSegments, words: chunk.words)
+                guard self.systemChunkCollector.retire(id: retireID, transcription: transcription) else { return }
                 self.commitSystemPartialSegment(id: retireID)
                 guard !resolvedSegments.isEmpty else { return }
                 self.onChunkTranscribed?(resolvedSegments, "Others")
@@ -1276,12 +1322,12 @@ final class MeetingSession {
         rawURL: URL?,
         chunkTiming: MeetingChunkTimingSnapshot?,
         isFinalChunk: Bool
-    ) async -> [SpeechSegment] {
+    ) async -> MeetingChunkTranscription {
         defer {
             cleanupTemporaryChunkURLs(rawURL)
         }
 
-        guard let chunkTiming, let rawURL else { return [] }
+        guard let chunkTiming, let rawURL else { return MeetingChunkTranscription() }
 
         let chunkOffset = chunkTiming.startTimeSeconds
         let chunkDuration = chunkTiming.durationSeconds
@@ -1292,7 +1338,7 @@ final class MeetingSession {
             chunkOffset: chunkOffset,
             chunkDuration: chunkDuration,
             logPrefix: logPrefix
-        ) ?? []
+        ) ?? MeetingChunkTranscription()
     }
 
     private func transcribeMicChunk(
@@ -1300,7 +1346,7 @@ final class MeetingSession {
         chunkOffset: TimeInterval,
         chunkDuration: TimeInterval,
         logPrefix: String
-    ) async -> [SpeechSegment]? {
+    ) async -> MeetingChunkTranscription? {
         fputs("\(logPrefix) (offset=\(String(format: "%.0f", chunkOffset))s, source=raw)\n", stderr)
         do {
             let result = try await transcriptionCoordinator.transcribeMeetingChunk(
@@ -1324,10 +1370,13 @@ final class MeetingSession {
                 } else {
                     micChunkHealthTracker.noteSuccessfulChunk()
                 }
-                return normalizedSegments
+                return MeetingChunkTranscription(
+                    segments: normalizedSegments,
+                    words: TranscriptWordTimingBuilder.offset(result.words, by: chunkOffset)
+                )
             }
             micChunkHealthTracker.noteEmptyChunk()
-            return []
+            return MeetingChunkTranscription()
         } catch {
             micChunkHealthTracker.noteFailedChunk()
             fputs("[meeting] mic chunk transcription failed (raw): \(error)\n", stderr)

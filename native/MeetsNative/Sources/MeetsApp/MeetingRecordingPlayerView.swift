@@ -313,23 +313,23 @@ private extension Data {
     }
 }
 
+/// Playback bar for a saved recording.
+///
+/// The audio clock lives in the injected model so the transcript view can follow
+/// it; this view owns the waveform data and the chrome around it.
 struct MeetingRecordingPlayerView: View {
+    @ObservedObject var model: MeetingPlaybackModel
     let recordingPath: String
 
     @State private var waveform: RecordingWaveformData?
-    @State private var player: AVAudioPlayer?
-    @State private var isPlaying = false
-    @State private var currentTime: TimeInterval = 0
-    @State private var loadFailed = false
-
-    private let timer = Timer.publish(every: 0.1, on: .main, in: .common).autoconnect()
+    @State private var waveformLoadFailed = false
 
     var body: some View {
         HStack(spacing: MeetsTheme.spacing12) {
             Button {
-                togglePlayback()
+                model.togglePlayback()
             } label: {
-                Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+                Image(systemName: model.isPlaying ? "pause.fill" : "play.fill")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(MeetsTheme.textPrimary)
                     .frame(width: 34, height: 34)
@@ -341,17 +341,17 @@ struct MeetingRecordingPlayerView: View {
                     )
             }
             .buttonStyle(.plain)
-            .disabled(player == nil)
-            .help(isPlaying ? "Pause recording" : "Play recording")
+            .disabled(!model.isLoaded)
+            .help(model.isPlaying ? "Pause recording" : "Play recording")
 
             Group {
                 if let waveform {
                     RecordingWaveformView(
                         peaks: waveform.peaks,
                         progress: progress,
-                        onSeek: seek(to:)
+                        onSeek: seek(toProgress:)
                     )
-                } else if loadFailed {
+                } else if isUnavailable {
                     Text("Recording unavailable")
                         .font(MeetsTheme.captionMedium())
                         .foregroundStyle(MeetsTheme.textTertiary)
@@ -369,7 +369,7 @@ struct MeetingRecordingPlayerView: View {
             }
             .frame(height: 44)
 
-            Text("\(formatTime(currentTime)) / \(formatTime(duration))")
+            Text("\(formatTime(model.currentTime)) / \(formatTime(duration))")
                 .font(.system(size: 12, weight: .medium, design: .monospaced))
                 .foregroundStyle(MeetsTheme.textSecondary)
                 .frame(minWidth: 88, alignment: .trailing)
@@ -385,76 +385,49 @@ struct MeetingRecordingPlayerView: View {
         .task(id: recordingPath) {
             await loadRecording()
         }
-        .onReceive(timer) { _ in
-            guard let player else { return }
-            currentTime = player.currentTime
-            if !player.isPlaying, isPlaying {
-                isPlaying = false
-                if player.currentTime >= max(player.duration - 0.1, 0) {
-                    currentTime = 0
-                    player.currentTime = 0
-                }
-            }
-        }
         .onDisappear {
-            player?.stop()
-            player = nil
-            isPlaying = false
+            model.stop()
         }
     }
 
     private var duration: TimeInterval {
-        waveform?.duration ?? player?.duration ?? 0
+        waveform?.duration ?? model.duration
     }
 
     private var progress: CGFloat {
         guard duration > 0 else { return 0 }
-        return min(max(currentTime / duration, 0), 1)
+        return min(max(model.currentTime / duration, 0), 1)
+    }
+
+    /// The waveform needs the same file the player does, so either failure
+    /// leaves nothing to seek.
+    private var isUnavailable: Bool {
+        model.loadFailed || waveformLoadFailed
     }
 
     @MainActor
     private func loadRecording() async {
-        player?.stop()
-        player = nil
         waveform = nil
-        loadFailed = false
-        currentTime = 0
-        isPlaying = false
+        waveformLoadFailed = false
 
         let url = URL(fileURLWithPath: recordingPath)
+        if !model.isLoaded {
+            await model.load(url: url)
+        }
+        guard model.isLoaded else { return }
+
         do {
-            let loadedWaveform = try await Task.detached(priority: .utility) {
+            waveform = try await Task.detached(priority: .utility) {
                 try await RecordingWaveformCache.shared.waveform(for: url)
             }.value
-            let loadedPlayer = try AVAudioPlayer(contentsOf: url)
-            loadedPlayer.prepareToPlay()
-            waveform = loadedWaveform
-            player = loadedPlayer
         } catch {
-            loadFailed = true
+            waveformLoadFailed = true
         }
     }
 
-    private func togglePlayback() {
-        guard let player else { return }
-        if player.isPlaying {
-            player.pause()
-            isPlaying = false
-        } else {
-            if player.currentTime >= max(player.duration - 0.1, 0) {
-                player.currentTime = 0
-            }
-            player.play()
-            isPlaying = true
-        }
-        currentTime = player.currentTime
-    }
-
-    private func seek(to progress: CGFloat) {
-        guard let player else { return }
+    private func seek(toProgress progress: CGFloat) {
         let clamped = min(max(progress, 0), 1)
-        player.currentTime = player.duration * Double(clamped)
-        currentTime = player.currentTime
+        model.seek(to: duration * Double(clamped))
     }
 
     private func formatTime(_ seconds: TimeInterval) -> String {

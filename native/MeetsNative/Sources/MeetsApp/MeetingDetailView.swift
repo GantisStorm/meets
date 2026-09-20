@@ -115,6 +115,12 @@ struct MeetingDetailView: View {
     @State private var showDeleteConfirmation = false
     @State private var transcriptResummaryPromptMeetingID: Int64?
     @State private var transcriptEditOriginalTranscript: String?
+    /// One playback clock per meeting: both transcript branches hand this same
+    /// model to the player bar and the synced transcript. Recreated whenever the
+    /// open meeting changes, because `MeetingDetailView` is created with
+    /// `.id(meeting.id)` at every call site.
+    @StateObject private var playbackModel = MeetingPlaybackModel()
+    @State private var transcriptWords: [TranscriptWordTiming] = []
     @State private var transcriptEditHadStructuredNotes = false
     @State private var showFolderPopover = false
     @State private var showNewFolderPrompt = false
@@ -182,6 +188,13 @@ struct MeetingDetailView: View {
                 }
                 .task(id: meeting.id) {
                     showsWrittenNotes = MeetingViewPreferences.shared.showsWrittenNotes(for: meeting.id)
+                }
+                .task(id: meeting.id) {
+                    // Word timings are seconds into the saved recording, so a
+                    // meeting without one needs none of them.
+                    transcriptWords = meeting.savedRecordingPath == nil
+                        ? []
+                        : controller.transcriptWords(for: meeting.id)
                 }
                 .onChange(of: meeting.id) { _, _ in
                     syncLocalState(with: meeting)
@@ -680,7 +693,7 @@ struct MeetingDetailView: View {
 
                 if let savedRecordingPath = meeting.savedRecordingPath,
                    FileManager.default.fileExists(atPath: savedRecordingPath) {
-                    MeetingRecordingPlayerView(recordingPath: savedRecordingPath)
+                    MeetingRecordingPlayerView(model: playbackModel, recordingPath: savedRecordingPath)
                         .frame(maxWidth: .infinity)
                 }
 
@@ -712,11 +725,15 @@ struct MeetingDetailView: View {
                     VStack(alignment: .leading, spacing: MeetsTheme.spacing12) {
                         if let savedRecordingPath = meeting.savedRecordingPath,
                            FileManager.default.fileExists(atPath: savedRecordingPath) {
-                            MeetingRecordingPlayerView(recordingPath: savedRecordingPath)
+                            MeetingRecordingPlayerView(model: playbackModel, recordingPath: savedRecordingPath)
                                 .frame(maxWidth: .infinity)
                         }
 
-                        MeetingTranscriptView(transcript: meeting.rawTranscript)
+                        MeetingTranscriptPlaybackView(
+                            transcript: meeting.rawTranscript,
+                            words: transcriptWords,
+                            model: playbackModel
+                        )
                     }
                     .opacity(documentMode == .transcript ? 1 : 0)
                     .allowsHitTesting(documentMode == .transcript)
@@ -2682,93 +2699,5 @@ struct TranscriptChatMessage: Identifiable, Equatable {
             return true
         }
         return false
-    }
-}
-
-private struct MeetingTranscriptView: View {
-    let transcript: String
-    @State private var messages: [TranscriptChatMessage]
-
-    init(transcript: String) {
-        self.transcript = transcript
-        _messages = State(initialValue: TranscriptChatMessage.messages(from: transcript))
-    }
-
-    var body: some View {
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: MeetsTheme.spacing8) {
-                if messages.isEmpty {
-                    Text("No transcript available")
-                        .font(MeetsTheme.body())
-                        .foregroundStyle(MeetsTheme.textTertiary)
-                        .frame(maxWidth: 860, alignment: .leading)
-                        .padding(MeetsTheme.spacing24)
-                } else {
-                    ForEach(messages) { message in
-                        TranscriptChatBubble(message: message)
-                    }
-                }
-            }
-            .frame(maxWidth: 860, alignment: .leading)
-            .padding(.horizontal, MeetsTheme.spacing24)
-            .padding(.vertical, MeetsTheme.spacing16)
-            .frame(maxWidth: .infinity, alignment: .center)
-        }
-        .onChange(of: transcript) { _, newTranscript in
-            messages = TranscriptChatMessage.messages(from: newTranscript)
-        }
-    }
-}
-
-struct TranscriptChatBubble: View {
-    let message: TranscriptChatMessage
-
-    var body: some View {
-        HStack(alignment: .bottom, spacing: MeetsTheme.spacing8) {
-            if message.isUser {
-                Spacer(minLength: 80)
-            }
-
-            VStack(alignment: .leading, spacing: 4) {
-                if let metadata = metadata {
-                    Text(metadata)
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundStyle(MeetsTheme.textTertiary)
-                        .textSelection(.enabled)
-                }
-                Text(message.text)
-                    .font(.system(size: 14))
-                    .foregroundStyle(MeetsTheme.textPrimary)
-                    .lineSpacing(2)
-                    .textSelection(.enabled)
-            }
-            .padding(.horizontal, MeetsTheme.spacing12)
-            .padding(.vertical, 8)
-            .background(message.isUser ? MeetsTheme.accent.opacity(0.18) : MeetsTheme.surfacePrimary)
-            .clipShape(RoundedRectangle(cornerRadius: MeetsTheme.cornerSmall))
-            .overlay(
-                RoundedRectangle(cornerRadius: MeetsTheme.cornerSmall)
-                    .strokeBorder(message.isUser ? MeetsTheme.accent.opacity(0.25) : MeetsTheme.surfaceBorder, lineWidth: 1)
-            )
-            .frame(maxWidth: 680, alignment: message.isUser ? .trailing : .leading)
-
-            if !message.isUser {
-                Spacer(minLength: 80)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: message.isUser ? .trailing : .leading)
-    }
-
-    private var metadata: String? {
-        switch (message.speaker, message.timestamp) {
-        case let (speaker?, timestamp?):
-            return "\(speaker) \(timestamp)"
-        case let (speaker?, nil):
-            return speaker
-        case let (nil, timestamp?):
-            return timestamp
-        case (nil, nil):
-            return nil
-        }
     }
 }

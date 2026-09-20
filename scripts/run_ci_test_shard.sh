@@ -95,6 +95,8 @@ case "${shard}" in
       MeetingResumePolicyTests
       MeetingStreamingPartialSessionTests
       MeetingFollowUpPolicyTests
+      TranscriptWordTimingBuilderTests
+      TranscriptWordAlignerTests
       MeetingViewPreferencesTests
       MeetingFollowUpThreadTests
       MeetingFollowUpSummaryPromptTests

@@ -23,17 +23,10 @@ enum TranscriptFormatter {
         let taggedSystem: [TaggedSegment]
         if let diarizationSegments, !diarizationSegments.isEmpty {
             // Build speaker label map: raw ID → "Speaker 1", "Speaker 2", etc. in first-appearance order
-            var speakerLabelMap: [String: String] = [:]
-            var nextSpeakerNumber = 1
-            for seg in diarizationSegments.sorted(by: { $0.startTimeSeconds < $1.startTimeSeconds }) {
-                if speakerLabelMap[seg.speakerId] == nil {
-                    speakerLabelMap[seg.speakerId] = "Speaker \(nextSpeakerNumber)"
-                    nextSpeakerNumber += 1
-                }
-            }
+            let labels = speakerLabelMap(for: diarizationSegments)
 
             taggedSystem = systemSegments.map { segment in
-                let speaker = findSpeaker(for: segment, in: diarizationSegments, labelMap: speakerLabelMap)
+                let speaker = findSpeaker(for: segment, in: diarizationSegments, labelMap: labels)
                 return TaggedSegment(segment: segment, speaker: speaker)
             }
         } else {
@@ -98,6 +91,34 @@ enum TranscriptFormatter {
         ))
 
         return result
+    }
+
+    /// Raw diarization speaker IDs → the "Speaker 1", "Speaker 2", … labels the
+    /// merged transcript prints, numbered in first-appearance order.
+    private static func speakerLabelMap(for diarizationSegments: [TimedSpeakerSegment]) -> [String: String] {
+        var labelMap: [String: String] = [:]
+        var nextSpeakerNumber = 1
+        for seg in diarizationSegments.sorted(by: { $0.startTimeSeconds < $1.startTimeSeconds }) {
+            if labelMap[seg.speakerId] == nil {
+                labelMap[seg.speakerId] = "Speaker \(nextSpeakerNumber)"
+                nextSpeakerNumber += 1
+            }
+        }
+        return labelMap
+    }
+
+    /// The speaker label the merged transcript gives to speech at one point in
+    /// time, so per-word timings can carry the same attribution as the lines
+    /// they came from. "Others" when there is no diarization to attribute to.
+    static func speakerLabel(
+        at seconds: Double,
+        diarizationSegments: [TimedSpeakerSegment]?,
+        labelMap: [String: String]? = nil
+    ) -> String {
+        guard let diarizationSegments, !diarizationSegments.isEmpty else { return "Others" }
+        let resolvedLabelMap = labelMap ?? speakerLabelMap(for: diarizationSegments)
+        let probe = SpeechSegment(start: seconds, end: seconds, text: "")
+        return findSpeaker(for: probe, in: diarizationSegments, labelMap: resolvedLabelMap)
     }
 
     /// Find the best-matching speaker for an ASR segment by time overlap with diarization segments.

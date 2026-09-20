@@ -8,9 +8,19 @@ struct SpeechSegment: Sendable {
     let text: String
 }
 
+/// One word with its timing in seconds from the start of the transcribed audio.
+/// Backends that report word-level timings fill these; the rest leave them empty
+/// and the meeting transcript simply has no per-word highlighting.
+struct SpeechWord: Sendable, Equatable {
+    let start: Double
+    let end: Double
+    let text: String
+}
+
 struct SpeechTranscriptionResult: Sendable {
     let text: String
     let segments: [SpeechSegment]
+    var words: [SpeechWord] = []
 }
 
 actor AppleSpeechUseLifecycle {
@@ -768,7 +778,7 @@ actor TranscriptionCoordinator {
 
     private func removeFillers(_ result: SpeechTranscriptionResult) -> SpeechTranscriptionResult {
         let filtered = FillerWordFilter.apply(result.text)
-        return SpeechTranscriptionResult(text: filtered, segments: result.segments)
+        return SpeechTranscriptionResult(text: filtered, segments: result.segments, words: result.words)
     }
 
     private func cleanMeetingTranscript(_ result: SpeechTranscriptionResult) -> SpeechTranscriptionResult {
@@ -777,7 +787,11 @@ actor TranscriptionCoordinator {
 
     private func removeArtifacts(_ result: SpeechTranscriptionResult) -> SpeechTranscriptionResult {
         let filtered = TranscriptionEngineArtifactsFilter.apply(result.text)
-        return SpeechTranscriptionResult(text: filtered, segments: filtered.isEmpty ? [] : result.segments)
+        return SpeechTranscriptionResult(
+            text: filtered,
+            segments: filtered.isEmpty ? [] : result.segments,
+            words: filtered.isEmpty ? [] : result.words
+        )
     }
 
     private func route(
@@ -830,12 +844,17 @@ actor TranscriptionCoordinator {
         let result = try await fluidTranscriber.transcribe(wavURL: url, language: language.isoCode)
         fputs("[meets] FluidAudio result: \(result.text.prefix(80)) (took \(String(format: "%.3f", result.processingTime))s)\n", stderr)
         let text = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
-        let segments = (result.tokenTimings ?? []).map { timing in
+        let tokenTimings = result.tokenTimings ?? []
+        let segments = tokenTimings.map { timing in
             SpeechSegment(start: timing.startTime, end: timing.endTime, text: timing.token)
         }
+        let words = TranscriptWordTimingBuilder.words(fromTokens: tokenTimings.map { timing in
+            (token: timing.token, start: timing.startTime, end: timing.endTime)
+        })
         return SpeechTranscriptionResult(
             text: text,
-            segments: segments.isEmpty && !text.isEmpty ? [SpeechSegment(start: 0, end: result.duration, text: text)] : segments
+            segments: segments.isEmpty && !text.isEmpty ? [SpeechSegment(start: 0, end: result.duration, text: text)] : segments,
+            words: words
         )
     }
 
@@ -848,7 +867,8 @@ actor TranscriptionCoordinator {
         let text = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
         return SpeechTranscriptionResult(
             text: text,
-            segments: text.isEmpty ? [] : [SpeechSegment(start: 0, end: 0, text: text)]
+            segments: text.isEmpty ? [] : [SpeechSegment(start: 0, end: 0, text: text)],
+            words: text.isEmpty ? [] : result.words
         )
     }
 
@@ -864,7 +884,8 @@ actor TranscriptionCoordinator {
         let text = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
         return SpeechTranscriptionResult(
             text: text,
-            segments: text.isEmpty ? [] : [SpeechSegment(start: 0, end: 0, text: text)]
+            segments: text.isEmpty ? [] : [SpeechSegment(start: 0, end: 0, text: text)],
+            words: text.isEmpty ? [] : result.words
         )
     }
 
