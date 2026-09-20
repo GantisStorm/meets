@@ -107,12 +107,11 @@ enum MeetingFolderBreadcrumbs {
 /// meeting with no follow-ups, which is a family of one.
 ///
 /// The shelf owns the card chrome — fill, corner, border — so this view draws
-/// content only and fills its own row box. That keeps selection on the row
-/// instead of lighting up the whole family enclosure, and it is why a
-/// standalone meeting and a family parent look like the same kind of object.
+/// content only and fills its own row box. Hover is the row's only transient
+/// state, which is why a standalone meeting and a family parent look like the
+/// same kind of object.
 struct MeetingListItemView: View {
     let display: MeetingListItemDisplay
-    let isSelected: Bool
     let hasFollowUps: Bool
     /// Rendered follow-ups in this shelf; shown as a count chip when non-zero.
     let followUpCount: Int
@@ -383,8 +382,7 @@ struct MeetingListItemView: View {
     }
 
     private var rowBackground: Color {
-        if isSelected { return MeetsTheme.surfaceSelected }
-        return isHovering ? MeetsTheme.backgroundHover : .clear
+        isHovering ? MeetsTheme.backgroundHover : .clear
     }
 }
 

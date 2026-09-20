@@ -25,10 +25,8 @@ struct MeetingShelfActions {
 /// anything names its parent in words instead.
 struct MeetingShelfView: View {
     let shelf: MeetingBrowserShelf
-    let isSelected: Bool
     let isExpanded: Bool
     let rootHasFollowUps: Bool
-    let selectedMeetingID: Int64?
     let folders: [MeetingFolder]
     let folderBreadcrumbs: [Int64: String]
     /// True when the rendered card is too narrow for generous padding and two
@@ -56,18 +54,10 @@ struct MeetingShelfView: View {
         }
     }
 
-    /// True when any member of the family is the open meeting, so the
-    /// enclosure can mark itself without filling the row the user is not on.
-    private var containsSelection: Bool {
-        if shelf.root.id == selectedMeetingID { return true }
-        return shelf.descendants.contains { $0.id == selectedMeetingID }
-    }
-
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             MeetingListItemView(
                 display: MeetingListItemDisplay(entry: shelf.root.entry, record: shelf.root.record),
-                isSelected: isSelected,
                 hasFollowUps: rootHasFollowUps,
                 followUpCount: descendantCount,
                 folders: folders,
@@ -91,7 +81,6 @@ struct MeetingShelfView: View {
                 if isExpanded {
                     MeetingFollowUpListView(
                         shelf: shelf,
-                        selectedMeetingID: selectedMeetingID,
                         folders: folders,
                         folderBreadcrumbs: folderBreadcrumbs,
                         actions: actions
@@ -104,10 +93,7 @@ struct MeetingShelfView: View {
         .clipShape(RoundedRectangle(cornerRadius: MeetsTheme.cornerLarge))
         .overlay(
             RoundedRectangle(cornerRadius: MeetsTheme.cornerLarge)
-                .strokeBorder(
-                    containsSelection ? MeetsTheme.accent.opacity(0.35) : MeetsTheme.surfaceBorder,
-                    lineWidth: 1
-                )
+                .strokeBorder(MeetsTheme.surfaceBorder, lineWidth: 1)
         )
     }
 
@@ -190,7 +176,6 @@ struct MeetingShelfView: View {
 /// names the meeting it hangs from instead.
 struct MeetingThreadRow: View {
     let node: MeetingBrowserNode
-    let isSelected: Bool
     let folders: [MeetingFolder]
     let folderBreadcrumbs: [Int64: String]
     let actions: MeetingShelfActions
@@ -321,8 +306,7 @@ struct MeetingThreadRow: View {
     }
 
     private var rowBackground: Color {
-        if isSelected { return MeetsTheme.surfaceSelected }
-        return isHovering ? MeetsTheme.backgroundHover : .clear
+        isHovering ? MeetsTheme.backgroundHover : .clear
     }
 
     private var accessibilityLabel: String {
@@ -357,7 +341,6 @@ struct MeetingThreadRow: View {
 /// is, just nested.
 struct MeetingFollowUpListView: View {
     let shelf: MeetingBrowserShelf
-    let selectedMeetingID: Int64?
     let folders: [MeetingFolder]
     let folderBreadcrumbs: [Int64: String]
     let actions: MeetingShelfActions
@@ -372,7 +355,6 @@ struct MeetingFollowUpListView: View {
 
                 MeetingThreadRow(
                     node: node,
-                    isSelected: node.id == selectedMeetingID,
                     folders: folders,
                     folderBreadcrumbs: folderBreadcrumbs,
                     actions: actions

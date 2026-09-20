@@ -1327,13 +1327,11 @@ struct MeetingsView: View {
         ForEach(shelves) { shelf in
             MeetingShelfView(
                 shelf: shelf,
-                isSelected: appState.selectedMeetingID == shelf.root.id,
                 isExpanded: MeetingBrowserLogic.shelfStartsExpanded(
                     rootMatchesRange: shelf.root.matchesFilter,
                     annotatesMatches: annotatesMatches
                 ) != toggledShelfIDs.contains(shelf.id),
                 rootHasFollowUps: meetingIDsWithFollowUps.contains(shelf.root.id),
-                selectedMeetingID: appState.selectedMeetingID,
                 folders: appState.folders,
                 folderBreadcrumbs: breadcrumbs,
                 compact: compact,
