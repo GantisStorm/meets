@@ -33,7 +33,6 @@ struct OnboardingView: View {
     @State private var micGranted = false
     @State private var screenRecordingGranted = false
     @State private var systemAudioGranted = false
-    @State private var calendarGranted = false
     /// Optional permissions the user skipped (persisted in OnboardingProgress).
     @State private var skippedPermissions: Set<String> = []
     @State private var permissionPollTimer: Timer?
@@ -145,7 +144,6 @@ struct OnboardingView: View {
         _modelDownloadStatus = State(initialValue: sanitizedInitialBackend == initialBackend ? initialModelDownloadStatus : nil)
         _micGranted = State(initialValue: initialMicGranted)
         _systemAudioGranted = State(initialValue: initialSystemAudioGranted)
-        _calendarGranted = State(initialValue: appState.calendarAuthorization == .fullAccess)
         _skippedPermissions = State(initialValue: OnboardingProgress.load()?.skippedPermissions ?? [])
     }
 
@@ -659,8 +657,8 @@ struct OnboardingView: View {
     /// Meetings need the Microphone to record the spoken meeting and one
     /// system-audio path to capture the other participants: the CoreAudio tap
     /// when it is enabled, otherwise Screen Recording. Microphone is required
-    /// to continue; the system-audio row and Calendar can also be enabled
-    /// later from Settings.
+    /// to continue; the system-audio row can also be enabled later from
+    /// Settings.
     private struct PermissionRow {
         let icon: String
         let name: String
@@ -695,12 +693,6 @@ struct OnboardingView: View {
                 action: { requestScreenRecordingPermission() }
             ))
         }
-        rows.append(PermissionRow(
-            icon: "calendar", name: "Calendar",
-            description: "Syncs your meetings with Apple Calendar — Teams, Exchange, iCloud",
-            state: calendarGranted ? .granted : .idle, skippable: true,
-            action: { requestCalendarPermission() }
-        ))
         return rows
     }
 
@@ -710,19 +702,6 @@ struct OnboardingView: View {
     private var screenRecordingRowState: PermissionRowPresentation {
         if screenRecordingGranted { return .granted }
         return controller.permissionRequests.presentation(for: .screenRecording)
-    }
-
-    private func requestCalendarPermission() {
-        guard !calendarGranted, grantingPermissionName == nil else { return }
-        grantingPermissionName = "Calendar"
-        Task { @MainActor in
-            await controller.refreshCalendarAccess(requestIfUndetermined: true)
-            grantingPermissionName = nil
-            calendarGranted = appState.calendarAuthorization == .fullAccess
-            if calendarGranted {
-                saveProgress(atStep: currentStep)
-            }
-        }
     }
 
     private func requestScreenRecordingPermission() {
@@ -780,7 +759,7 @@ struct OnboardingView: View {
                     .font(MeetsTheme.title1())
                     .foregroundStyle(MeetsTheme.textPrimary)
 
-                Text("Meets records your microphone and the meeting's system audio. Grant Microphone to continue; System Audio and Calendar can be added now or later in Settings.")
+                Text("Meets records your microphone and the meeting's system audio. Grant Microphone to continue; System Audio can be added now or later in Settings.")
                     .font(MeetsTheme.body())
                     .foregroundStyle(MeetsTheme.textSecondary)
                     .multilineTextAlignment(.center)
@@ -945,9 +924,6 @@ struct OnboardingView: View {
     private func refreshPermissions(refreshSystemAudio: Bool) {
         micGranted = AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
         screenRecordingGranted = CGPreflightScreenCaptureAccess()
-        if appState.calendarAuthorization == .fullAccess {
-            calendarGranted = true
-        }
         if refreshSystemAudio, appState.config.useCoreAudioTap || systemAudioGranted {
             systemAudioGranted = CoreAudioSystemRecorder.checkSystemAudioPermission()
         }
