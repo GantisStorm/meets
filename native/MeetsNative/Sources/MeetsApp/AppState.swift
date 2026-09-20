@@ -20,6 +20,9 @@ enum InsightsSection: String, CaseIterable, Sendable {
 enum SettingsPane: String, CaseIterable, Identifiable {
     case general
     case meetings
+    /// Sits next to Meetings because it decides who writes those notes and
+    /// cleans those transcripts.
+    case ai
     case appearance
 
     var id: String { rawValue }
@@ -28,6 +31,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         switch self {
         case .general: return "General"
         case .meetings: return "Meetings"
+        case .ai: return "AI"
         case .appearance: return "Appearance"
         }
     }

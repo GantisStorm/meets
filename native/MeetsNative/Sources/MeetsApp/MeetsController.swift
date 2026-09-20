@@ -2890,27 +2890,12 @@ public final class MeetsController: NSObject {
         }
     }
 
+    /// Whether a provider is usable right now. The rules live in
+    /// `AIProviderDirectory` so the menus, the settings page, and the request
+    /// paths cannot disagree about what "connected" means.
     func canUseSummaryProvider(_ provider: MeetingSummaryBackendOption) -> Bool {
-        switch provider {
-        case .chatGPT: return appState.isChatGPTAuthenticated
-        case .openAI: return !resolvedOpenAIAPIKey().trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        case .openRouter:
-            return appState.isOpenRouterAuthenticated || !config.openRouterAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        case .ollama: return true
-        case .lmStudio: return MeetingSummaryClient.lmStudioHasRequiredSettings(config: config)
-        case .customLLM: return MeetingSummaryClient.customLLMHasRequiredSettings(config: config)
-        case .acpAgent: return MeetingSummaryClient.acpAgentHasRequiredSettings(config: config)
-        case .appleIntelligence: return AppleIntelligenceBackend.status.isAvailable
-        default: return false
-        }
-    }
-
-    private func resolvedOpenAIAPIKey() -> String {
-        let configuredKey = config.openAIAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !configuredKey.isEmpty { return configuredKey }
-        let environmentKey = ProcessInfo.processInfo.environment["OPENAI_API_KEY"]?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return environmentKey
+        guard let aiProvider = AIProvider(summaryOption: provider) else { return false }
+        return AIProviderDirectory.isConnected(aiProvider, config: config, state: aiConnectionState)
     }
 
     func resummarize(meeting: MeetingRecord, summaryConfig: AppConfig? = nil, completion: @escaping (Result<Void, Error>) -> Void) {
@@ -3710,7 +3695,9 @@ public final class MeetsController: NSObject {
     /// Cleans a meeting's stored transcript with the configured LLM cleanup
     /// backend (local Qwen3 GGUF on macOS 15+, or a hosted ChatGPT/OpenAI/
     /// OpenRouter/Ollama/LM Studio/custom backend). Returns the cleaned text.
-    func cleanMeetingTranscript(id: Int64) async throws -> String {
+    /// `cleanupConfig` overrides the stored settings for this one request — an
+    /// alternate provider's URL, key and model — without changing the default.
+    func cleanMeetingTranscript(id: Int64, cleanupConfig: AppConfig? = nil) async throws -> String {
         guard let meeting = meeting(id: id) else {
             throw TranscriptCleanupError.missingConfiguration("Meeting not found.")
         }
@@ -3718,8 +3705,9 @@ public final class MeetsController: NSObject {
         guard !text.isEmpty else {
             throw TranscriptCleanupError.missingConfiguration("Meeting has no transcript to clean.")
         }
-        let backend = TranscriptCleanupBackendOption.resolved(config.postProcessorBackend)
-        let systemPrompt = config.postProcessorSystemPrompt
+        let effectiveCleanupConfig = cleanupConfig ?? config
+        let backend = TranscriptCleanupBackendOption.resolved(effectiveCleanupConfig.postProcessorBackend)
+        let systemPrompt = effectiveCleanupConfig.postProcessorSystemPrompt
 
         if backend.isGemma4LiteRT {
             throw TranscriptCleanupError.missingConfiguration(
@@ -3730,7 +3718,7 @@ public final class MeetsController: NSObject {
             guard #available(macOS 15, *) else {
                 throw TranscriptCleanupError.missingConfiguration("Local cleanup requires macOS 15 or later.")
             }
-            let option = PostProcessorOption.runtimeOption(id: config.activePostProcessorId)
+            let option = PostProcessorOption.runtimeOption(id: effectiveCleanupConfig.activePostProcessorId)
             guard let option else {
                 throw TranscriptCleanupError.missingConfiguration("No local cleanup model downloaded.")
             }
@@ -3775,13 +3763,16 @@ public final class MeetsController: NSObject {
             return result
         }
 
+        // The provider reads URL, key and model from this config, so an override
+        // reaches the request itself and not just the log rows below.
+        let model = TranscriptCleanupClient.configuredModel(for: backend, config: effectiveCleanupConfig)
         do {
             let result = try await TranscriptCleanupClient.clean(
                 text: text,
                 systemPrompt: systemPrompt,
                 appContext: nil,
                 backend: backend,
-                config: config
+                config: effectiveCleanupConfig
             )
             let cleaned = result.cleanedOutput.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !cleaned.isEmpty else {
@@ -3790,7 +3781,7 @@ public final class MeetsController: NSObject {
             logLLMUsage(
                 kind: "cleanup",
                 backend: backend.backend,
-                model: config.postProcessorChatGPTModel.isEmpty ? config.activePostProcessorId : config.postProcessorChatGPTModel,
+                model: model,
                 status: "success",
                 characters: text.count,
                 meetingID: id
@@ -3800,7 +3791,7 @@ public final class MeetsController: NSObject {
             logLLMUsage(
                 kind: "cleanup",
                 backend: backend.backend,
-                model: config.postProcessorChatGPTModel.isEmpty ? config.activePostProcessorId : config.postProcessorChatGPTModel,
+                model: model,
                 status: "failed",
                 characters: text.count,
                 meetingID: id
@@ -3832,9 +3823,10 @@ public final class MeetsController: NSObject {
     }
 
     /// Cleans and persists the meeting transcript. Called from the meeting
-    /// detail view's Clean up Transcript action.
-    func applyTranscriptCleanup(id: Int64) async throws {
-        let cleaned = try await cleanMeetingTranscript(id: id)
+    /// detail view's Clean up Transcript action. `cleanupConfig` overrides the
+    /// stored settings for this one run, without changing the default.
+    func applyTranscriptCleanup(id: Int64, cleanupConfig: AppConfig? = nil) async throws {
+        let cleaned = try await cleanMeetingTranscript(id: id, cleanupConfig: cleanupConfig)
         try await MainActor.run {
             updateMeetingTranscript(id: id, transcript: cleaned)
         }

@@ -83,4 +83,25 @@ struct TranscriptCleanupBackendOption: Equatable, Identifiable {
         }
         return option
     }
+
+    /// Copy of `config` that routes one cleanup request through this backend and
+    /// model. The copy is never persisted, so the user's stored default stays
+    /// whatever they saved.
+    func cleanupConfiguration(from config: AppConfig, model: String) -> AppConfig {
+        var snapshot = config
+        snapshot.postProcessorBackend = backend
+        switch llmBackend {
+        case .some(.chatGPT): snapshot.postProcessorChatGPTModel = model
+        case .some(.openAI): snapshot.postProcessorOpenAIModel = model
+        case .some(.openRouter): snapshot.postProcessorOpenRouterModel = model
+        case .some(.ollama): snapshot.postProcessorOllamaModel = model
+        case .some(.lmStudio): snapshot.postProcessorLMStudioModel = model
+        case .some(.customLLM): snapshot.postProcessorCustomLLMModel = model
+        // On-device backends (Local Model, Gemma 4, Apple Intelligence) and the
+        // ACP agent run no user-selectable model, so their fields stay as-is.
+        case .some(.acpAgent), .some(.appleIntelligence), nil: break
+        default: break
+        }
+        return snapshot
+    }
 }

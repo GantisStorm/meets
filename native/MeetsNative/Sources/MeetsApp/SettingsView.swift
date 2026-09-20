@@ -108,7 +108,7 @@ struct SettingsView: View {
     @State private var cloudSyncOutcome: String?
     @State private var cloudSyncOutcomeIsError = false
     /// Live ACP agent config options backing the Model/Reasoning menus in the
-    /// Meeting Summaries section. `nil` = not yet fetched.
+    /// AI pane's defaults. `nil` = not yet fetched.
     @State private var acpConfigOptions: [ACPConfigOption]?
     /// Command the cached `acpConfigOptions` were fetched for; a changed
     /// command refetches.
@@ -247,7 +247,7 @@ struct SettingsView: View {
                 if appState.selectedMeetingSummaryBackend == .openRouter {
                     loadOpenRouterFreeModelsIfNeeded()
                 }
-                if selectedPane == .meetings {
+                if selectedPane == .meetings || selectedPane == .ai {
                     loadACPConfigOptionsIfNeeded()
                 }
             }
@@ -307,7 +307,7 @@ struct SettingsView: View {
                 }
             }
             .onChange(of: selectedPane) { _, pane in
-                if pane != .meetings {
+                if pane != .meetings && pane != .ai {
                     acpConfigOptionsLoadTask?.cancel()
                     acpConfigOptionsLoadTask = nil
                     acpConfigOptions = nil
@@ -369,8 +369,11 @@ struct SettingsView: View {
     }
 
     private func handlePaneSelection(_ pane: SettingsPane) {
-        guard pane == .meetings else { return }
-        loadCachedAudioInputDevices()
+        if pane == .meetings {
+            loadCachedAudioInputDevices()
+        }
+        // ACP agent rows live in the AI pane, next to the defaults that use
+        // them, so leaving Meetings no longer means leaving them behind.
         loadACPConfigOptionsIfNeeded()
     }
 
@@ -378,8 +381,8 @@ struct SettingsView: View {
         refreshAudioInputDevices()
     }
 
-    /// (Re)fetches the ACP agent's advertised config options whenever the
-    /// Meeting Summaries ACP branch is visible with a non-empty command.
+    /// (Re)fetches the ACP agent's advertised config options whenever the AI
+    /// pane shows an ACP Model or Reasoning menu with a non-empty command.
     /// Failures degrade to "use agent default": a single "Default" entry in
     /// each menu and a hint that starting the agent surfaces the options.
     private func loadACPConfigOptionsIfNeeded() {
@@ -639,6 +642,7 @@ struct SettingsView: View {
         switch selectedPane {
         case .general: "gearshape"
         case .meetings: "person.2.wave.2"
+        case .ai: "sparkles"
         case .appearance: "paintbrush"
         }
     }
@@ -649,6 +653,8 @@ struct SettingsView: View {
             "Startup behavior, permissions, and the meeting data stored on this Mac."
         case .meetings:
             "Choose how meetings are captured, transcribed, and turned into useful notes."
+        case .ai:
+            "Connect the AI services Meets can use, then pick the defaults for summaries and transcript cleanup."
         case .appearance:
             "Tune Meets’s menu bar and recording controls to fit your workspace."
         }
@@ -692,6 +698,8 @@ struct SettingsView: View {
             generalSettingsPane
         case .meetings:
             meetingsSettingsPane
+        case .ai:
+            aiSettingsPane
         case .appearance:
             appearanceSettingsPane
         }
@@ -953,7 +961,7 @@ struct SettingsView: View {
     private var meetingSummarySettingsSection: some View {
         settingsDisclosureSection(
             "Meeting Summaries",
-            summary: "\(appState.selectedMeetingSummaryBackend.label) writes notes after each meeting.",
+            summary: "\(appState.selectedMeetingSummaryBackend.label) writes notes after each meeting. Providers and models are set in AI.",
             icon: "sparkles",
         ) {
             settingsRow("Include written notes") {
@@ -962,197 +970,11 @@ struct SettingsView: View {
                 }
             }
             settingsDescription("Feed your written notes into AI summaries alongside the transcript. Notes are always kept verbatim either way.")
-            Divider().background(MeetsTheme.surfaceBorder)
-
-            settingsRow(
-                "Summary backend",
-                description: "Provider that writes AI meeting summaries.",
-                controlWidth: meetingControlWidth
-            ) {
-                settingsMenu(
-                    selection: appState.selectedMeetingSummaryBackend.label,
-                    options: MeetingSummaryBackendOption.all.map(\.label)
-                ) { label in
-                    if let option = MeetingSummaryBackendOption.all.first(where: { $0.label == label }) {
-                        controller.selectMeetingSummaryBackend(option)
-                    }
-                }
-            }
-            Divider().background(MeetsTheme.surfaceBorder)
-
-            if appState.selectedMeetingSummaryBackend == .chatGPT {
-                settingsRow(
-                    "Account",
-                    description: "Signed-in ChatGPT account used for summaries.",
-                    controlWidth: meetingControlWidth
-                ) {
-                    chatGPTAccountControl()
-                }
-                Divider().background(MeetsTheme.surfaceBorder)
-                settingsRow(
-                    "Model",
-                    description: "Model used for meeting summaries.",
-                    controlWidth: meetingControlWidth
-                ) {
-                    settingsModelMenu(
-                        currentModel: appState.config.chatGPTModel,
-                        presets: SummaryModelPreset.chatGPTModels
-                    ) { val in controller.updateConfig { $0.chatGPTModel = val } }
-                }
-                let model = appState.config.chatGPTModel.isEmpty
-                    ? (SummaryModelPreset.chatGPTModels.first?.id ?? "")
-                    : appState.config.chatGPTModel
-                if !ReasoningEffortPolicy.selectableEfforts(for: model).isEmpty {
-                    Divider().background(MeetsTheme.surfaceBorder)
-                    settingsRow("Thinking", controlWidth: meetingControlWidth) {
-                        settingsReasoningSlider(
-                            model: model,
-                            preferred: appState.config.meetingSummaryReasoningEffort,
-                            accessibilityLabel: "Meeting summary thinking"
-                        ) { effort in
-                            controller.updateConfig { $0.meetingSummaryReasoningEffort = effort }
-                        }
-                    }
-                }
-            } else if appState.selectedMeetingSummaryBackend == .openAI {
-                settingsRow(
-                    "API Key",
-                    description: "Key used for OpenAI summaries. Stored locally.",
-                    controlWidth: meetingControlWidth
-                ) {
-                    PastableSecureField(
-                        text: appState.config.openAIAPIKey,
-                        placeholder: "sk-...",
-                        onChange: { val in controller.updateConfig { $0.openAIAPIKey = val } }
-                    )
-                    .frame(height: 22)
-                }
-                Divider().background(MeetsTheme.surfaceBorder)
-                settingsRow(
-                    "Model",
-                    description: "Model used for meeting summaries.",
-                    controlWidth: meetingControlWidth
-                ) {
-                    settingsModelMenu(
-                        currentModel: appState.config.openAIModel,
-                        presets: SummaryModelPreset.openAIModels
-                    ) { val in controller.updateConfig { $0.openAIModel = val } }
-                }
-                let model = appState.config.openAIModel.isEmpty
-                    ? (SummaryModelPreset.openAIModels.first?.id ?? "")
-                    : appState.config.openAIModel
-                if !ReasoningEffortPolicy.selectableEfforts(for: model).isEmpty {
-                    Divider().background(MeetsTheme.surfaceBorder)
-                    settingsRow("Thinking", controlWidth: meetingControlWidth) {
-                        settingsReasoningSlider(
-                            model: model,
-                            preferred: appState.config.meetingSummaryReasoningEffort,
-                            accessibilityLabel: "Meeting summary thinking"
-                        ) { effort in
-                            controller.updateConfig { $0.meetingSummaryReasoningEffort = effort }
-                        }
-                    }
-                }
-                keyStatusRow(key: appState.config.openAIAPIKey)
-            } else if appState.selectedMeetingSummaryBackend == .ollama {
-                settingsRow(
-                    "Ollama URL",
-                    description: "Local Ollama server address.",
-                    controlWidth: meetingControlWidth
-                ) {
-                    PastableTextField(
-                        text: appState.config.ollamaURL,
-                        placeholder: "http://localhost:11434",
-                        onChange: { val in controller.updateConfig { $0.ollamaURL = val } }
-                    )
-                    .frame(height: 22)
-                }
-                Divider().background(MeetsTheme.surfaceBorder)
-                settingsRow(
-                    "Model",
-                    description: "Model used for meeting summaries.",
-                    controlWidth: meetingControlWidth
-                ) {
-                    settingsModelTextField(
-                        currentModel: appState.config.ollamaModel,
-                        placeholder: "qwen3.5"
-                    ) { val in controller.updateConfig { $0.ollamaModel = val } }
-                }
-            } else if appState.selectedMeetingSummaryBackend == .lmStudio {
-                settingsRow(
-                    "LM Studio URL",
-                    description: "Local LM Studio server address.",
-                    controlWidth: meetingControlWidth
-                ) {
-                    PastableTextField(
-                        text: appState.config.lmStudioURL,
-                        placeholder: "http://localhost:1234",
-                        onChange: { val in controller.updateConfig { $0.lmStudioURL = val } }
-                    )
-                    .frame(height: 22)
-                }
-                Divider().background(MeetsTheme.surfaceBorder)
-                settingsRow(
-                    "Model",
-                    description: "Model used for meeting summaries.",
-                    controlWidth: meetingControlWidth
-                ) {
-                    settingsModelTextField(
-                        currentModel: appState.config.lmStudioModel,
-                        placeholder: "Select a loaded LM Studio model"
-                    ) { val in controller.updateConfig { $0.lmStudioModel = val } }
-                }
-            } else if appState.selectedMeetingSummaryBackend == .customLLM {
-                customLLMSettingsRows(model: appState.config.customLLMModel) {
-                    val in controller.updateConfig { $0.customLLMModel = val }
-                }
-            } else if appState.selectedMeetingSummaryBackend == .acpAgent {
-                settingsRow("Command", description: "Runs your installed agent (omp, Claude Code, Codex…) over Agent Client Protocol. No API key needed.", controlWidth: meetingControlWidth) {
-                    ACPCommandPicker(
-                        appState: appState,
-                        controller: controller
-                    )
-                }
-                Divider().background(MeetsTheme.surfaceBorder)
-                acpModelMenuRow
-                Divider().background(MeetsTheme.surfaceBorder)
-                acpThinkingMenuRow
-            } else if appState.selectedMeetingSummaryBackend == .appleIntelligence {
-                appleIntelligenceStatusRow
-            } else {
-                settingsRow(
-                    "Account",
-                    description: "Signed-in OpenRouter account used for summaries.",
-                    controlWidth: meetingControlWidth
-                ) {
-                    openRouterAccountControl()
-                }
-                Divider().background(MeetsTheme.surfaceBorder)
-                settingsRow(
-                    "Model",
-                    description: "Model used for meeting summaries.",
-                    controlWidth: meetingControlWidth
-                ) {
-                    openRouterFreeModelMenu
-                }
-                Divider().background(MeetsTheme.surfaceBorder)
-                settingsRow(
-                    "Custom model ID",
-                    description: "Use any OpenRouter model by its ID.",
-                    controlWidth: meetingControlWidth
-                ) {
-                    settingsModelTextField(
-                        currentModel: appState.config.openRouterModel,
-                        placeholder: "provider/model",
-                        onBeginEditing: { isUsingCustomOpenRouterModel = true }
-                    ) { val in controller.updateConfig { $0.openRouterModel = val } }
-                }
-            }
         }
     }
 
     @ViewBuilder
-    private func customLLMSettingsRows(model: String, onModelChange: @escaping (String) -> Void) -> some View {
+    private func customLLMSettingsRows() -> some View {
         settingsRow(
             "API Format",
             description: "Request format for your endpoint.",
@@ -1165,21 +987,6 @@ struct SettingsView: View {
                 guard let format = CustomLLMFormat.allCases.first(where: { $0.label == label }) else { return }
                 controller.updateConfig { $0.customLLMFormat = format.rawValue }
             }
-        }
-        Divider().background(MeetsTheme.surfaceBorder)
-        settingsRow(
-            "Endpoint",
-            description: "Base URL of your OpenAI-compatible or Anthropic server.",
-            controlWidth: meetingControlWidth
-        ) {
-            PastableTextField(
-                text: appState.config.customLLMURL,
-                placeholder: appState.config.customLLMFormat == CustomLLMFormat.anthropic.rawValue
-                    ? "https://api.anthropic.com"
-                    : "http://localhost:8080/v1",
-                onChange: { val in controller.updateConfig { $0.customLLMURL = val } }
-            )
-            .frame(height: 22)
         }
         Divider().background(MeetsTheme.surfaceBorder)
         settingsRow(
@@ -1196,23 +1003,6 @@ struct SettingsView: View {
             )
             .frame(height: 22)
         }
-        Divider().background(MeetsTheme.surfaceBorder)
-        settingsRow(
-            "Model",
-            description: "Model used for meeting summaries.",
-            controlWidth: meetingControlWidth
-        ) {
-            settingsModelTextField(
-                currentModel: model,
-                placeholder: appState.config.customLLMFormat == CustomLLMFormat.anthropic.rawValue
-                    ? "claude-3-5-sonnet-20241022"
-                    : "custom-model-id"
-            ) { val in onModelChange(val) }
-        }
-    }
-
-    private var cleanupBackendOptions: [TranscriptCleanupBackendOption] {
-        TranscriptCleanupBackendOption.all.filter { !$0.isGemma4LiteRT }
     }
 
     private var selectedCleanupBackend: TranscriptCleanupBackendOption {
@@ -1227,143 +1017,6 @@ struct SettingsView: View {
         PostProcessorOption.resolve(id: appState.config.activePostProcessorId)
     }
 
-    @ViewBuilder
-    private var transcriptCleanupSettingsSection: some View {
-        settingsDisclosureSection(
-            "Transcript Cleanup",
-            summary: appState.config.enablePostProcessor
-                ? "On · \(selectedCleanupBackend.label)"
-                : "Off · raw transcripts are preserved",
-            icon: "wand.and.stars",
-        ) {
-            settingsRow(
-                "AI transcript cleanup",
-                description: "Automatically clean filler words and false starts from transcripts."
-            ) {
-                settingsSwitch(isOn: appState.config.enablePostProcessor) { newValue in
-                    controller.setPostProcessorEnabled(newValue)
-                }
-            }
-            if appState.config.enablePostProcessor {
-                Divider().background(MeetsTheme.surfaceBorder)
-                settingsRow(
-                    "Cleanup source",
-                    description: cleanupSourceDescription,
-                    controlWidth: meetingControlWidth
-                ) {
-                    settingsMenu(
-                        selection: selectedCleanupBackend.label,
-                        options: cleanupBackendOptions.map(\.label)
-                    ) { label in
-                        if let option = cleanupBackendOptions.first(where: { $0.label == label }) {
-                            controller.selectPostProcessorBackend(option)
-                        }
-                    }
-                }
-                if selectedCleanupBackend.isLocal {
-                    Divider().background(MeetsTheme.surfaceBorder)
-                    settingsRow(
-                        "Local model",
-                        description: "Downloaded model used for on-device cleanup.",
-                        controlWidth: meetingControlWidth
-                    ) {
-                        settingsMenu(
-                            selection: selectedCleanupLocalModel.label,
-                            options: cleanupLocalModels.map(\.label)
-                        ) { label in
-                            if let option = cleanupLocalModels.first(where: { $0.label == label }) {
-                                controller.selectPostProcessor(option)
-                            }
-                        }
-                    }
-                    if !selectedCleanupLocalModel.isDownloaded {
-                        Divider().background(MeetsTheme.surfaceBorder)
-                        settingsRow(
-                            "Download",
-                            description: "Download the on-device cleanup model.",
-                            controlWidth: meetingControlWidth
-                        ) {
-                            if let progress = cleanupDownloads[selectedCleanupLocalModel.id] {
-                                HStack(spacing: 6) {
-                                    ProgressView(value: progress)
-                                        .frame(width: 120)
-                                    Text("\(Int(progress * 100))%")
-                                        .font(.system(size: 11))
-                                        .foregroundStyle(MeetsTheme.textTertiary)
-                                }
-                            } else {
-                                actionButton("Download \(selectedCleanupLocalModel.sizeLabel)", systemImage: "arrow.down.circle") {
-                                    downloadSelectedCleanupModel()
-                                }
-                            }
-                        }
-                    } else {
-                        Divider().background(MeetsTheme.surfaceBorder)
-                        settingsRow(
-                            "Delete model",
-                            description: "Remove the downloaded cleanup model to free space.",
-                            controlWidth: meetingControlWidth
-                        ) {
-                            actionButton("Delete", systemImage: "trash") {
-                                controller.deletePostProcessorModel(selectedCleanupLocalModel)
-                            }
-                        }
-                    }
-                } else if selectedCleanupBackend.backend == "acp_agent" {
-                    Divider().background(MeetsTheme.surfaceBorder)
-                    settingsRow(
-                        "Command",
-                        description: "Agent command run for transcript cleanup.",
-                        controlWidth: meetingControlWidth
-                    ) {
-                        ACPCommandPicker(
-                            appState: appState,
-                            controller: controller
-                        )
-                    }
-                    acpModelMenuRow
-                    acpThinkingMenuRow
-                } else if selectedCleanupBackend == .appleIntelligence {
-                    Divider().background(MeetsTheme.surfaceBorder)
-                    appleIntelligenceStatusRow
-                } else {
-                    Divider().background(MeetsTheme.surfaceBorder)
-                    settingsRow(
-                        "Model",
-                        description: "Model used for AI transcript cleanup.",
-                        controlWidth: meetingControlWidth
-                    ) {
-                        settingsModelTextField(
-                            currentModel: cleanupConfiguredModel,
-                            placeholder: TranscriptCleanupClient.defaultModel(for: selectedCleanupBackend)
-                        ) { newModel in
-                            controller.updateConfig { config in
-                                switch selectedCleanupBackend.backend {
-                                case "chatgpt": config.postProcessorChatGPTModel = newModel
-                                case "openai": config.postProcessorOpenAIModel = newModel
-                                case "openrouter": config.postProcessorOpenRouterModel = newModel
-                                case "ollama": config.postProcessorOllamaModel = newModel
-                                case "lmstudio": config.postProcessorLMStudioModel = newModel
-                                default: config.postProcessorCustomLLMModel = newModel
-                                }
-                            }
-                        }
-                    }
-                }
-                Divider().background(MeetsTheme.surfaceBorder)
-                settingsRow(
-                    "Cleanup prompt",
-                    description: "Edit the instructions used for cleanup.",
-                    controlWidth: meetingControlWidth
-                ) {
-                    actionButton("Manage Prompts…") {
-                        isShowingCleanupPromptManager = true
-                    }
-                }
-            }
-        }
-    }
-
     private var cleanupSourceDescription: String {
         switch selectedCleanupBackend.backend {
         case "local": return "Runs on-device with a downloaded Qwen3 GGUF model."
@@ -1373,13 +1026,13 @@ struct SettingsView: View {
         }
     }
 
-    /// Apple Intelligence has no provider settings. Its live status stays
-    /// visible here — including the reason it cannot be used — next to the
-    /// on-device privacy note.
+    /// Apple Intelligence has no provider settings to enter, so its row is the
+    /// live status itself — including the reason it cannot be used — next to
+    /// the on-device privacy note.
     private var appleIntelligenceStatusRow: some View {
         let status = AppleIntelligenceBackend.status
         return settingsRow(
-            "Availability",
+            AIProvider.appleIntelligence.label,
             description: AppleIntelligenceBackend.privacyDescription,
             controlWidth: meetingControlWidth
         ) {
@@ -1423,8 +1076,6 @@ struct SettingsView: View {
             meetingTranscriptionSettingsSection
 
             meetingSummarySettingsSection
-
-            transcriptCleanupSettingsSection
 
             settingsDisclosureSection(
                 "Meeting Notes",
@@ -1922,6 +1573,482 @@ struct SettingsView: View {
             }
             .disabled(isRefreshingCalendarAccess)
         }
+    }
+
+    private var aiSettingsPane: some View {
+        let state = aiConnectionState
+        return VStack(alignment: .leading, spacing: MeetsTheme.spacing20) {
+            aiConnectionsSection(state: state)
+            aiDefaultsSection(state: state)
+        }
+    }
+
+    /// One snapshot of credentials per body evaluation, shared by the
+    /// connection lines and the default menus so they cannot disagree.
+    private var aiConnectionState: AIConnectionState {
+        AIConnectionState(
+            isChatGPTAuthenticated: appState.isChatGPTAuthenticated,
+            isOpenRouterAuthenticated: appState.isOpenRouterAuthenticated,
+            openRouterAPIKey: OpenRouterCredentialResolver.resolvedAPIKey(
+                legacyAPIKey: appState.config.openRouterAPIKey
+            ),
+            environmentOpenAIAPIKey: ProcessInfo.processInfo.environment["OPENAI_API_KEY"] ?? ""
+        )
+    }
+
+    /// Every service Meets can send work to, each with the one control that
+    /// connects it. Connecting here deliberately leaves the defaults below
+    /// alone, so signing in never redirects work the user already routed.
+    private func aiConnectionsSection(state: AIConnectionState) -> some View {
+        settingsSection("Connections", iconName: "link") {
+            ForEach(AIProvider.allCases) { provider in
+                if provider != AIProvider.allCases.first {
+                    Divider().background(MeetsTheme.surfaceBorder)
+                }
+                aiConnectionRows(provider, state: state)
+            }
+        }
+    }
+
+    /// Local servers say where they run: for them "Not connected" means a
+    /// missing URL or model, not a missing account.
+    private func aiConnectionLine(_ provider: AIProvider, state: AIConnectionState) -> String {
+        let connected = AIProviderDirectory.isConnected(provider, config: appState.config, state: state)
+        let status = connected ? "Connected" : "Not connected"
+        return provider.isLocalServer ? "\(status) · Runs on a server on this Mac" : status
+    }
+
+    @ViewBuilder
+    private func aiConnectionRows(_ provider: AIProvider, state: AIConnectionState) -> some View {
+        switch provider {
+        case .chatGPT:
+            settingsRow(
+                provider.label,
+                description: aiConnectionLine(provider, state: state),
+                controlWidth: meetingControlWidth
+            ) {
+                chatGPTAccountControl(selectMeetingSummaryBackend: false)
+            }
+        case .openAI:
+            settingsRow(
+                provider.label,
+                description: aiConnectionLine(provider, state: state),
+                controlWidth: meetingControlWidth
+            ) {
+                PastableSecureField(
+                    text: appState.config.openAIAPIKey,
+                    placeholder: "sk-...",
+                    onChange: { val in controller.updateConfig { $0.openAIAPIKey = val } }
+                )
+                .frame(height: 22)
+            }
+            // OPENAI_API_KEY can connect this provider with the field above
+            // still empty, so report the key the request path would use.
+            keyStatusRow(key: AIProviderDirectory.resolvedOpenAIAPIKey(config: appState.config, state: state))
+        case .openRouter:
+            settingsRow(
+                provider.label,
+                description: aiConnectionLine(provider, state: state),
+                controlWidth: meetingControlWidth
+            ) {
+                openRouterAccountControl(selectMeetingSummaryBackend: false)
+            }
+        case .customLLM:
+            settingsRow(
+                provider.label,
+                description: aiConnectionLine(provider, state: state),
+                controlWidth: meetingControlWidth
+            ) {
+                PastableTextField(
+                    text: appState.config.customLLMURL,
+                    placeholder: appState.config.customLLMFormat == CustomLLMFormat.anthropic.rawValue
+                        ? "https://api.anthropic.com"
+                        : "http://localhost:8080/v1",
+                    onChange: { val in controller.updateConfig { $0.customLLMURL = val } }
+                )
+                .frame(height: 22)
+            }
+            Divider().background(MeetsTheme.surfaceBorder)
+            customLLMSettingsRows()
+        case .acpAgent:
+            settingsRow(
+                provider.label,
+                description: aiConnectionLine(provider, state: state),
+                controlWidth: meetingControlWidth
+            ) {
+                ACPCommandPicker(
+                    appState: appState,
+                    controller: controller
+                )
+            }
+        case .appleIntelligence:
+            appleIntelligenceStatusRow
+        case .ollama:
+            settingsRow(
+                provider.label,
+                description: aiConnectionLine(provider, state: state),
+                controlWidth: meetingControlWidth
+            ) {
+                PastableTextField(
+                    text: appState.config.ollamaURL,
+                    placeholder: "http://localhost:11434",
+                    onChange: { val in controller.updateConfig { $0.ollamaURL = val } }
+                )
+                .frame(height: 22)
+            }
+        case .lmStudio:
+            settingsRow(
+                provider.label,
+                description: aiConnectionLine(provider, state: state),
+                controlWidth: meetingControlWidth
+            ) {
+                PastableTextField(
+                    text: appState.config.lmStudioURL,
+                    placeholder: "http://localhost:1234",
+                    onChange: { val in controller.updateConfig { $0.lmStudioURL = val } }
+                )
+                .frame(height: 22)
+            }
+        }
+    }
+
+    /// The two choices the rest of the app falls back to. Only connected
+    /// providers are offered, and a provider that has since gone away keeps
+    /// its entry — marked — so a picker never silently reassigns the choice.
+    private func aiDefaultsSection(state: AIConnectionState) -> some View {
+        settingsDisclosureSection(
+            "Defaults",
+            summary: aiDefaultsSummary,
+            icon: "slider.horizontal.3",
+        ) {
+            settingsRow(
+                "Default summary backend",
+                description: "Provider that writes AI meeting summaries.",
+                controlWidth: meetingControlWidth
+            ) {
+                settingsMenu(
+                    selection: aiSummarySelectionLabel(state: state),
+                    options: aiSummaryPickerLabels(state: state)
+                ) { label in
+                    guard let option = aiSummaryOption(matchingPickerLabel: label) else { return }
+                    controller.selectMeetingSummaryBackend(option)
+                }
+            }
+            aiSummaryModelRows
+            Divider().background(MeetsTheme.surfaceBorder)
+            settingsRow(
+                "AI transcript cleanup",
+                description: "Automatically clean filler words and false starts from transcripts."
+            ) {
+                settingsSwitch(isOn: appState.config.enablePostProcessor) { newValue in
+                    controller.setPostProcessorEnabled(newValue)
+                }
+            }
+            if appState.config.enablePostProcessor {
+                Divider().background(MeetsTheme.surfaceBorder)
+                settingsRow(
+                    "Default cleanup source",
+                    description: cleanupSourceDescription,
+                    controlWidth: meetingControlWidth
+                ) {
+                    settingsMenu(
+                        selection: aiCleanupSelectionLabel(state: state),
+                        options: aiCleanupPickerLabels(state: state)
+                    ) { label in
+                        guard let option = aiCleanupOption(matchingPickerLabel: label) else { return }
+                        controller.selectPostProcessorBackend(option)
+                    }
+                }
+                aiCleanupModelRows
+                Divider().background(MeetsTheme.surfaceBorder)
+                settingsRow(
+                    "Cleanup prompt",
+                    description: "Edit the instructions used for cleanup.",
+                    controlWidth: meetingControlWidth
+                ) {
+                    actionButton("Manage Prompts…") {
+                        isShowingCleanupPromptManager = true
+                    }
+                }
+            }
+        }
+    }
+
+    private var aiDefaultsSummary: String {
+        let summaries = "\(appState.selectedMeetingSummaryBackend.label) writes summaries"
+        return appState.config.enablePostProcessor
+            ? summaries + " · \(selectedCleanupBackend.label) cleans transcripts."
+            : summaries + " · transcript cleanup is off."
+    }
+
+    /// The model rows for whichever provider is the summary default. They sit
+    /// with the default rather than the connection because that is the choice
+    /// they configure.
+    @ViewBuilder
+    private var aiSummaryModelRows: some View {
+        let backend = appState.selectedMeetingSummaryBackend
+        if backend == .chatGPT {
+            Divider().background(MeetsTheme.surfaceBorder)
+            settingsRow(
+                "Model",
+                description: "Model used for meeting summaries.",
+                controlWidth: meetingControlWidth
+            ) {
+                settingsModelMenu(
+                    currentModel: appState.config.chatGPTModel,
+                    presets: SummaryModelPreset.chatGPTModels
+                ) { val in controller.updateConfig { $0.chatGPTModel = val } }
+            }
+            summaryThinkingRow(model: appState.config.chatGPTModel, presets: SummaryModelPreset.chatGPTModels)
+        } else if backend == .openAI {
+            Divider().background(MeetsTheme.surfaceBorder)
+            settingsRow(
+                "Model",
+                description: "Model used for meeting summaries.",
+                controlWidth: meetingControlWidth
+            ) {
+                settingsModelMenu(
+                    currentModel: appState.config.openAIModel,
+                    presets: SummaryModelPreset.openAIModels
+                ) { val in controller.updateConfig { $0.openAIModel = val } }
+            }
+            summaryThinkingRow(model: appState.config.openAIModel, presets: SummaryModelPreset.openAIModels)
+        } else if backend == .ollama {
+            Divider().background(MeetsTheme.surfaceBorder)
+            settingsRow(
+                "Model",
+                description: "Model used for meeting summaries.",
+                controlWidth: meetingControlWidth
+            ) {
+                settingsModelTextField(
+                    currentModel: appState.config.ollamaModel,
+                    placeholder: "qwen3.5"
+                ) { val in controller.updateConfig { $0.ollamaModel = val } }
+            }
+        } else if backend == .lmStudio {
+            Divider().background(MeetsTheme.surfaceBorder)
+            settingsRow(
+                "Model",
+                description: "Model used for meeting summaries.",
+                controlWidth: meetingControlWidth
+            ) {
+                settingsModelTextField(
+                    currentModel: appState.config.lmStudioModel,
+                    placeholder: "Select a loaded LM Studio model"
+                ) { val in controller.updateConfig { $0.lmStudioModel = val } }
+            }
+        } else if backend == .customLLM {
+            Divider().background(MeetsTheme.surfaceBorder)
+            settingsRow(
+                "Model",
+                description: "Model used for meeting summaries.",
+                controlWidth: meetingControlWidth
+            ) {
+                settingsModelTextField(
+                    currentModel: appState.config.customLLMModel,
+                    placeholder: appState.config.customLLMFormat == CustomLLMFormat.anthropic.rawValue
+                        ? "claude-3-5-sonnet-20241022"
+                        : "custom-model-id"
+                ) { val in controller.updateConfig { $0.customLLMModel = val } }
+            }
+        } else if backend == .acpAgent {
+            Divider().background(MeetsTheme.surfaceBorder)
+            acpModelMenuRow
+            Divider().background(MeetsTheme.surfaceBorder)
+            acpThinkingMenuRow
+        } else if backend == .appleIntelligence {
+            // The system on-device model exposes no model or effort to pick.
+            settingsDescription("Apple Intelligence writes summaries with the system model; there is nothing to choose.")
+        } else {
+            Divider().background(MeetsTheme.surfaceBorder)
+            settingsRow(
+                "Model",
+                description: "Model used for meeting summaries.",
+                controlWidth: meetingControlWidth
+            ) {
+                openRouterFreeModelMenu
+            }
+            Divider().background(MeetsTheme.surfaceBorder)
+            settingsRow(
+                "Custom model ID",
+                description: "Use any OpenRouter model by its ID.",
+                controlWidth: meetingControlWidth
+            ) {
+                settingsModelTextField(
+                    currentModel: appState.config.openRouterModel,
+                    placeholder: "provider/model",
+                    onBeginEditing: { isUsingCustomOpenRouterModel = true }
+                ) { val in controller.updateConfig { $0.openRouterModel = val } }
+            }
+        }
+    }
+
+    /// Thinking effort for the summary model, on the models that expose one.
+    @ViewBuilder
+    private func summaryThinkingRow(model: String, presets: [SummaryModelPreset]) -> some View {
+        let resolvedModel = model.isEmpty ? (presets.first?.id ?? "") : model
+        if !ReasoningEffortPolicy.selectableEfforts(for: resolvedModel).isEmpty {
+            Divider().background(MeetsTheme.surfaceBorder)
+            settingsRow("Thinking", controlWidth: meetingControlWidth) {
+                settingsReasoningSlider(
+                    model: resolvedModel,
+                    preferred: appState.config.meetingSummaryReasoningEffort,
+                    accessibilityLabel: "Meeting summary thinking"
+                ) { effort in
+                    controller.updateConfig { $0.meetingSummaryReasoningEffort = effort }
+                }
+            }
+        }
+    }
+
+    /// Model rows for whichever cleanup source is the default: the on-device
+    /// model keeps its download controls, hosted providers keep their model
+    /// field, and Apple Intelligence has nothing to configure.
+    @ViewBuilder
+    private var aiCleanupModelRows: some View {
+        if selectedCleanupBackend.isLocal {
+            Divider().background(MeetsTheme.surfaceBorder)
+            settingsRow(
+                "Local model",
+                description: "Downloaded model used for on-device cleanup.",
+                controlWidth: meetingControlWidth
+            ) {
+                settingsMenu(
+                    selection: selectedCleanupLocalModel.label,
+                    options: cleanupLocalModels.map(\.label)
+                ) { label in
+                    if let option = cleanupLocalModels.first(where: { $0.label == label }) {
+                        controller.selectPostProcessor(option)
+                    }
+                }
+            }
+            if !selectedCleanupLocalModel.isDownloaded {
+                Divider().background(MeetsTheme.surfaceBorder)
+                settingsRow(
+                    "Download",
+                    description: "Download the on-device cleanup model.",
+                    controlWidth: meetingControlWidth
+                ) {
+                    if let progress = cleanupDownloads[selectedCleanupLocalModel.id] {
+                        HStack(spacing: 6) {
+                            ProgressView(value: progress)
+                                .frame(width: 120)
+                            Text("\(Int(progress * 100))%")
+                                .font(.system(size: 11))
+                                .foregroundStyle(MeetsTheme.textTertiary)
+                        }
+                    } else {
+                        actionButton("Download \(selectedCleanupLocalModel.sizeLabel)", systemImage: "arrow.down.circle") {
+                            downloadSelectedCleanupModel()
+                        }
+                    }
+                }
+            } else {
+                Divider().background(MeetsTheme.surfaceBorder)
+                settingsRow(
+                    "Delete model",
+                    description: "Remove the downloaded cleanup model to free space.",
+                    controlWidth: meetingControlWidth
+                ) {
+                    actionButton("Delete", systemImage: "trash") {
+                        controller.deletePostProcessorModel(selectedCleanupLocalModel)
+                    }
+                }
+            }
+        } else if selectedCleanupBackend == .hosted(.acpAgent) {
+            Divider().background(MeetsTheme.surfaceBorder)
+            acpModelMenuRow
+            Divider().background(MeetsTheme.surfaceBorder)
+            acpThinkingMenuRow
+        } else if selectedCleanupBackend != .appleIntelligence {
+            Divider().background(MeetsTheme.surfaceBorder)
+            settingsRow(
+                "Model",
+                description: "Model used for AI transcript cleanup.",
+                controlWidth: meetingControlWidth
+            ) {
+                settingsModelTextField(
+                    currentModel: cleanupConfiguredModel,
+                    placeholder: TranscriptCleanupClient.defaultModel(for: selectedCleanupBackend)
+                ) { newModel in
+                    controller.updateConfig { config in
+                        switch selectedCleanupBackend.backend {
+                        case "chatgpt": config.postProcessorChatGPTModel = newModel
+                        case "openai": config.postProcessorOpenAIModel = newModel
+                        case "openrouter": config.postProcessorOpenRouterModel = newModel
+                        case "ollama": config.postProcessorOllamaModel = newModel
+                        case "lmstudio": config.postProcessorLMStudioModel = newModel
+                        default: config.postProcessorCustomLLMModel = newModel
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// A default's menu entry keeps its provider even when that provider is no
+    /// longer connected, marked so the loss is visible.
+    private static let aiNotConnectedSuffix = " · Not connected"
+
+    private func aiSummaryPickerLabels(state: AIConnectionState) -> [String] {
+        var labels = AIProviderDirectory.connectedSummaryProviders(config: appState.config, state: state).map(\.label)
+        let selected = appState.selectedMeetingSummaryBackend
+        if !aiIsConnected(selected, state: state) {
+            labels.append(selected.label + Self.aiNotConnectedSuffix)
+        }
+        return labels
+    }
+
+    private func aiSummarySelectionLabel(state: AIConnectionState) -> String {
+        let selected = appState.selectedMeetingSummaryBackend
+        return aiIsConnected(selected, state: state)
+            ? selected.label
+            : selected.label + Self.aiNotConnectedSuffix
+    }
+
+    private func aiSummaryOption(matchingPickerLabel label: String) -> MeetingSummaryBackendOption? {
+        let name = aiBaseLabel(label)
+        return MeetingSummaryBackendOption.all.first(where: { $0.label == name })
+    }
+
+    private func aiIsConnected(_ option: MeetingSummaryBackendOption, state: AIConnectionState) -> Bool {
+        guard let provider = AIProvider(summaryOption: option) else { return false }
+        return AIProviderDirectory.isConnected(provider, config: appState.config, state: state)
+    }
+
+    private func aiCleanupPickerLabels(state: AIConnectionState) -> [String] {
+        var labels = AIProviderDirectory.connectedCleanupBackends(config: appState.config, state: state).map(\.label)
+        let selected = selectedCleanupBackend
+        if !aiIsConnected(selected, state: state) {
+            labels.append(selected.label + Self.aiNotConnectedSuffix)
+        }
+        return labels
+    }
+
+    private func aiCleanupSelectionLabel(state: AIConnectionState) -> String {
+        let selected = selectedCleanupBackend
+        return aiIsConnected(selected, state: state)
+            ? selected.label
+            : selected.label + Self.aiNotConnectedSuffix
+    }
+
+    private func aiCleanupOption(matchingPickerLabel label: String) -> TranscriptCleanupBackendOption? {
+        let name = aiBaseLabel(label)
+        return TranscriptCleanupBackendOption.all.first(where: { $0.label == name })
+    }
+
+    /// The on-device cleanup model belongs to no provider and needs no account.
+    private func aiIsConnected(_ option: TranscriptCleanupBackendOption, state: AIConnectionState) -> Bool {
+        if option.isLocal { return true }
+        guard let provider = AIProvider(cleanupBackend: option) else { return false }
+        return AIProviderDirectory.isConnected(provider, config: appState.config, state: state)
+    }
+
+    /// Strips the not-connected marker so a menu pick maps back to its option.
+    private func aiBaseLabel(_ label: String) -> String {
+        label.hasSuffix(Self.aiNotConnectedSuffix)
+            ? String(label.dropLast(Self.aiNotConnectedSuffix.count))
+            : label
     }
 
     private var appearanceSettingsPane: some View {

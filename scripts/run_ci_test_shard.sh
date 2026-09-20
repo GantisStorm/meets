@@ -101,6 +101,7 @@ case "${shard}" in
       MeetingFollowUpThreadTests
       MeetingFollowUpSummaryPromptTests
       MeetingSummaryClientTests
+      AIProviderDirectoryTests
       MeetingsNavigationTests
       MeetingBrowserLogicTests
       MeetingBrowserShelfTests

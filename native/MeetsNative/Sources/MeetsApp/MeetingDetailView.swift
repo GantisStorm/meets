@@ -88,11 +88,11 @@ struct MeetingDetailView: View {
     @Environment(\.usesCompactQuickNotes) private var usesCompactQuickNotes
     @State private var isSummarizing = false
     @State private var isRetranscribing = false
-    @State private var isEditingNotes = false
+    @State private var isEditingSummary = false
     @State private var isEditingManualNotes = false
     @State private var isEditingTranscript = false
     @State private var editableTitle: String
-    @State private var editableNotes: String
+    @State private var editableSummary: String
     @State private var editableTranscript: String
     @State private var editableManualNotes: String
     @State private var loadedMeetingID: Int64?
@@ -158,7 +158,7 @@ struct MeetingDetailView: View {
         self.backLabel = backLabel
         let initialTemplateID = meeting.map { controller.meetingTemplateSnapshot(for: $0).id } ?? controller.defaultMeetingTemplate().id
         _editableTitle = State(initialValue: meeting?.title ?? "")
-        _editableNotes = State(initialValue: meeting.map { Self.notesContent(for: $0) } ?? "")
+        _editableSummary = State(initialValue: meeting.map { Self.notesContent(for: $0) } ?? "")
         _editableTranscript = State(initialValue: meeting?.rawTranscript ?? "")
         _editableManualNotes = State(initialValue: meeting?.manualNotes ?? "")
         _loadedMeetingID = State(initialValue: meeting?.id)
@@ -667,25 +667,6 @@ struct MeetingDetailView: View {
                 .padding(.bottom, 24)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             }
-        } else if isEditingNotes {
-            VStack(alignment: .leading, spacing: MeetsTheme.spacing12) {
-                contentToolbar(for: meeting)
-
-                TextEditor(text: $editableNotes)
-                    .font(.system(size: 13, design: .monospaced))
-                    .foregroundStyle(MeetsTheme.textPrimary)
-                    .scrollContentBackground(.hidden)
-                    .padding(MeetsTheme.spacing24)
-                    .background(MeetsTheme.backgroundBase)
-                    .frame(maxWidth: 980, maxHeight: .infinity, alignment: .topLeading)
-                    .onChange(of: editableNotes) { _, _ in
-                        debounceSaveNotes(meetingID: meeting.id)
-                    }
-            }
-            .padding(.horizontal, 40)
-            .padding(.top, 12)
-            .padding(.bottom, 24)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         } else if isEditingTranscript {
             VStack(alignment: .leading, spacing: MeetsTheme.spacing12) {
                 contentToolbar(for: meeting)
@@ -765,14 +746,14 @@ struct MeetingDetailView: View {
                             completedManualNotesSection(meeting, fillsHeight: true)
                                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
 
-                            completedSummarySection(for: meeting)
+                            completedSummarySection(for: meeting, fillsHeight: true)
                                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                         }
                     } compact: {
                         VStack(alignment: .leading, spacing: MeetsTheme.spacing12) {
                             completedManualNotesSection(meeting)
 
-                            MeetingNotesView(markdown: Self.notesContent(for: meeting))
+                            completedSummarySection(for: meeting)
                         }
                     }
                     .transition(.move(edge: .leading).combined(with: .opacity))
@@ -783,11 +764,17 @@ struct MeetingDetailView: View {
             }
             .animation(.easeOut(duration: 0.2), value: showsWrittenNotes)
         } else {
-            MeetingNotesView(markdown: Self.notesContent(for: meeting))
+            completedSummarySection(for: meeting)
         }
     }
 
-    private func completedSummarySection(for meeting: MeetingRecord) -> some View {
+    /// The generated summary, with the same inline editor the written notes
+    /// have: the old full-width editor hid the rest of the document while it
+    /// was open, so the summary now edits in place.
+    private func completedSummarySection(
+        for meeting: MeetingRecord,
+        fillsHeight: Bool = false
+    ) -> some View {
         VStack(alignment: .leading, spacing: MeetsTheme.spacing8) {
             HStack(spacing: 6) {
                 Image(systemName: "sparkles")
@@ -795,10 +782,36 @@ struct MeetingDetailView: View {
                 Text("Summary")
                     .font(MeetsTheme.headline())
                 Spacer()
+                Button(action: { toggleSummaryEditing(for: meeting) }) {
+                    Image(systemName: isEditingSummary ? "checkmark.circle" : "pencil")
+                        .font(.system(size: 11, weight: .semibold))
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(MeetsTheme.textSecondary)
+                .help(isEditingSummary ? "Done editing summary" : "Edit summary")
             }
             .foregroundStyle(MeetsTheme.textPrimary)
 
-            MeetingNotesView(markdown: Self.notesContent(for: meeting))
+            if isEditingSummary {
+                MarkdownRichTextEditor(
+                    text: $editableSummary,
+                    command: $manualEditorCommand,
+                    shouldFocus: true,
+                    isEditable: true,
+                    onTextChange: { _ in
+                        debounceSaveNotes(meetingID: meeting.id)
+                    }
+                )
+                .frame(minHeight: 120, maxHeight: fillsHeight ? .infinity : 260)
+                .background(MeetsTheme.backgroundBase)
+                .clipShape(RoundedRectangle(cornerRadius: MeetsTheme.cornerSmall))
+                .overlay(
+                    RoundedRectangle(cornerRadius: MeetsTheme.cornerSmall)
+                        .strokeBorder(MeetsTheme.surfaceBorder, lineWidth: 1)
+                )
+            } else {
+                MeetingNotesView(markdown: Self.notesContent(for: meeting))
+            }
         }
     }
 
@@ -873,6 +886,25 @@ struct MeetingDetailView: View {
         }
     }
 
+    /// Enters or leaves summary editing. The written-notes column opens beside
+    /// the summary when the meeting has stored notes, so the summary stays
+    /// editable next to the notes it was generated from.
+    private func toggleSummaryEditing(for meeting: MeetingRecord) {
+        if isEditingSummary {
+            notesSaveTask?.cancel()
+            notesSaveTask = nil
+            controller.updateMeetingNotes(id: meeting.id, notes: editableSummary)
+            isEditingSummary = false
+        } else {
+            editableSummary = Self.notesContent(for: meeting)
+            if hasStoredManualNotes(meeting), !showsWrittenNotes {
+                showsWrittenNotes = true
+                MeetingViewPreferences.shared.setShowsWrittenNotes(true, for: meeting.id)
+            }
+            isEditingSummary = true
+        }
+    }
+
     private var documentModePicker: some View {
         Picker("", selection: $documentMode) {
             Text("Notes + Summary").tag(MeetingDocumentMode.notes)
@@ -885,7 +917,7 @@ struct MeetingDetailView: View {
         // pushed the right segment past the strip it sits in. Sizing to the
         // control's own width keeps it inside that strip.
         .fixedSize()
-        .disabled(isEditingNotes || isEditingTranscript)
+        .disabled(isEditingSummary || isEditingTranscript)
     }
 
     private var recordingModePicker: some View {
@@ -929,7 +961,7 @@ struct MeetingDetailView: View {
                     .help("Summarizing meeting")
             }
 
-            if isEditingNotes || isEditingTranscript {
+            if isEditingSummary || isEditingTranscript {
                 editButton(for: meeting)
             } else {
                 compactMoreActionsMenu(for: meeting, appliedTemplate: appliedTemplate)
@@ -937,14 +969,14 @@ struct MeetingDetailView: View {
         }
     }
 
-    private func runTranscriptCleanup() {
+    private func runTranscriptCleanup(cleanupConfig: AppConfig? = nil) {
         guard let meeting else { return }
         guard !isCleaningTranscript else { return }
         isCleaningTranscript = true
         cleanupErrorMessage = nil
         Task {
             do {
-                try await controller.applyTranscriptCleanup(id: meeting.id)
+                try await controller.applyTranscriptCleanup(id: meeting.id, cleanupConfig: cleanupConfig)
                 await MainActor.run {
                     isCleaningTranscript = false
                     if let updated = controller.meeting(id: meeting.id) {
@@ -1039,21 +1071,16 @@ struct MeetingDetailView: View {
     @ViewBuilder
     private func editButton(for meeting: MeetingRecord) -> some View {
         iconButton(
-            isEditingNotes || isEditingTranscript ? "checkmark.circle" : "pencil",
+            isEditingSummary || isEditingTranscript ? "checkmark.circle" : "pencil",
             label: editButtonLabel
         ) {
             toggleEditing(for: meeting)
         }
-        .disabled(isRetranscribing && !isEditingNotes && !isEditingTranscript)
+        .disabled(isRetranscribing && !isEditingSummary && !isEditingTranscript)
     }
 
     private func toggleEditing(for meeting: MeetingRecord) {
-        if isEditingNotes {
-            notesSaveTask?.cancel()
-            notesSaveTask = nil
-            controller.updateMeetingNotes(id: meeting.id, notes: editableNotes)
-            isEditingNotes = false
-        } else if isEditingTranscript {
+        if isEditingTranscript {
             guard !isRetranscribing else { return }
             transcriptSaveTask?.cancel()
             transcriptSaveTask = nil
@@ -1075,9 +1102,9 @@ struct MeetingDetailView: View {
             transcriptEditHadStructuredNotes = meeting.notesState == .structuredNotes
             isEditingTranscript = true
         } else {
-            documentMode = .notes
-            editableNotes = Self.notesContent(for: meeting)
-            isEditingNotes = true
+            // Notes mode owns the summary editor, so the toolbar pencil and the
+            // menu item both come through here.
+            toggleSummaryEditing(for: meeting)
         }
     }
 
@@ -1096,7 +1123,7 @@ struct MeetingDetailView: View {
                 isRetranscribing
                     || meeting.status == .recording
                     || meeting.status == .processing
-                    || isEditingNotes
+                    || isEditingSummary
                     || isEditingTranscript
             )
         }
@@ -1198,7 +1225,7 @@ struct MeetingDetailView: View {
                 .disabled(
                     isSummarizing
                         || isRetranscribing
-                        || isEditingNotes
+                        || isEditingSummary
                         || isEditingTranscript
                         || meeting.rawTranscript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 )
@@ -1309,7 +1336,7 @@ struct MeetingDetailView: View {
         if controller.canResumeFinishedMeeting(meeting),
            !appState.isMeetingRecording,
            !appState.isMeetingStarting,
-           !isEditingNotes,
+           !isEditingSummary,
            !isEditingTranscript,
            !isSummarizing,
            !isRetranscribing {
@@ -1393,14 +1420,24 @@ struct MeetingDetailView: View {
         }
         .menuStyle(.borderlessButton)
         .fixedSize()
-        .disabled(isEditingNotes || isEditingTranscript)
+        .disabled(isEditingSummary || isEditingTranscript)
     }
 
     private func compactMoreActionsMenu(
         for meeting: MeetingRecord,
         appliedTemplate: MeetingTemplateSnapshot
     ) -> some View {
-        Menu {
+        // The directory answers "can this provider run right now" for both
+        // menus, so the summary list and the cleanup list can never disagree.
+        let connectedSummaryProviders = AIProviderDirectory.connectedSummaryProviders(
+            config: controller.config,
+            state: controller.aiConnectionState
+        )
+        let connectedCleanupBackends = AIProviderDirectory.connectedCleanupBackends(
+            config: controller.config,
+            state: controller.aiConnectionState
+        )
+        return Menu {
             Menu {
                 templateMenuItems(for: meeting, appliedTemplate: appliedTemplate)
             } label: {
@@ -1415,39 +1452,42 @@ struct MeetingDetailView: View {
                     beginSummary(for: meeting)
                 }
                 Divider()
-                ForEach(MeetingSummaryBackendOption.all, id: \.backend) { provider in
-                    if controller.canUseSummaryProvider(provider) {
-                        if provider == .appleIntelligence {
-                            // On-device provider with no model choice: a single
-                            // item, never an empty model submenu.
-                            Button(provider.label) {
-                                beginSummary(for: meeting, summaryConfig: provider.summaryConfiguration(from: appState.config, model: ""))
-                            }
-                        } else {
-                            Menu(provider.label) {
-                                ForEach(provider.summaryModels(config: appState.config,
-                                    openRouterModels: appState.openRouterSummaryModels
-                                ), id: \.id) { model in
-                                    Button(model.label) {
-                                        beginSummary(for: meeting, summaryConfig: provider.summaryConfiguration(from: appState.config, model: model.id))
-                                    }
+                ForEach(connectedSummaryProviders, id: \.backend) { provider in
+                    if provider == .appleIntelligence {
+                        // On-device provider with no model choice: a single
+                        // item, never an empty model submenu.
+                        Button(provider.label) {
+                            beginSummary(for: meeting, summaryConfig: provider.summaryConfiguration(from: appState.config, model: ""))
+                        }
+                    } else {
+                        Menu(provider.label) {
+                            ForEach(provider.summaryModels(config: appState.config,
+                                openRouterModels: appState.openRouterSummaryModels
+                            ), id: \.id) { model in
+                                Button(model.label) {
+                                    beginSummary(for: meeting, summaryConfig: provider.summaryConfiguration(from: appState.config, model: model.id))
                                 }
-                                if provider == .openRouter {
-                                    if case .failed = appState.openRouterSummaryCatalogState {
-                                        Divider()
-                                        Button("Retry Loading Models") {
-                                            controller.loadOpenRouterModels(.text, force: true)
-                                        }
-                                    } else if appState.openRouterSummaryCatalogState == .loading {
-                                        Text("Loading models…")
+                            }
+                            if provider == .openRouter {
+                                if case .failed = appState.openRouterSummaryCatalogState {
+                                    Divider()
+                                    Button("Retry Loading Models") {
+                                        controller.loadOpenRouterModels(.text, force: true)
                                     }
+                                } else if appState.openRouterSummaryCatalogState == .loading {
+                                    Text("Loading models…")
                                 }
                             }
                         }
                     }
                 }
             } label: {
-                Label(primarySummaryActionLabel(for: meeting), systemImage: "sparkles")
+                Label(
+                    connectedSummaryProviders.count > 1
+                        ? "Re-summarize with…"
+                        : primarySummaryActionLabel(for: meeting),
+                    systemImage: "sparkles"
+                )
             }
             .disabled(isSummarizing || isRetranscribing)
 
@@ -1457,6 +1497,34 @@ struct MeetingDetailView: View {
                 Label(editButtonLabel, systemImage: "pencil")
             }
             .disabled(isRetranscribing)
+
+            if !meeting.rawTranscript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                // Picking a backend here is already the confirmation the alert
+                // exists for, so the explicit choice runs immediately.
+                if connectedCleanupBackends.count > 1 {
+                    Menu("Re-clean up with…") {
+                        ForEach(connectedCleanupBackends, id: \.backend) { backend in
+                            Button(backend.label) {
+                                runTranscriptCleanup(
+                                    cleanupConfig: backend.cleanupConfiguration(
+                                        from: controller.config,
+                                        model: TranscriptCleanupClient.configuredModel(
+                                            for: backend,
+                                            config: controller.config
+                                        )
+                                    )
+                                )
+                            }
+                        }
+                    }
+                    .disabled(isCleaningTranscript)
+                } else {
+                    Button("Re-clean up") {
+                        showCleanupConfirmation = true
+                    }
+                    .disabled(isCleaningTranscript)
+                }
+            }
 
             if meeting.savedRecordingPath != nil || controller.canDeleteMeeting(meeting) {
                 Divider()
@@ -2096,8 +2164,12 @@ struct MeetingDetailView: View {
     }
 
     private var transcriptCTA: some View {
-        HStack(spacing: MeetsTheme.spacing8) {
-            if hasApiKey {
+        let summaryProvider = AIProvider(summaryOption: appState.selectedMeetingSummaryBackend)
+        let summaryReady = summaryProvider.map {
+            AIProviderDirectory.isConnected($0, config: controller.config, state: controller.aiConnectionState)
+        } ?? false
+        return HStack(spacing: MeetsTheme.spacing8) {
+            if summaryReady {
                 Image(systemName: "sparkles")
                     .foregroundStyle(MeetsTheme.accent)
                 Text("Use \(primarySummaryActionLabel) to turn this raw transcript into AI meeting notes and a cleaned-up title.")
@@ -2147,29 +2219,6 @@ struct MeetingDetailView: View {
         }
     }
 
-    private var hasApiKey: Bool {
-        let config = appState.config
-        if appState.selectedMeetingSummaryBackend == .chatGPT {
-            return appState.isChatGPTAuthenticated
-        } else if appState.selectedMeetingSummaryBackend == .openAI {
-            return !config.openAIAPIKey.isEmpty || ProcessInfo.processInfo.environment["OPENAI_API_KEY"] != nil
-        } else if appState.selectedMeetingSummaryBackend == .ollama {
-            return true
-        } else if appState.selectedMeetingSummaryBackend == .lmStudio {
-            return MeetingSummaryClient.lmStudioHasRequiredSettings(config: config)
-        } else if appState.selectedMeetingSummaryBackend == .customLLM {
-            return MeetingSummaryClient.customLLMHasRequiredSettings(config: config)
-        } else if appState.selectedMeetingSummaryBackend == .acpAgent {
-            return MeetingSummaryClient.acpAgentHasRequiredSettings(config: config)
-        } else if appState.selectedMeetingSummaryBackend == .appleIntelligence {
-            return AppleIntelligenceBackend.status.isAvailable
-        } else {
-            return !OpenRouterCredentialResolver.resolvedAPIKey(
-                legacyAPIKey: config.openRouterAPIKey
-            ).isEmpty
-        }
-    }
-
     private var primarySummaryActionLabel: String {
         guard let meeting else { return "Re-summarize" }
         return primarySummaryActionLabel(for: meeting)
@@ -2180,10 +2229,10 @@ struct MeetingDetailView: View {
     }
 
     private var editButtonLabel: String {
-        if isEditingNotes || isEditingTranscript {
+        if isEditingSummary || isEditingTranscript {
             return "Done"
         }
-        return documentMode == .transcript ? "Edit Transcript" : "Edit Notes"
+        return documentMode == .transcript ? "Edit Transcript" : "Edit Summary"
     }
 
     private func primarySummaryActionLabel(for meeting: MeetingRecord) -> String {
@@ -2193,7 +2242,7 @@ struct MeetingDetailView: View {
     private func activeCopyText(for meeting: MeetingRecord) -> String {
         switch documentMode {
         case .notes:
-            return isEditingNotes ? editableNotes : Self.notesContent(for: meeting)
+            return isEditingSummary ? editableSummary : Self.notesContent(for: meeting)
         case .transcript:
             return isEditingTranscript ? editableTranscript : meeting.rawTranscript
         }
@@ -2270,7 +2319,7 @@ struct MeetingDetailView: View {
 
     private func debounceSaveNotes(meetingID: Int64) {
         notesSaveTask?.cancel()
-        let notes = editableNotes
+        let notes = editableSummary
         let c = controller
         let item = DispatchWorkItem { c.updateMeetingNotes(id: meetingID, notes: notes) }
         notesSaveTask = item
@@ -2402,8 +2451,8 @@ struct MeetingDetailView: View {
         loadedMeetingID = meeting?.id
         threadContext = meeting.flatMap { controller.meetingThreadContext(for: $0.id) }
         editableTitle = meeting?.title ?? ""
-        if meetingChanged || !isEditingNotes {
-            editableNotes = meeting.map { Self.notesContent(for: $0) } ?? ""
+        if meetingChanged || !isEditingSummary {
+            editableSummary = meeting.map { Self.notesContent(for: $0) } ?? ""
         }
         if meetingChanged || !isEditingTranscript {
             editableTranscript = meeting?.rawTranscript ?? ""
@@ -2420,7 +2469,7 @@ struct MeetingDetailView: View {
         pendingTemplateID = meeting.map { controller.meetingTemplateSnapshot(for: $0).id } ?? controller.defaultMeetingTemplate().id
         if meetingChanged {
             documentMode = meeting.map(Self.defaultDocumentMode(for:)) ?? .notes
-            isEditingNotes = false
+            isEditingSummary = false
             isEditingManualNotes = false
             isEditingTranscript = false
             showFolderPopover = false

@@ -126,7 +126,13 @@ final class StatusBarController: NSObject, NSMenuDelegate {
 
         let meetingBackendItem = NSMenuItem(title: "Meetings Backend", action: nil, keyEquivalent: "")
         let meetingBackendMenu = NSMenu()
-        for option in MeetingSummaryBackendOption.all {
+        // Only connected providers: a backend the user has not set up cannot
+        // write a summary, so offering it here just fails one click later.
+        let usableBackends = AIProviderDirectory.connectedSummaryProviders(
+            config: controller.config,
+            state: controller.aiConnectionState
+        )
+        for option in usableBackends {
             let prefix = controller.selectedMeetingSummaryBackend == option ? "✓ " : ""
             let item = NSMenuItem(
                 title: "\(prefix)\(option.label)",
