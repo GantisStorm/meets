@@ -135,16 +135,8 @@ struct SettingsView: View {
         _selectedPane = State(initialValue: appState.selectedSettingsPane)
     }
 
-    private var micGranted: Bool {
-        appState.interactionPermissionSnapshot?.microphone ?? false
-    }
-
     private var accessibilityGranted: Bool {
         appState.interactionPermissionSnapshot?.accessibility ?? false
-    }
-
-    private var inputMonitoringGranted: Bool {
-        appState.interactionPermissionSnapshot?.inputMonitoring ?? false
     }
 
     private var screenRecordingGranted: Bool {
@@ -2519,45 +2511,20 @@ struct SettingsView: View {
 
     private var permissionsSection: some View {
         settingsSection("Permissions", iconName: "hand.raised") {
-            permissionStatusRow(
-                "Microphone",
-                granted: micGranted,
-                action: { AVCaptureDevice.requestAccess(for: .audio) { _ in } },
-                pane: "Privacy_Microphone"
-            )
+            interactionPermissionRow(.microphone)
             Divider().background(MeetsTheme.surfaceBorder)
-            permissionStatusRow(
-                "Accessibility",
-                granted: accessibilityGranted,
-                action: {
-                    let opts = [kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary
-                    AXIsProcessTrustedWithOptions(opts)
-                },
-                pane: "Privacy_Accessibility"
-            )
+            interactionPermissionRow(.accessibility)
             Divider().background(MeetsTheme.surfaceBorder)
-            permissionStatusRow(
-                "Input Monitoring",
-                granted: inputMonitoringGranted,
-                action: {
-                    if !CGRequestListenEventAccess() {
-                        openPrivacyPane("Privacy_ListenEvent")
-                    }
-                },
-                pane: "Privacy_ListenEvent"
-            )
+            interactionPermissionRow(.inputMonitoring)
             Divider().background(MeetsTheme.surfaceBorder)
-            permissionStatusRow(
-                "Screen Recording",
-                granted: screenRecordingGranted,
-                action: { CGRequestScreenCaptureAccess() },
-                pane: "Privacy_ScreenCapture"
-            )
+            interactionPermissionRow(.screenRecording)
             if appState.config.useCoreAudioTap {
                 Divider().background(MeetsTheme.surfaceBorder)
                 permissionStatusRow(
                     "System Audio",
-                    granted: systemAudioGranted,
+                    state: isCheckingSystemAudioPermission
+                        ? .checking
+                        : (systemAudioGranted ? .granted : .idle),
                     action: {
                         guard !isCheckingSystemAudioPermission else { return }
                         isCheckingSystemAudioPermission = true
@@ -2566,14 +2533,15 @@ struct SettingsView: View {
                             systemAudioGranted = await CoreAudioSystemRecorder.requestSystemAudioAccess()
                         }
                     },
-                    pane: "Privacy_ScreenCapture",
-                    isBusy: isCheckingSystemAudioPermission
+                    pane: "Privacy_ScreenCapture"
                 )
             }
             Divider().background(MeetsTheme.surfaceBorder)
             permissionStatusRow(
                 "Calendar",
-                granted: calendarGranted,
+                state: isCheckingCalendarPermission
+                    ? .checking
+                    : (calendarGranted ? .granted : .idle),
                 action: {
                     guard !isCheckingCalendarPermission else { return }
                     isCheckingCalendarPermission = true
@@ -2583,58 +2551,103 @@ struct SettingsView: View {
                         calendarGranted = appState.calendarAuthorization == .fullAccess
                     }
                 },
-                pane: "Privacy_Calendars",
-                isBusy: isCheckingCalendarPermission
+                pane: "Privacy_Calendars"
             )
         }
     }
 
-    @ViewBuilder
+    /// Rows backed by the permission coordinator: Grant, the in-flight wait,
+    /// and the System Settings fallback all come from one state machine.
+    private func interactionPermissionRow(_ kind: InteractionPermissionKind) -> some View {
+        permissionStatusRow(
+            kind.title,
+            state: controller.permissionRequests.presentation(for: kind),
+            action: { controller.permissionRequests.request(kind) },
+            pane: kind.systemSettingsPane
+        )
+    }
+
     private func permissionStatusRow(
         _ name: String,
-        granted: Bool,
+        state: PermissionRowPresentation,
         action: @escaping () -> Void,
-        pane: String,
-        isBusy: Bool = false
+        pane: String
     ) -> some View {
-        HStack {
-            HStack(spacing: 8) {
-                Circle()
-                    .fill(granted ? MeetsTheme.success : MeetsTheme.recording)
-                    .frame(width: 8, height: 8)
-                Text(name)
-                    .font(MeetsTheme.body())
-                    .foregroundStyle(MeetsTheme.textPrimary)
-            }
-            Spacer()
-            if granted {
-                Text("Granted")
-                    .font(.system(size: 11))
-                    .foregroundStyle(MeetsTheme.success)
-            } else {
-                Button(isBusy ? "Checking…" : "Grant") {
-                    action()
+        VStack(alignment: .leading, spacing: MeetsTheme.spacing4) {
+            HStack {
+                HStack(spacing: 8) {
+                    Circle()
+                        .fill(state == .granted ? MeetsTheme.success : MeetsTheme.recording)
+                        .frame(width: 8, height: 8)
+                    Text(name)
+                        .font(MeetsTheme.body())
+                        .foregroundStyle(MeetsTheme.textPrimary)
                 }
-                .disabled(isBusy)
+                Spacer()
+                permissionStatusControl(state: state, action: action)
+                Button {
+                    openPrivacyPane(pane)
+                } label: {
+                    Image(systemName: "arrow.up.forward.square")
+                        .font(.system(size: 11))
+                        .foregroundStyle(MeetsTheme.textTertiary)
+                }
                 .buttonStyle(.plain)
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(MeetsTheme.accent)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 3)
-                .background(MeetsTheme.accentSubtle)
-                .clipShape(RoundedRectangle(cornerRadius: MeetsTheme.cornerSmall))
+                .help("Open in System Settings")
             }
-            Button {
-                openPrivacyPane(pane)
-            } label: {
-                Image(systemName: "arrow.up.forward.square")
+            .frame(minHeight: 32)
+
+            if state == .hint {
+                Text(PermissionRequestHint.openedSystemSettings.guidance)
                     .font(.system(size: 11))
-                    .foregroundStyle(MeetsTheme.textTertiary)
+                    .foregroundStyle(MeetsTheme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            .buttonStyle(.plain)
-            .help("Open in System Settings")
         }
-        .frame(minHeight: 32)
+    }
+
+    @ViewBuilder
+    private func permissionStatusControl(
+        state: PermissionRowPresentation,
+        action: @escaping () -> Void
+    ) -> some View {
+        switch state {
+        case .granted:
+            Text("Granted")
+                .font(.system(size: 11))
+                .foregroundStyle(MeetsTheme.success)
+        case .checking:
+            grantButton("Checking…", isEnabled: false, action: action)
+        case .pending:
+            HStack(spacing: MeetsTheme.spacing8) {
+                ProgressView()
+                    .controlSize(.small)
+                Text("Waiting for System Settings…")
+                    .font(.system(size: 11))
+                    .foregroundStyle(MeetsTheme.textSecondary)
+                grantButton("Grant", isEnabled: false, action: action)
+            }
+        case .hint, .idle:
+            grantButton("Grant", isEnabled: true, action: action)
+        }
+    }
+
+    private func grantButton(
+        _ title: String,
+        isEnabled: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(title) {
+            action()
+        }
+        .disabled(!isEnabled)
+        .buttonStyle(.plain)
+        .font(.system(size: 11, weight: .medium))
+        .foregroundStyle(MeetsTheme.accent)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 3)
+        .background(MeetsTheme.accentSubtle)
+        .clipShape(RoundedRectangle(cornerRadius: MeetsTheme.cornerSmall))
     }
 
     private func openPrivacyPane(_ pane: String) {

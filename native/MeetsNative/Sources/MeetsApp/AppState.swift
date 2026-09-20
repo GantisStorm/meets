@@ -127,6 +127,10 @@ final class AppState {
     var config: AppConfig = AppConfig()
     var launchAtLoginRegistrationState: LaunchAtLoginRegistrationState = .disabled
     var interactionPermissionSnapshot: InteractionPermissionSnapshot?
+    /// Permission requests currently settling; drives the "waiting" row state.
+    var pendingPermissionRequests: Set<InteractionPermissionKind> = []
+    /// Requests that fell back to System Settings, keyed by permission.
+    var permissionHints: [InteractionPermissionKind: PermissionRequestHint] = [:]
 
     // Live status
     var isMeetingRecording: Bool = false

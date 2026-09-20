@@ -38,8 +38,6 @@ struct OnboardingView: View {
     @State private var calendarGranted = false
     /// Optional permissions the user skipped (persisted in OnboardingProgress).
     @State private var skippedPermissions: Set<String> = []
-    /// Permissions with a Grant tap still unverified (TCC often needs a relaunch).
-    @State private var grantAttemptedPermissions: Set<String> = []
     @State private var permissionPollTimer: Timer?
     @State private var grantingPermissionName: String?
 
@@ -668,7 +666,7 @@ struct OnboardingView: View {
         let icon: String
         let name: String
         let description: String
-        let granted: Bool
+        let state: PermissionRowPresentation
         /// Microphone alone blocks Continue; everything else is skippable.
         let skippable: Bool
         let action: () -> Void
@@ -679,40 +677,57 @@ struct OnboardingView: View {
             PermissionRow(
                 icon: "mic.fill", name: "Microphone",
                 description: "Required to record meeting audio",
-                granted: micGranted, skippable: false,
+                state: micGranted ? .granted : .idle, skippable: false,
                 action: { AVCaptureDevice.requestAccess(for: .audio) { _ in } }
             ),
             PermissionRow(
                 icon: "accessibility", name: "Accessibility",
                 description: "Meeting context and detection. Enable in System Settings if needed.",
-                granted: accessibilityGranted, skippable: true,
+                state: permissionRowState(for: .accessibility), skippable: true,
                 action: { requestAccessibilityPermission() }
             ),
             PermissionRow(
                 icon: "keyboard.fill", name: "Input Monitoring",
                 description: "Global hotkey support. Enable in System Settings if needed.",
-                granted: inputMonitoringGranted, skippable: true,
+                state: permissionRowState(for: .inputMonitoring), skippable: true,
                 action: { requestInputMonitoringPermission() }
             ),
             PermissionRow(
                 icon: "record.circle", name: "Screen Recording",
                 description: "System-audio capture fallback. Needs an app relaunch after granting.",
-                granted: screenRecordingGranted, skippable: true,
+                state: permissionRowState(for: .screenRecording), skippable: true,
                 action: { requestScreenRecordingPermission() }
             ),
             PermissionRow(
                 icon: "speaker.wave.2.fill", name: "System Audio",
                 description: "Captures remote participants' audio in recorded meetings",
-                granted: systemAudioGranted, skippable: true,
+                state: systemAudioGranted ? .granted : .idle, skippable: true,
                 action: { requestSystemAudioPermission() }
             ),
             PermissionRow(
                 icon: "calendar", name: "Calendar",
                 description: "Syncs your meetings with Apple Calendar — Teams, Exchange, iCloud",
-                granted: calendarGranted, skippable: true,
+                state: calendarGranted ? .granted : .idle, skippable: true,
                 action: { requestCalendarPermission() }
             ),
         ]
+    }
+
+    /// Onboarding polls the OS directly every second, so a grant that lands
+    /// without a request still flips the row; the coordinator supplies the
+    /// in-flight and System Settings fallback states.
+    private func permissionRowState(for kind: InteractionPermissionKind) -> PermissionRowPresentation {
+        if isGranted(kind) { return .granted }
+        return controller.permissionRequests.presentation(for: kind)
+    }
+
+    private func isGranted(_ kind: InteractionPermissionKind) -> Bool {
+        switch kind {
+        case .microphone: return micGranted
+        case .accessibility: return accessibilityGranted
+        case .inputMonitoring: return inputMonitoringGranted
+        case .screenRecording: return screenRecordingGranted
+        }
     }
 
     private func requestCalendarPermission() {
@@ -729,30 +744,15 @@ struct OnboardingView: View {
     }
 
     private func requestAccessibilityPermission() {
-        guard !accessibilityGranted, grantingPermissionName == nil else { return }
-        grantingPermissionName = "Accessibility"
-        grantAttemptedPermissions.insert("Accessibility")
-        let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary
-        AXIsProcessTrustedWithOptions(options)
-        grantingPermissionName = nil
+        controller.permissionRequests.request(.accessibility)
     }
 
     private func requestInputMonitoringPermission() {
-        guard !inputMonitoringGranted, grantingPermissionName == nil else { return }
-        grantingPermissionName = "Input Monitoring"
-        grantAttemptedPermissions.insert("Input Monitoring")
-        if !CGRequestListenEventAccess() {
-            openSystemSettings("Privacy_ListenEvent", yieldBehavior: .orderedBehind)
-        }
-        grantingPermissionName = nil
+        controller.permissionRequests.request(.inputMonitoring)
     }
 
     private func requestScreenRecordingPermission() {
-        guard !screenRecordingGranted, grantingPermissionName == nil else { return }
-        grantingPermissionName = "Screen Recording"
-        grantAttemptedPermissions.insert("Screen Recording")
-        CGRequestScreenCaptureAccess()
-        grantingPermissionName = nil
+        controller.permissionRequests.request(.screenRecording)
     }
 
     private func togglePermissionSkipped(_ name: String) {
@@ -764,17 +764,13 @@ struct OnboardingView: View {
         saveProgress(atStep: currentStep)
     }
 
-    /// True when a Grant tap hasn't flipped its row (TCC regularly needs a
-    /// relaunch before new grants read back). Surfaces the relaunch row.
+    /// True when the coordinator handed a permission off to System Settings
+    /// and the OS still reports it ungranted (TCC often needs a relaunch before
+    /// new grants read back). Surfaces the relaunch row.
     private var needsRelaunchHint: Bool {
-        let states: [(String, Bool)] = [
-            ("Accessibility", accessibilityGranted),
-            ("Input Monitoring", inputMonitoringGranted),
-            ("Screen Recording", screenRecordingGranted),
-            ("System Audio", systemAudioGranted),
-            ("Calendar", calendarGranted),
-        ]
-        return states.contains { grantAttemptedPermissions.contains($0.0) && !$0.1 }
+        InteractionPermissionKind.allCases.contains { kind in
+            appState.permissionHints[kind] == .openedSystemSettings && !isGranted(kind)
+        }
     }
 
     private func relaunchApp() {
@@ -821,7 +817,7 @@ struct OnboardingView: View {
                         icon: row.icon,
                         name: row.name,
                         description: row.description,
-                        granted: row.granted,
+                        state: row.state,
                         skippable: row.skippable,
                         skipped: skippedPermissions.contains(row.name),
                         action: row.action,
@@ -868,60 +864,78 @@ struct OnboardingView: View {
         icon: String,
         name: String,
         description: String,
-        granted: Bool,
+        state: PermissionRowPresentation,
         skippable: Bool,
         skipped: Bool,
         action: @escaping () -> Void,
         onSkip: @escaping () -> Void
     ) -> some View {
-        HStack(spacing: MeetsTheme.spacing12) {
-            Image(systemName: icon)
-                .font(.system(size: 16, weight: .medium))
-                .foregroundStyle(MeetsTheme.accent)
-                .frame(width: 28)
+        VStack(alignment: .leading, spacing: MeetsTheme.spacing4) {
+            HStack(spacing: MeetsTheme.spacing12) {
+                Image(systemName: icon)
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundStyle(MeetsTheme.accent)
+                    .frame(width: 28)
 
-            VStack(alignment: .leading, spacing: 1) {
-                Text(name)
-                    .font(MeetsTheme.headline())
-                    .foregroundStyle(MeetsTheme.textPrimary)
-                Text(description)
-                    .font(MeetsTheme.caption())
-                    .foregroundStyle(MeetsTheme.textSecondary)
-            }
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(name)
+                        .font(MeetsTheme.headline())
+                        .foregroundStyle(MeetsTheme.textPrimary)
+                    Text(description)
+                        .font(MeetsTheme.caption())
+                        .foregroundStyle(MeetsTheme.textSecondary)
+                }
 
-            Spacer()
+                Spacer()
 
-            if granted {
-                Image(systemName: "checkmark.circle.fill")
-                    .font(.system(size: 18))
-                    .foregroundStyle(MeetsTheme.success)
-                    .transition(.scale.combined(with: .opacity))
-            } else {
-                HStack(spacing: MeetsTheme.spacing8) {
-                    if skippable {
-                        Button(skipped ? "Skipped" : "Skip") {
-                            onSkip()
+                if state == .granted {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 18))
+                        .foregroundStyle(MeetsTheme.success)
+                        .transition(.scale.combined(with: .opacity))
+                } else {
+                    HStack(spacing: MeetsTheme.spacing8) {
+                        if skippable {
+                            Button(skipped ? "Skipped" : "Skip") {
+                                onSkip()
+                            }
+                            .buttonStyle(.plain)
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(skipped ? MeetsTheme.textTertiary : MeetsTheme.textSecondary)
                         }
+                        if state == .pending {
+                            ProgressView()
+                                .controlSize(.small)
+                            Text("Waiting for System Settings…")
+                                .font(.system(size: 11))
+                                .foregroundStyle(MeetsTheme.textSecondary)
+                        }
+                        Button("Grant") {
+                            action()
+                        }
+                        .disabled(state == .pending)
                         .buttonStyle(.plain)
                         .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(skipped ? MeetsTheme.textTertiary : MeetsTheme.textSecondary)
+                        .foregroundStyle(MeetsTheme.accent)
+                        .padding(.horizontal, MeetsTheme.spacing12)
+                        .padding(.vertical, 4)
+                        .background(MeetsTheme.accentSubtle)
+                        .clipShape(RoundedRectangle(cornerRadius: MeetsTheme.cornerSmall))
                     }
-                    Button("Grant") {
-                        action()
-                    }
-                    .buttonStyle(.plain)
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(MeetsTheme.accent)
-                    .padding(.horizontal, MeetsTheme.spacing12)
-                    .padding(.vertical, 4)
-                    .background(MeetsTheme.accentSubtle)
-                    .clipShape(RoundedRectangle(cornerRadius: MeetsTheme.cornerSmall))
                 }
             }
+            .padding(.horizontal, MeetsTheme.spacing16)
+            .padding(.vertical, MeetsTheme.spacing12)
+
+            if state == .hint {
+                Text(PermissionRequestHint.openedSystemSettings.guidance)
+                    .font(MeetsTheme.caption())
+                    .foregroundStyle(MeetsTheme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, MeetsTheme.spacing16)
+            }
         }
-        .padding(.horizontal, MeetsTheme.spacing16)
-        .padding(.vertical, MeetsTheme.spacing12)
-        .animation(.easeInOut(duration: 0.25), value: granted)
+        .animation(.easeInOut(duration: 0.25), value: state)
     }
 
     /// Microphone is the only permission required to continue; System Audio

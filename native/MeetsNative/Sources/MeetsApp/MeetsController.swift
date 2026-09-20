@@ -206,6 +206,13 @@ public final class MeetsController: NSObject {
     private lazy var interactionPermissionMonitor = InteractionPermissionMonitor { [weak self] snapshot in
         self?.applyInteractionPermissionSnapshot(snapshot)
     }
+    /// Every permission request goes through this coordinator, so the one-shot
+    /// system APIs fire once per intent and an un-granted outcome opens the
+    /// System Settings pane instead of silently doing nothing.
+    lazy var permissionRequests = PermissionRequestCoordinator(
+        appState: appState,
+        snapshotSource: self
+    )
 
     func beginInteractionPermissionMonitoring(clientID: UUID) {
         guard interactionPermissionMonitoringClientIDs.insert(clientID).inserted else { return }
@@ -237,6 +244,7 @@ public final class MeetsController: NSObject {
     private func applyInteractionPermissionSnapshot(_ snapshot: InteractionPermissionSnapshot) {
         guard appState.interactionPermissionSnapshot != snapshot else { return }
         appState.interactionPermissionSnapshot = snapshot
+        permissionRequests.handleSnapshot(snapshot)
 
         reconcilePendingScreenContextPermission(snapshot)
     }
@@ -271,8 +279,7 @@ public final class MeetsController: NSObject {
     func requestScreenContextEnable() -> Bool {
         guard AXIsProcessTrusted() else {
             updateConfig { $0.enableScreenContext = false }
-            let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary
-            AXIsProcessTrustedWithOptions(options)
+            permissionRequests.request(.accessibility)
             return false
         }
 
@@ -6974,4 +6981,16 @@ func selectCurrentOrNearbyCachedCalendarEvent(
                 calendarOccurrence: $0.resolvedCalendarOccurrence
             )
         }
+}
+
+/// The controller is the coordinator's view of live permission state: it owns
+/// the monitor and the published snapshot.
+extension MeetsController: InteractionPermissionSnapshotSource {
+    var currentPermissionSnapshot: InteractionPermissionSnapshot? {
+        appState.interactionPermissionSnapshot
+    }
+
+    func refreshPermissionSnapshot() async {
+        await interactionPermissionMonitor.refresh()
+    }
 }

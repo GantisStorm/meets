@@ -29,6 +29,7 @@ case "${shard}" in
       OpenRouterAuthTests
       SettingsPermissionRefreshReasonTests
       InteractionPermissionMonitorTests
+      PermissionRequestCoordinatorTests
       OnboardingFlowTests
       OnboardingProgressTests
       FloatingIndicatorVisibilityTests
