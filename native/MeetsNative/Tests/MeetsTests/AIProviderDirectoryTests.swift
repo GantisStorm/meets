@@ -98,6 +98,24 @@ struct AIProviderDirectoryTests {
         #expect(connected(.lmStudio, config, state))
     }
 
+    @Test("ACP connects when an agent this Mac can run exists, or a command is set")
+    func acpConnectionRules() {
+        var config = AppConfig()
+        var state = AIConnectionState()
+        #expect(!connected(.acpAgent, config, state))
+
+        // Discovery is what makes the provider usable: the agent itself is
+        // picked later, beside its model and reasoning.
+        state.installedACPAgents = [ACPAgentCommand(label: "Codex", command: "codex-acp")]
+        #expect(connected(.acpAgent, config, state))
+
+        // An agent typed by hand counts too, since discovery only knows the
+        // launchers it ships with.
+        state.installedACPAgents = []
+        config.acpAgentCommand = "  my-agent --acp  "
+        #expect(connected(.acpAgent, config, state))
+    }
+
     @Test("the summary list offers only connected providers, in canonical order")
     func summaryListFiltersAndOrders() {
         var config = AppConfig()

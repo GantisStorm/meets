@@ -86,6 +86,11 @@ struct AIConnectionState: Equatable {
     var openRouterAPIKey = ""
     /// `OPENAI_API_KEY` when the environment supplies one.
     var environmentOpenAIAPIKey = ""
+    /// ACP agents whose launcher resolves on this Mac, refreshed with every
+    /// snapshot — discovery is a handful of stat calls. For ACP this is what
+    /// "connected" means: the agent is chosen later, next to its model and
+    /// reasoning, rather than being the thing that makes the provider appear.
+    var installedACPAgents: [ACPAgentCommand] = []
 }
 
 enum AIProviderDirectory {
@@ -111,7 +116,10 @@ enum AIProviderDirectory {
                 && (!MeetingSummaryClient.customLLMRequiresAPIKey(config: config)
                     || !trimmed(config.customLLMAPIKey).isEmpty)
         case .acpAgent:
-            return MeetingSummaryClient.acpAgentHasRequiredSettings(config: config)
+            // An agent installed on this Mac makes the provider usable; a
+            // command typed by hand counts too, because discovery only knows
+            // the launchers it ships with.
+            return !trimmed(config.acpAgentCommand).isEmpty || !state.installedACPAgents.isEmpty
         case .appleIntelligence:
             return AppleIntelligenceBackend.status.isAvailable
         case .ollama:
@@ -169,7 +177,8 @@ extension MeetsController {
             openRouterAPIKey: OpenRouterCredentialResolver.resolvedAPIKey(
                 legacyAPIKey: config.openRouterAPIKey
             ),
-            environmentOpenAIAPIKey: ProcessInfo.processInfo.environment["OPENAI_API_KEY"] ?? ""
+            environmentOpenAIAPIKey: ProcessInfo.processInfo.environment["OPENAI_API_KEY"] ?? "",
+            installedACPAgents: ACPAgentDiscovery.discoveredCommands()
         )
     }
 }
