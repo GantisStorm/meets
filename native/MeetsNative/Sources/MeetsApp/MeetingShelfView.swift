@@ -15,9 +15,14 @@ struct MeetingShelfActions {
     let canStartFollowUp: (MeetingBrowserNode) -> Bool
 }
 
-/// One follow-up shelf: the root meeting as a card, then its descendants as
-/// compact nested rows. The shelf carries no chrome of its own, so a card
-/// never ends up inside another card.
+/// One follow-up family as a single card: the parent row, then its descendants
+/// inside the same enclosure below a divider.
+///
+/// Everything a family owns is drawn between one border, so a thread reads as
+/// one object instead of a card followed by a pile of loose rows. Depth inside
+/// the enclosure is carried by a single thread rail and modest indentation; a
+/// branch deep enough that indentation stops meaning anything names its parent
+/// in words instead.
 struct MeetingShelfView: View {
     let shelf: MeetingBrowserShelf
     let isSelected: Bool
@@ -26,13 +31,20 @@ struct MeetingShelfView: View {
     let selectedMeetingID: Int64?
     let folders: [MeetingFolder]
     let folderBreadcrumbs: [Int64: String]
-    /// True when the rendered card is too narrow for a title and its action
-    /// cluster to share a row.
+    /// True when the rendered card is too narrow for generous padding and two
+    /// preview lines.
     let compact: Bool
+    /// True in the list layout, where a family is a compact library row rather
+    /// than a spacious grid card.
+    let dense: Bool
     /// True when a date range is active, so the overflow control may report
     /// how many hidden follow-ups fall inside it.
     let annotatesHiddenMatches: Bool
     let actions: MeetingShelfActions
+
+    /// Leading inset of the descendant block inside the enclosure: enough that
+    /// children read as nested under the parent, without a decorative spine.
+    private static let descendantInset: CGFloat = 20
 
     /// What the collapsed shelf shows and what the overflow control reports.
     /// A filtered thread can otherwise hide its only matching meeting behind
@@ -51,8 +63,23 @@ struct MeetingShelfView: View {
             : Array(shelf.descendants.prefix(visibleCount))
     }
 
+    /// A shelf only ever expands past the initial limit, so a shelf with more
+    /// descendants than the limit always keeps its footer. That is the control
+    /// that used to disappear the moment the thread was expanded, leaving no
+    /// way back to the collapsed shelf.
+    private var showsThreadFooter: Bool {
+        shelf.descendants.count > MeetingBrowserLogic.initialDescendantLimit
+    }
+
+    /// True when any member of the family is the open meeting, so the
+    /// enclosure can mark itself without filling the row the user is not on.
+    private var containsSelection: Bool {
+        if shelf.root.id == selectedMeetingID { return true }
+        return shelf.descendants.contains { $0.id == selectedMeetingID }
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: MeetsTheme.spacing8) {
+        VStack(alignment: .leading, spacing: 0) {
             MeetingListItemView(
                 display: MeetingListItemDisplay(entry: shelf.root.entry, record: shelf.root.record),
                 isSelected: isSelected,
@@ -62,14 +89,15 @@ struct MeetingShelfView: View {
                 folderBreadcrumbs: folderBreadcrumbs,
                 externalParent: shelf.root.externalParent,
                 isOutsideRange: !shelf.root.matchesFilter,
-                compactHeader: compact,
+                compact: compact,
+                dense: dense,
+                canStartFollowUp: actions.canStartFollowUp(shelf.root),
+                canDelete: actions.canDelete(shelf.root),
                 onSelect: { actions.open(shelf.root.id) },
                 onMove: { actions.move(shelf.root.id, $0) },
                 onCreateFolderAndMove: { actions.createFolderAndMove($0, shelf.root.id) },
-                onDelete: actions.canDelete(shelf.root) ? { actions.delete(shelf.root.id) } : nil,
-                onStartFollowUp: actions.canStartFollowUp(shelf.root)
-                    ? { actions.startFollowUp(shelf.root.id) }
-                    : nil,
+                onDelete: { actions.delete(shelf.root.id) },
+                onStartFollowUp: { actions.startFollowUp(shelf.root.id) },
                 onOpenParent: { actions.open($0) }
             )
 
@@ -78,82 +106,93 @@ struct MeetingShelfView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .background(MeetsTheme.backgroundRaised)
+        .clipShape(RoundedRectangle(cornerRadius: MeetsTheme.cornerLarge))
+        .overlay(
+            RoundedRectangle(cornerRadius: MeetsTheme.cornerLarge)
+                .strokeBorder(
+                    containsSelection ? MeetsTheme.accent.opacity(0.35) : MeetsTheme.surfaceBorder,
+                    lineWidth: 1
+                )
+        )
     }
 
     private var descendants: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            ForEach(visibleDescendants) { node in
-                MeetingThreadRow(
-                    node: node,
-                    isSelected: node.id == selectedMeetingID,
-                    folders: folders,
-                    folderBreadcrumbs: folderBreadcrumbs,
-                    compact: compact,
-                    actions: actions
-                )
-            }
+        VStack(alignment: .leading, spacing: 0) {
+            Divider()
+                .foregroundStyle(MeetsTheme.surfaceBorder)
 
-            if descendantPlan.hiddenCount > 0 {
-                MeetingThreadOverflowControl(
-                    shelf: shelf,
-                    plan: descendantPlan,
-                    annotatesHiddenMatches: annotatesHiddenMatches,
-                    isExpanded: isExpanded,
-                    onToggle: { actions.toggleExpanded(shelf.id) }
-                )
-                .padding(.top, 2)
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(visibleDescendants) { node in
+                    MeetingThreadRow(
+                        node: node,
+                        isSelected: node.id == selectedMeetingID,
+                        folders: folders,
+                        folderBreadcrumbs: folderBreadcrumbs,
+                        dense: dense,
+                        actions: actions
+                    )
+                }
+
+                if showsThreadFooter {
+                    MeetingThreadOverflowControl(
+                        shelf: shelf,
+                        plan: descendantPlan,
+                        annotatesHiddenMatches: annotatesHiddenMatches,
+                        isExpanded: isExpanded,
+                        onToggle: { actions.toggleExpanded(shelf.id) }
+                    )
+                    .padding(.top, 2)
+                }
             }
+            .padding(.leading, Self.descendantInset)
+            .padding(.trailing, compact ? MeetsTheme.spacing12 : MeetsTheme.spacing16)
+            .padding(.bottom, dense ? MeetsTheme.spacing8 : MeetsTheme.spacing12)
         }
-        .padding(.leading, MeetsTheme.spacing8)
     }
 }
 
-/// One descendant inside a shelf: a compact row, indented while indentation
-/// still conveys the hierarchy and naming its parent once it does not.
+/// One descendant inside a shelf: its title on the first line with its own
+/// actions menu, and its state and timing beneath it.
+///
+/// The title owns the first line alone — status and range markers moved down to
+/// the metadata line — because at the narrowest detail column a title sharing a
+/// line with three chips collapses to a few characters. Indentation carries the
+/// hierarchy while the shelf still has depth to spare; past the cap the row
+/// names the meeting it hangs from instead.
 struct MeetingThreadRow: View {
     let node: MeetingBrowserNode
     let isSelected: Bool
     let folders: [MeetingFolder]
     let folderBreadcrumbs: [Int64: String]
-    /// True when the column is too narrow to keep the row text and its action
-    /// cluster side by side: the actions move below so indentation does not
-    /// consume the title.
-    let compact: Bool
+    /// True in the list layout, which tightens the row's vertical rhythm.
+    let dense: Bool
     let actions: MeetingShelfActions
     @State private var isHovering = false
 
-    private static let indentStep: CGFloat = 10
+    private static let indentStep: CGFloat = 12
 
     private var indentLevels: Int {
         min(max(node.depth - 1, 0), MeetingBrowserLogic.indentationCapDepth)
     }
 
-    private var folderName: String? {
-        guard let folderID = node.entry.folderID else { return nil }
-        return folderBreadcrumbs[folderID]
-    }
-
     var body: some View {
-        HStack(alignment: .top, spacing: 0) {
-            indentationGuide
-
-            if compact {
-                VStack(alignment: .leading, spacing: 4) {
-                    openButton
-                    HStack(spacing: 0) {
-                        Spacer(minLength: 0)
-                        actionCluster
-                    }
-                }
-            } else {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(alignment: .firstTextBaseline, spacing: MeetsTheme.spacing8) {
                 openButton
-                actionCluster
+                Spacer(minLength: 0)
+                actionsMenu
             }
+
+            detailLine
         }
-        .padding(.vertical, 5)
+        .padding(.leading, CGFloat(indentLevels) * Self.indentStep)
         .padding(.trailing, MeetsTheme.spacing8)
+        .padding(.vertical, dense ? 5 : 7)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .background(rowBackground)
-        .clipShape(RoundedRectangle(cornerRadius: MeetsTheme.cornerSmall))
+        .contentShape(Rectangle())
+        .onTapGesture { actions.open(node.id) }
         .onHover { isHovering = $0 }
     }
 
@@ -161,136 +200,97 @@ struct MeetingThreadRow: View {
         Button {
             actions.open(node.id)
         } label: {
-            rowContent
+            Text(node.entry.title)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(MeetsTheme.textPrimary)
+                .lineLimit(2)
+                .multilineTextAlignment(.leading)
+                .truncationMode(.tail)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .help("Open \(node.entry.title)")
         .accessibilityLabel(accessibilityLabel)
+        .accessibilityHint("Opens the meeting")
     }
 
-    private var rowContent: some View {
-        VStack(alignment: .leading, spacing: 2) {
+    private var actionsMenu: some View {
+        MeetingRowActionMenu(
+            meetingTitle: node.entry.title,
+            folders: folders,
+            breadcrumbs: folderBreadcrumbs,
+            currentFolderID: node.entry.folderID,
+            isHovering: isHovering,
+            canStartFollowUp: actions.canStartFollowUp(node),
+            canDelete: actions.canDelete(node),
+            onStartFollowUp: { actions.startFollowUp(node.id) },
+            onMove: { actions.move(node.id, $0) },
+            onCreateFolderAndMove: { actions.createFolderAndMove($0, node.id) },
+            onDelete: { actions.delete(node.id) }
+        )
+    }
+
+    /// State first, then when it ran, then — where the rail alone no longer says
+    /// it — what it follows on from. The date keeps its full width and the named
+    /// parent gives way first; a narrow column stacks the two instead of
+    /// clipping either.
+    private var detailLine: some View {
+        ViewThatFits(in: .horizontal) {
             HStack(spacing: 6) {
-                Image(systemName: "arrow.turn.left.up")
-                    .font(.system(size: 9, weight: .semibold))
-                    .foregroundStyle(MeetsTheme.accent.opacity(0.75))
-                Text(node.entry.title)
-                    .font(MeetsTheme.captionMedium())
-                    .foregroundStyle(MeetsTheme.textPrimary)
-                    .lineLimit(1)
-                if node.entry.status != .completed {
-                    MeetingStatusBadge(status: node.entry.status)
-                }
-                if !node.matchesFilter {
-                    MeetingOutsideRangeChip()
-                }
+                badgeElements
+                metaText
+                parentText
                 Spacer(minLength: 0)
             }
 
-            metaRow
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    badgeElements
+                    metaText
+                    Spacer(minLength: 0)
+                }
+                parentText
+            }
+
+            VStack(alignment: .leading, spacing: 2) {
+                badgeElements
+                metaText
+                parentText
+            }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .contentShape(Rectangle())
     }
 
     @ViewBuilder
-    private var metaRow: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(spacing: 6) {
-                metaText
-                folderChip
-                parentLink
-                Spacer(minLength: 0)
-            }
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 6) {
-                    metaText
-                    folderChip
-                    Spacer(minLength: 0)
-                }
-                parentLink
-            }
+    private var badgeElements: some View {
+        if node.entry.status != .completed {
+            MeetingStatusBadge(status: node.entry.status)
+        }
+        if !node.matchesFilter {
+            MeetingOutsideRangeChip()
         }
     }
 
     private var metaText: some View {
-        Text("\(MeetingBrowserLogic.formatStartTime(node.entry.startTime))  \u{2022}  \(MeetingListItemFormat.duration(node.entry.durationSeconds))")
-            .font(MeetsTheme.caption())
-            .foregroundStyle(MeetsTheme.textSecondary)
-            .lineLimit(1)
+        Text(MeetingListItemFormat.meta(
+            startTime: node.entry.startTime,
+            durationSeconds: node.entry.durationSeconds
+        ))
+        .font(.system(size: 11))
+        .foregroundStyle(MeetsTheme.textSecondary)
+        .lineLimit(1)
+        .fixedSize(horizontal: true, vertical: false)
+        .help(MeetingBrowserLogic.formatStartTime(node.entry.startTime))
     }
 
     @ViewBuilder
-    private var folderChip: some View {
-        if let folderName {
-            HStack(spacing: 2) {
-                Image(systemName: "folder")
-                    .font(.system(size: 9))
-                Text(folderName)
-                    .font(MeetsTheme.caption())
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-            }
-            .foregroundStyle(MeetsTheme.accent.opacity(0.8))
-            .help(folderName)
-            .accessibilityLabel("Folder: \(folderName)")
-        }
-    }
-
-    /// Names the predecessor whenever the rail alone no longer says where this
-    /// row hangs from: the parent is outside the shelf, or the row sits past
-    /// the indentation cap.
-    @ViewBuilder
-    private var parentLink: some View {
+    private var parentText: some View {
         if let parentTitle = node.parentLinkTitle {
             Text("Follow-up to \(parentTitle)")
-                .font(MeetsTheme.caption())
+                .font(.system(size: 11))
                 .foregroundStyle(MeetsTheme.textSecondary)
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .help("Follow-up to \(parentTitle)")
-                .accessibilityLabel("Follow-up to \(parentTitle)")
-        }
-    }
-
-    @ViewBuilder
-    private var indentationGuide: some View {
-        if indentLevels > 0 {
-            HStack(spacing: 0) {
-                ForEach(0..<indentLevels, id: \.self) { _ in
-                    Rectangle()
-                        .fill(MeetsTheme.surfaceBorder)
-                        .frame(width: 1)
-                        .frame(maxHeight: .infinity)
-                        .padding(.leading, Self.indentStep - 1)
-                }
-            }
-            .padding(.trailing, 2)
-            .accessibilityHidden(true)
-        }
-    }
-
-    @ViewBuilder
-    private var actionCluster: some View {
-        HStack(spacing: 2) {
-            MeetingFolderMoveControl(
-                folders: folders,
-                breadcrumbs: folderBreadcrumbs,
-                currentFolderID: node.entry.folderID,
-                isHovering: isHovering,
-                onMove: { actions.move(node.id, $0) },
-                onCreateFolderAndMove: { actions.createFolderAndMove($0, node.id) }
-            )
-            if actions.canStartFollowUp(node) {
-                MeetingFollowUpControl(isHovering: isHovering) {
-                    actions.startFollowUp(node.id)
-                }
-            }
-            if actions.canDelete(node) {
-                MeetingDeleteControl(isHovering: isHovering) {
-                    actions.delete(node.id)
-                }
-            }
         }
     }
 
@@ -306,7 +306,7 @@ struct MeetingThreadRow: View {
         if node.entry.status != .completed {
             parts.append("status \(node.entry.status.displayLabel)")
         }
-        if let folderName {
+        if let folderID = node.entry.folderID, let folderName = folderBreadcrumbs[folderID] {
             parts.append("in folder \(folderName)")
         }
         if let parentTitle = node.parentLinkTitle {
@@ -322,8 +322,8 @@ struct MeetingThreadRow: View {
 }
 
 /// Collapsed-descendant control. Hovering previews the whole thread in a
-/// scrollable popover; activating it — by click or keyboard — expands the
-/// shelf in place.
+/// scrollable popover; activating it — by click or keyboard — expands or
+/// collapses the shelf in place.
 struct MeetingThreadOverflowControl: View {
     let shelf: MeetingBrowserShelf
     let plan: MeetingBrowserDescendantPlan
@@ -332,6 +332,7 @@ struct MeetingThreadOverflowControl: View {
     let isExpanded: Bool
     let onToggle: () -> Void
     @State private var showsPreview = false
+    @State private var isHovering = false
     @State private var hideWorkItem: DispatchWorkItem?
 
     private var label: String {
@@ -350,17 +351,18 @@ struct MeetingThreadOverflowControl: View {
                 Text(label)
                     .font(.system(size: 11, weight: .medium))
             }
-            .foregroundStyle(MeetsTheme.accent)
-            .padding(.horizontal, 8)
+            .foregroundStyle(isHovering ? MeetsTheme.textPrimary : MeetsTheme.textSecondary)
+            .padding(.horizontal, 6)
             .padding(.vertical, 4)
-            .background(MeetsTheme.accent.opacity(0.10))
-            .clipShape(Capsule())
-            .contentShape(Capsule())
+            .background(isHovering ? MeetsTheme.backgroundHover : Color.clear)
+            .clipShape(RoundedRectangle(cornerRadius: MeetsTheme.cornerSmall))
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .help(helpText)
         .accessibilityLabel(accessibilityLabel)
         .onHover { hovering in
+            isHovering = hovering
             guard !isExpanded else { return }
             if hovering { showPreview() } else { scheduleHide() }
         }
@@ -405,7 +407,7 @@ struct MeetingThreadOverflowControl: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.trailing, 4)
             }
-            .frame(height: 300)
+            .frame(height: previewHeight)
         }
         .padding(MeetsTheme.spacing12)
         .frame(width: 340)
@@ -414,12 +416,18 @@ struct MeetingThreadOverflowControl: View {
         }
     }
 
+    /// Sized to the thread so a short thread does not open a mostly empty
+    /// panel; long threads cap at 300 pt and scroll.
+    private var previewHeight: CGFloat {
+        let rowHeight: CGFloat = 32
+        let rowSpacing: CGFloat = MeetsTheme.spacing8
+        let count = CGFloat(max(shelf.descendants.count, 1))
+        return min(300, count * rowHeight + (count - 1) * rowSpacing)
+    }
+
     private func previewRow(_ node: MeetingBrowserNode) -> some View {
-        VStack(alignment: .leading, spacing: 1) {
-            HStack(spacing: 4) {
-                Image(systemName: "arrow.turn.left.up")
-                    .font(.system(size: 9, weight: .semibold))
-                    .foregroundStyle(MeetsTheme.accent.opacity(0.75))
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 6) {
                 Text(node.entry.title)
                     .font(MeetsTheme.captionMedium())
                     .foregroundStyle(MeetsTheme.textPrimary)
@@ -429,12 +437,15 @@ struct MeetingThreadOverflowControl: View {
                 }
                 Spacer(minLength: 0)
             }
-            Text(MeetingBrowserLogic.formatStartTime(node.entry.startTime))
-                .font(MeetsTheme.caption())
-                .foregroundStyle(MeetsTheme.textSecondary)
-                .lineLimit(1)
+            Text(MeetingListItemFormat.meta(
+                startTime: node.entry.startTime,
+                durationSeconds: node.entry.durationSeconds
+            ))
+            .font(.system(size: 11))
+            .foregroundStyle(MeetsTheme.textSecondary)
+            .lineLimit(1)
         }
-        .padding(.leading, CGFloat(min(node.depth, MeetingBrowserLogic.indentationCapDepth + 1)) * 10)
+        .padding(.leading, CGFloat(min(node.depth, MeetingBrowserLogic.indentationCapDepth + 1)) * 12)
     }
 
     private func showPreview() {
@@ -458,7 +469,8 @@ struct MeetingThreadOverflowControl: View {
     }
 }
 
-/// Folder navigation card for the level directly below the current scope.
+/// Folder navigation tile for the level directly below the current scope: a
+/// quiet row of name and count that never competes with the meeting cards.
 struct MeetingFolderCardView: View {
     let folder: MeetingFolder
     let meetingCount: Int
@@ -476,43 +488,35 @@ struct MeetingFolderCardView: View {
 
     var body: some View {
         Button(action: onOpen) {
-            HStack(spacing: MeetsTheme.spacing12) {
+            HStack(spacing: MeetsTheme.spacing8) {
                 Image(systemName: hasSubfolders ? "folder.fill" : "folder")
-                    .font(.system(size: 14))
+                    .font(.system(size: 12))
                     .foregroundStyle(MeetsTheme.textSecondary)
-                    .frame(width: 20)
+                    .frame(width: 16)
 
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(folder.name)
-                        .font(MeetsTheme.captionMedium())
-                        .foregroundStyle(MeetsTheme.textPrimary)
-                        .lineLimit(1)
-                    Text(countLabel)
-                        .font(MeetsTheme.caption())
-                        .foregroundStyle(MeetsTheme.textSecondary)
-                        .lineLimit(1)
-                }
+                Text(folder.name)
+                    .font(MeetsTheme.captionMedium())
+                    .foregroundStyle(MeetsTheme.textPrimary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
 
-                Spacer(minLength: 0)
+                Spacer(minLength: MeetsTheme.spacing4)
 
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 9, weight: .semibold))
-                    .foregroundStyle(MeetsTheme.textTertiary)
+                Text("\(meetingCount)")
+                    .font(MeetsTheme.caption())
+                    .foregroundStyle(MeetsTheme.textSecondary)
+                    .monospacedDigit()
             }
-            .padding(.horizontal, MeetsTheme.spacing12)
-            .padding(.vertical, 10)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(isHovering ? MeetsTheme.backgroundHover : MeetsTheme.backgroundRaised)
-            .clipShape(RoundedRectangle(cornerRadius: MeetsTheme.cornerLarge))
-            .overlay(
-                RoundedRectangle(cornerRadius: MeetsTheme.cornerLarge)
-                    .strokeBorder(MeetsTheme.surfaceBorder, lineWidth: 1)
-            )
+            .background(isHovering ? MeetsTheme.backgroundHover : MeetsTheme.surfacePrimary.opacity(0.5))
+            .clipShape(RoundedRectangle(cornerRadius: MeetsTheme.cornerMedium))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .onHover { isHovering = $0 }
-        .help("Open \(folder.name)")
+        .help("Open \(folder.name) \u{00B7} \(countLabel)")
         .accessibilityLabel("\(folder.name), \(countLabel)")
     }
 }

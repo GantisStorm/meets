@@ -90,17 +90,26 @@ enum MeetingFolderBreadcrumbs {
                 parts.insert(parent.name, at: 0)
                 current = parent.parentID
             }
-            paths[folder.id] = parts.joined(separator: " / ")
+            paths[folder.id] = parts.joined(separator: MeetingFolderBreadcrumbs.separator)
         }
         return paths
     }
+
+    static let separator = " / "
+
+    /// The last component of a breadcrumb path built by `paths(for:)`.
+    static func leafName(of path: String) -> String {
+        path.components(separatedBy: separator).last ?? path
+    }
 }
 
-/// One meeting rendered as a card: the shelf root, or a standalone meeting.
+/// One meeting rendered as a row: the parent of a follow-up family, or a
+/// meeting with no follow-ups, which is a family of one.
 ///
-/// Opens through a real button so the card is reachable from the keyboard;
-/// move, follow-up, and delete stay sibling controls instead of nesting inside
-/// that button.
+/// The shelf owns the card chrome — fill, corner, border — so this view draws
+/// content only and fills its own row box. That keeps selection on the row
+/// instead of lighting up the whole family enclosure, and it is why a
+/// standalone meeting and a family parent look like the same kind of object.
 struct MeetingListItemView: View {
     let display: MeetingListItemDisplay
     let isSelected: Bool
@@ -114,51 +123,21 @@ struct MeetingListItemView: View {
     /// True when the card is shown only to keep a matching descendant's
     /// thread context.
     let isOutsideRange: Bool
-    /// True when the card is too narrow to keep the title and the action
-    /// cluster on one row: the title takes the full width and the actions move
-    /// beneath it, so the title stays legible instead of truncating to a stub.
-    let compactHeader: Bool
+    /// True when the card is too narrow for generous padding and two preview
+    /// lines: the row tightens its inset and shows one.
+    let compact: Bool
+    /// True in the list layout: the same meeting, rendered as a compact library
+    /// row rather than a spacious grid card.
+    let dense: Bool
+    let canStartFollowUp: Bool
+    let canDelete: Bool
     let onSelect: () -> Void
     let onMove: (Int64?) -> Void
-    let onCreateFolderAndMove: ((String) -> Void)?
-    let onDelete: (() -> Void)?
-    let onStartFollowUp: (() -> Void)?
+    let onCreateFolderAndMove: (String) -> Void
+    let onDelete: () -> Void
+    let onStartFollowUp: () -> Void
     let onOpenParent: ((Int64) -> Void)?
     @State private var isHovering = false
-
-    init(
-        display: MeetingListItemDisplay,
-        isSelected: Bool,
-        hasFollowUps: Bool,
-        followUpCount: Int = 0,
-        folders: [MeetingFolder],
-        folderBreadcrumbs: [Int64: String] = [:],
-        externalParent: MeetingBrowserParentLink? = nil,
-        isOutsideRange: Bool = false,
-        compactHeader: Bool = false,
-        onSelect: @escaping () -> Void,
-        onMove: @escaping (Int64?) -> Void,
-        onCreateFolderAndMove: ((String) -> Void)?,
-        onDelete: (() -> Void)?,
-        onStartFollowUp: (() -> Void)? = nil,
-        onOpenParent: ((Int64) -> Void)? = nil
-    ) {
-        self.display = display
-        self.isSelected = isSelected
-        self.hasFollowUps = hasFollowUps
-        self.followUpCount = followUpCount
-        self.folders = folders
-        self.folderBreadcrumbs = folderBreadcrumbs
-        self.externalParent = externalParent
-        self.isOutsideRange = isOutsideRange
-        self.compactHeader = compactHeader
-        self.onSelect = onSelect
-        self.onMove = onMove
-        self.onCreateFolderAndMove = onCreateFolderAndMove
-        self.onDelete = onDelete
-        self.onStartFollowUp = onStartFollowUp
-        self.onOpenParent = onOpenParent
-    }
 
     private var currentFolderName: String? {
         guard let folderID = display.folderID else { return nil }
@@ -166,65 +145,62 @@ struct MeetingListItemView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: MeetsTheme.spacing8) {
-            headerRow
+        VStack(alignment: .leading, spacing: dense || compact ? MeetsTheme.spacing4 : 6) {
+            HStack(alignment: .top, spacing: MeetsTheme.spacing8) {
+                openButton
+                actionMenu
+            }
 
             parentLinkButton
 
-            detailBlock
+            metaLine
+
+            contextLine
+
+            previewLine
         }
-        .padding(compactHeader ? MeetsTheme.spacing12 : MeetsTheme.spacing16)
+        .padding(.horizontal, dense || compact ? MeetsTheme.spacing12 : MeetsTheme.spacing16)
+        .padding(.vertical, dense ? 10 : (compact ? MeetsTheme.spacing12 : 14))
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(isSelected ? MeetsTheme.surfaceSelected : MeetsTheme.backgroundRaised)
-        .clipShape(RoundedRectangle(cornerRadius: MeetsTheme.cornerLarge))
-        .overlay(
-            RoundedRectangle(cornerRadius: MeetsTheme.cornerLarge)
-                .strokeBorder(
-                    isSelected ? MeetsTheme.accent.opacity(0.35) : MeetsTheme.surfaceBorder,
-                    lineWidth: 1
-                )
-        )
+        .background(rowBackground)
+        .contentShape(Rectangle())
+        .onTapGesture(perform: onSelect)
         .onHover { isHovering = $0 }
     }
 
-    /// Title and actions share a row while the card can hold both; a narrow card
-    /// gives the title the full width and moves the actions underneath it.
-    @ViewBuilder
-    private var headerRow: some View {
-        if compactHeader {
-            VStack(alignment: .leading, spacing: MeetsTheme.spacing4) {
-                openButton
-                HStack(spacing: 0) {
-                    Spacer(minLength: 0)
-                    actionCluster
-                }
-            }
-        } else {
-            HStack(alignment: .top, spacing: MeetsTheme.spacing8) {
-                openButton
-                Spacer(minLength: 0)
-                actionCluster
-            }
+    /// A prominent title that keeps the row to itself, with the whole family's
+    /// actions folded into one menu beside it. The list layout steps it down to
+    /// a library-row size; the grid keeps the card's own weight.
+    private var openButton: some View {
+        Button(action: onSelect) {
+            Text(display.title)
+                .font(dense ? .system(size: 15, weight: .semibold) : MeetsTheme.title3())
+                .foregroundStyle(MeetsTheme.textPrimary)
+                .lineLimit(dense ? 1 : 2)
+                .multilineTextAlignment(.leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
+        .help("Open \(display.title)")
+        .accessibilityLabel(display.title)
+        .accessibilityHint("Opens the meeting")
     }
 
-    private var actionCluster: some View {
-        HStack(spacing: 6) {
-            MeetingFolderMoveControl(
-                folders: folders,
-                breadcrumbs: folderBreadcrumbs,
-                currentFolderID: display.folderID,
-                isHovering: isHovering,
-                onMove: onMove,
-                onCreateFolderAndMove: onCreateFolderAndMove
-            )
-            if let onStartFollowUp {
-                MeetingFollowUpControl(isHovering: isHovering, onStart: onStartFollowUp)
-            }
-            if let onDelete {
-                MeetingDeleteControl(isHovering: isHovering, onDelete: onDelete)
-            }
-        }
+    private var actionMenu: some View {
+        MeetingRowActionMenu(
+            meetingTitle: display.title,
+            folders: folders,
+            breadcrumbs: folderBreadcrumbs,
+            currentFolderID: display.folderID,
+            isHovering: isHovering,
+            canStartFollowUp: canStartFollowUp,
+            canDelete: canDelete,
+            onStartFollowUp: onStartFollowUp,
+            onMove: onMove,
+            onCreateFolderAndMove: onCreateFolderAndMove,
+            onDelete: onDelete
+        )
     }
 
     /// Link to a predecessor that is not part of this shelf — the folder-scope
@@ -255,83 +231,57 @@ struct MeetingListItemView: View {
         }
     }
 
-    private var openButton: some View {
-        Button(action: onSelect) {
-            Text(display.title)
-                .font(MeetsTheme.headline())
-                .foregroundStyle(MeetsTheme.textPrimary)
-                .lineLimit(2)
-                .multilineTextAlignment(.leading)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .help("Open \(display.title)")
-        .accessibilityLabel("Open \(display.title)")
-    }
+    /// Date, duration, and status. A narrow card stacks the source badge under
+    /// the rest instead of squeezing the line into a stub.
+    @ViewBuilder
+    private var metaLine: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: MeetsTheme.spacing8) {
+                statusElement
+                rangeChip
+                metaText
+                sourceElement
+                Spacer(minLength: 0)
+            }
 
-    /// Metadata and preview keep the full card width, so the action icons never
-    /// crowd them. Each line falls back to a stacked variant when a narrow grid
-    /// column cannot hold it.
-    private var detailBlock: some View {
-        VStack(alignment: .leading, spacing: MeetsTheme.spacing4) {
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: MeetsTheme.spacing4) {
+            VStack(alignment: .leading, spacing: MeetsTheme.spacing4) {
+                HStack(spacing: MeetsTheme.spacing8) {
                     statusElement
                     rangeChip
-                    if display.status != .completed && hasSourceBadge {
-                        separatorDot
-                    }
                     metaText
-                    if hasSourceBadge {
-                        separatorDot
-                        sourceElement
-                    }
                     Spacer(minLength: 0)
                 }
-
-                VStack(alignment: .leading, spacing: MeetsTheme.spacing4) {
-                    HStack(spacing: MeetsTheme.spacing4) {
-                        statusElement
-                        rangeChip
-                        metaText
-                        Spacer(minLength: 0)
-                    }
-                    sourceElement
-                }
-            }
-
-            if followUpCount > 0 || hasFollowUps || currentFolderName != nil {
-                ViewThatFits(in: .horizontal) {
-                    HStack(spacing: MeetsTheme.spacing8) {
-                        followUpChip
-                        folderChip
-                        Spacer(minLength: 0)
-                    }
-                    VStack(alignment: .leading, spacing: MeetsTheme.spacing4) {
-                        followUpChip
-                        folderChip
-                    }
-                }
-            }
-
-            if let previewText = display.previewText {
-                Text(previewText)
-                    .font(MeetsTheme.caption())
-                    .foregroundStyle(MeetsTheme.textSecondary)
-                    .lineLimit(2)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                sourceElement
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .contentShape(Rectangle())
-        .onTapGesture(perform: onSelect)
     }
 
-    private var separatorDot: some View {
-        Text("\u{2022}")
-            .font(MeetsTheme.caption())
-            .foregroundStyle(MeetsTheme.textTertiary)
+    @ViewBuilder
+    private var contextLine: some View {
+        if followUpCount > 0 || hasFollowUps || currentFolderName != nil {
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: MeetsTheme.spacing12) {
+                    followUpChip
+                    folderChip
+                    Spacer(minLength: 0)
+                }
+                VStack(alignment: .leading, spacing: MeetsTheme.spacing4) {
+                    followUpChip
+                    folderChip
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var previewLine: some View {
+        if let previewText = display.previewText {
+            Text(previewText)
+                .font(dense ? .system(size: 11) : MeetsTheme.caption())
+                .foregroundStyle(MeetsTheme.textSecondary)
+                .lineLimit(dense || compact ? 1 : 2)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
     }
 
     @ViewBuilder
@@ -351,10 +301,14 @@ struct MeetingListItemView: View {
     }
 
     private var metaText: some View {
-        Text(formatMeta())
-            .font(MeetsTheme.caption())
-            .foregroundStyle(MeetsTheme.textSecondary)
-            .lineLimit(1)
+        Text(MeetingListItemFormat.meta(
+            startTime: display.startTime,
+            durationSeconds: display.durationSeconds
+        ))
+        .font(dense ? .system(size: 11) : MeetsTheme.caption())
+        .foregroundStyle(MeetsTheme.textSecondary)
+        .lineLimit(1)
+        .help(MeetingBrowserLogic.formatStartTime(display.startTime))
     }
 
     private var hasSourceBadge: Bool {
@@ -373,42 +327,47 @@ struct MeetingListItemView: View {
     @ViewBuilder
     private var followUpChip: some View {
         if followUpCount > 0 {
-            HStack(spacing: 2) {
-                Image(systemName: "arrow.triangle.branch")
-                    .font(.system(size: 9))
-                Text("\(followUpCount) follow-up\(followUpCount == 1 ? "" : "s")")
-                    .font(MeetsTheme.caption())
-            }
-            .foregroundStyle(MeetsTheme.accent.opacity(0.8))
+            meetingChip(
+                icon: "arrow.triangle.branch",
+                label: "\(followUpCount) follow-up\(followUpCount == 1 ? "" : "s")"
+            )
             .accessibilityLabel("\(followUpCount) follow-up meeting\(followUpCount == 1 ? "" : "s")")
         } else if hasFollowUps {
-            HStack(spacing: 2) {
-                Image(systemName: "arrow.triangle.branch")
-                    .font(.system(size: 9))
-                Text("Has follow-ups")
-                    .font(MeetsTheme.caption())
-            }
-            .foregroundStyle(MeetsTheme.accent.opacity(0.8))
-            .help("This meeting has follow-ups outside the current folder")
-            .accessibilityLabel("This meeting has follow-ups outside the current folder")
+            meetingChip(icon: "arrow.triangle.branch", label: "Has follow-ups")
+                .help("This meeting has follow-ups outside the current folder")
+                .accessibilityLabel("This meeting has follow-ups outside the current folder")
         }
     }
 
+    /// Narrow rows show only the leaf folder so a middle-truncated path cannot
+    /// read as two folder names fused together; the full path stays in help
+    /// and accessibility.
     @ViewBuilder
     private var folderChip: some View {
         if let name = currentFolderName {
-            HStack(spacing: 2) {
-                Image(systemName: "folder")
-                    .font(.system(size: 9))
-                Text(name)
-                    .font(MeetsTheme.caption())
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-            }
-            .foregroundStyle(MeetsTheme.accent.opacity(0.8))
-            .help(name)
-            .accessibilityLabel("Folder: \(name)")
+            let label = dense || compact ? MeetingFolderBreadcrumbs.leafName(of: name) : name
+            meetingChip(icon: "folder", label: label, truncationMode: dense || compact ? .tail : .middle)
+                .help(name)
+                .accessibilityLabel("Folder: \(name)")
         }
+    }
+
+    /// Quiet metadata chip: the icon carries the meaning, the text stays in the
+    /// neutral secondary tone so only actions and selection use the accent.
+    private func meetingChip(
+        icon: String,
+        label: String,
+        truncationMode: Text.TruncationMode = .tail
+    ) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: icon)
+                .font(.system(size: 9))
+            Text(label)
+                .font(dense ? .system(size: 11) : MeetsTheme.caption())
+                .lineLimit(1)
+                .truncationMode(truncationMode)
+        }
+        .foregroundStyle(MeetsTheme.textSecondary)
     }
 
     private func sourceBadge(icon: String, label: String, help: String) -> some View {
@@ -427,27 +386,34 @@ struct MeetingListItemView: View {
         .accessibilityLabel(help)
     }
 
-    private func formatMeta() -> String {
-        let time = MeetingBrowserLogic.formatStartTime(display.startTime)
-        let duration = MeetingListItemFormat.duration(display.durationSeconds)
-        return "\(time)  \u{2022}  \(duration)"
+    private var rowBackground: Color {
+        if isSelected { return MeetsTheme.surfaceSelected }
+        return isHovering ? MeetsTheme.backgroundHover : .clear
     }
 }
 
 // MARK: - Shared row pieces
 
 enum MeetingListItemFormat {
+    /// Compact duration for list rows: "42m", "1h 5m", "2h", "<1m". Seconds are
+    /// noise once a meeting is a row in a library.
     static func duration(_ seconds: Double) -> String {
         let rounded = Int(seconds.rounded())
         if rounded >= 3600 {
-            return "\(rounded / 3600)h \((rounded % 3600) / 60)m"
+            let hours = rounded / 3600
+            let minutes = (rounded % 3600) / 60
+            return minutes == 0 ? "\(hours)h" : "\(hours)h \(minutes)m"
         }
         if rounded >= 60 {
-            let m = rounded / 60
-            let s = rounded % 60
-            return s == 0 ? "\(m)m" : "\(m)m \(s)s"
+            return "\(rounded / 60)m"
         }
-        return "\(rounded)s"
+        return "<1m"
+    }
+
+    /// The one metadata line every browser row shows: when the meeting ran and
+    /// how long. The full timestamp stays in help text and accessibility.
+    static func meta(startTime: String, durationSeconds: Double) -> String {
+        "\(MeetingBrowserLogic.formatListDate(startTime)) \u{00B7} \(duration(durationSeconds))"
     }
 }
 
@@ -482,16 +448,26 @@ struct MeetingOutsideRangeChip: View {
     }
 }
 
-/// Folder picker shared by every browser row: unfiled, every folder with its
-/// breadcrumb, and an inline "New Folder…" that moves this meeting into it.
-struct MeetingFolderMoveControl: View {
+/// The one actions control a meeting row carries: follow-up, folder move, and
+/// delete, each with the confirmation and create-folder flow the separate icon
+/// buttons used to hold. A sibling of the open button, never nested inside it,
+/// so both stay reachable from the keyboard.
+struct MeetingRowActionMenu: View {
+    let meetingTitle: String
     let folders: [MeetingFolder]
     let breadcrumbs: [Int64: String]
     let currentFolderID: Int64?
     let isHovering: Bool
+    /// False while a recording is being prepared or is running, or when the
+    /// meeting's own status cannot start one: the item stays visible so the
+    /// action is discoverable, and reads as disabled.
+    let canStartFollowUp: Bool
+    let canDelete: Bool
+    let onStartFollowUp: () -> Void
     let onMove: (Int64?) -> Void
-    let onCreateFolderAndMove: ((String) -> Void)?
-    @State private var showFolderPopover = false
+    let onCreateFolderAndMove: (String) -> Void
+    let onDelete: () -> Void
+    @State private var showDeleteConfirmation = false
     @State private var showNewFolderPrompt = false
     @State private var newFolderName = ""
 
@@ -500,162 +476,103 @@ struct MeetingFolderMoveControl: View {
     }
 
     var body: some View {
-        Button {
-            showFolderPopover.toggle()
-        } label: {
-            Image(systemName: currentFolderID != nil ? "folder.fill" : "folder.badge.plus")
-                .font(.system(size: 11))
-                .foregroundStyle(
-                    currentFolderID != nil
-                        ? MeetsTheme.accent
-                        : (isHovering ? MeetsTheme.textSecondary : MeetsTheme.textTertiary)
-                )
-                .frame(width: 24, height: 24)
-                .contentShape(Rectangle())
+        HStack(spacing: 0) {
+            menu
         }
-        .buttonStyle(.plain)
-        .help("Move to folder")
-        .accessibilityLabel("Move to folder")
-        .popover(isPresented: $showFolderPopover, arrowEdge: .leading) {
-            VStack(alignment: .leading, spacing: 0) {
-                folderPopoverRow(icon: "tray", label: "Unfiled", isActive: currentFolderID == nil) {
+        .alert("Delete Meeting", isPresented: $showDeleteConfirmation) {
+            Button("Delete", role: .destructive) { onDelete() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Are you sure you want to delete this meeting? Saved notes, transcript, and any retained recording will be removed.")
+        }
+    }
+
+    private var menu: some View {
+        Menu {
+            Button {
+                onStartFollowUp()
+            } label: {
+                Label("Start Follow-up", systemImage: "arrow.turn.down.right")
+            }
+            .disabled(!canStartFollowUp)
+
+            Divider()
+
+            Menu("Move to Folder") {
+                Button {
                     onMove(nil)
-                    showFolderPopover = false
+                } label: {
+                    folderItem("Unfiled", systemImage: "tray", isActive: currentFolderID == nil)
                 }
+
                 if !folders.isEmpty {
-                    Divider().padding(.vertical, 4)
-                    folderList
+                    Divider()
                 }
-                if onCreateFolderAndMove != nil {
-                    Divider().padding(.vertical, 4)
-                    folderPopoverRow(icon: "folder.badge.plus", label: "New Folder...") {
-                        showFolderPopover = false
-                        newFolderName = ""
-                        showNewFolderPrompt = true
+
+                ForEach(folders) { folder in
+                    Button {
+                        onMove(folder.id)
+                    } label: {
+                        folderItem(
+                            breadcrumbs[folder.id] ?? folder.name,
+                            systemImage: folderIDsWithChildren.contains(folder.id) ? "folder.fill" : "folder",
+                            isActive: currentFolderID == folder.id
+                        )
                     }
                 }
+
+                Divider()
+
+                Button {
+                    newFolderName = ""
+                    showNewFolderPrompt = true
+                } label: {
+                    Label("New Folder\u{2026}", systemImage: "folder.badge.plus")
+                }
             }
-            .padding(8)
+
+            Divider()
+
+            Button(role: .destructive) {
+                showDeleteConfirmation = true
+            } label: {
+                Label("Delete Meeting", systemImage: "trash")
+            }
+            .disabled(!canDelete)
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(isHovering ? MeetsTheme.textPrimary : MeetsTheme.textSecondary)
+                .frame(width: 26, height: 22)
+                .contentShape(Rectangle())
         }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help("Meeting actions")
+        .accessibilityLabel("Actions for \(meetingTitle)")
         .alert("New Folder", isPresented: $showNewFolderPrompt) {
             TextField("Folder name", text: $newFolderName)
             Button("Create") {
                 let trimmed = newFolderName.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !trimmed.isEmpty {
-                    onCreateFolderAndMove?(trimmed)
+                    onCreateFolderAndMove(trimmed)
                 }
             }
+            .disabled(newFolderName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("Create a new folder and move this meeting into it.")
         }
     }
 
-    /// Folder rows, height-capped so a deep folder tree scrolls inside the
-    /// popover instead of running past the screen edge.
-    @ViewBuilder
-    private var folderList: some View {
-        if folders.count > 8 {
-            ScrollView {
-                folderRows
-            }
-            .frame(width: 240, height: 260)
-        } else {
-            folderRows
-        }
-    }
-
-    private var folderRows: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            ForEach(folders) { folder in
-                folderPopoverRow(
-                    icon: folderIDsWithChildren.contains(folder.id) ? "folder.fill" : "folder",
-                    label: breadcrumbs[folder.id] ?? folder.name,
-                    isActive: currentFolderID == folder.id
-                ) {
-                    onMove(folder.id)
-                    showFolderPopover = false
-                }
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func folderPopoverRow(icon: String, label: String, isActive: Bool = false, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            HStack(spacing: 8) {
-                Image(systemName: icon)
-                    .font(.system(size: 11))
-                    .frame(width: 16)
-                Text(label)
-                    .font(MeetsTheme.callout())
-                Spacer()
-                if isActive {
-                    Image(systemName: "checkmark")
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(MeetsTheme.accent)
-                }
-            }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 6)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-    }
-}
-
-/// Starts a new meeting linked into this meeting's follow-up thread.
-struct MeetingFollowUpControl: View {
-    let isHovering: Bool
-    let onStart: () -> Void
-
-    var body: some View {
-        Button(action: onStart) {
-            Image(systemName: "arrow.turn.down.right")
-                .font(.system(size: 11))
-                .foregroundStyle(isHovering ? MeetsTheme.accent : MeetsTheme.textTertiary)
-                .frame(width: 24, height: 24)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .help("Start a follow-up meeting")
-        .accessibilityLabel("Start a follow-up meeting")
-    }
-}
-
-/// Delete control with its confirmation, shared by cards and shelf rows.
-struct MeetingDeleteControl: View {
-    let isHovering: Bool
-    let onDelete: () -> Void
-    @State private var showDeleteConfirmation = false
-    /// Keeps the control visible while it holds keyboard focus, so it never
-    /// disappears out from under the focus ring.
-    @FocusState private var isFocused: Bool
-
-    var body: some View {
-        Button {
-            showDeleteConfirmation = true
-        } label: {
-            Image(systemName: "trash")
-                .font(.system(size: 11))
-                .foregroundStyle(
-                    isHovering || isFocused
-                        ? MeetsTheme.recording.opacity(0.85)
-                        : MeetsTheme.textTertiary
-                )
-                .frame(width: 24, height: 24)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .focused($isFocused)
-        .opacity(isHovering || isFocused ? 1 : 0)
-        .help("Delete meeting")
-        .accessibilityLabel("Delete meeting")
-        .alert("Delete Meeting", isPresented: $showDeleteConfirmation) {
-            Button("Delete", role: .destructive) { onDelete() }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("Are you sure you want to delete this meeting? Saved notes, transcript, and any retained recording will be removed.")
+    /// Checkmark in place of the folder glyph for the folder the meeting is
+    /// already in, matching how macOS marks a menu's current choice.
+    private func folderItem(_ label: String, systemImage: String, isActive: Bool) -> some View {
+        Label {
+            Text(label)
+        } icon: {
+            Image(systemName: isActive ? "checkmark" : systemImage)
         }
     }
 }

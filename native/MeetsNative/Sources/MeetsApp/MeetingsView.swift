@@ -508,6 +508,9 @@ enum MeetingBrowserLogic {
             ?? localParsers.lazy.compactMap { $0.date(from: raw) }.first
     }
 
+    /// Full start timestamp — "Jan 15, 2026 at 3:04:12 PM" in the active
+    /// locale. Export, detail, and help text use this one; lists use the
+    /// concise `formatListDate` instead.
     static func formatStartTime(
         _ raw: String,
         locale: Locale = .current,
@@ -516,34 +519,78 @@ enum MeetingBrowserLogic {
         guard let date = parseDate(raw) else {
             return formatStartTimeFallback(raw)
         }
-        return startTimeFormatters.string(from: date, locale: locale, timeZone: timeZone)
+        return dateFormatters.string(from: date, template: nil, locale: locale, timeZone: timeZone)
+    }
+
+    /// Concise list date: "Today · 3:04 PM", "Yesterday · 9:12 AM", or an
+    /// abbreviated date and seconds-free time. Library rows format every
+    /// visible meeting, so the heavy formatters stay cached and a day name
+    /// replaces the date whenever the meeting is recent enough to name.
+    static func formatListDate(
+        _ raw: String,
+        now: Date = Date(),
+        locale: Locale = .current,
+        timeZone: TimeZone = .current,
+        calendar: Calendar = .current
+    ) -> String {
+        guard let date = parseDate(raw) else {
+            return formatStartTimeFallback(raw)
+        }
+        let day: String
+        if calendar.isDate(date, inSameDayAs: now) {
+            day = "Today"
+        } else if let yesterday = calendar.date(byAdding: .day, value: -1, to: now),
+                  calendar.isDate(date, inSameDayAs: yesterday) {
+            day = "Yesterday"
+        } else {
+            let sameYear = calendar.isDate(date, equalTo: now, toGranularity: .year)
+            day = dateFormatters.string(
+                from: date,
+                template: sameYear ? "MMMd" : "yMMMd",
+                locale: locale,
+                timeZone: timeZone
+            )
+        }
+        let time = dateFormatters.string(from: date, template: "jm", locale: locale, timeZone: timeZone)
+        return "\(day) \u{00B7} \(time)"
     }
 
     /// Bounded cache of display formatters. The browser formats a date for
     /// every rendered row, and building a `DateFormatter` per call costs more
-    /// than the format itself. Keyed by locale and time zone; capped so callers
-    /// that vary them cannot grow it without bound. Formatting happens under the
-    /// lock because `DateFormatter` is not safe to share across threads.
-    private final class StartTimeFormatterCache: @unchecked Sendable {
-        private let lock = NSLock()
-        private var storage: [String: DateFormatter] = [:]
-        private var order: [String] = []
-        private let limit = 4
-
-        func string(from date: Date, locale: Locale, timeZone: TimeZone) -> String {
-            lock.lock()
-            defer { lock.unlock() }
-            return formatter(locale: locale, timeZone: timeZone).string(from: date)
+    /// than the format itself. Keyed by template, locale, and time zone; capped
+    /// so callers that vary them cannot grow it without bound. Formatting
+    /// happens under the lock because `DateFormatter` is not safe to share
+    /// across threads. A nil template means the full medium date and time.
+    private final class DateFormatterCache: @unchecked Sendable {
+        private struct Key: Hashable {
+            let template: String?
+            let locale: String
+            let timeZone: String
         }
 
-        private func formatter(locale: Locale, timeZone: TimeZone) -> DateFormatter {
-            let key = "\(locale.identifier)|\(timeZone.identifier)"
+        private let lock = NSLock()
+        private var storage: [Key: DateFormatter] = [:]
+        private var order: [Key] = []
+        private let limit = 12
+
+        func string(from date: Date, template: String?, locale: Locale, timeZone: TimeZone) -> String {
+            lock.lock()
+            defer { lock.unlock() }
+            return formatter(template: template, locale: locale, timeZone: timeZone).string(from: date)
+        }
+
+        private func formatter(template: String?, locale: Locale, timeZone: TimeZone) -> DateFormatter {
+            let key = Key(template: template, locale: locale.identifier, timeZone: timeZone.identifier)
             if let cached = storage[key] { return cached }
             let formatter = DateFormatter()
             formatter.locale = locale
             formatter.timeZone = timeZone
-            formatter.dateStyle = .medium
-            formatter.timeStyle = .medium
+            if let template {
+                formatter.setLocalizedDateFormatFromTemplate(template)
+            } else {
+                formatter.dateStyle = .medium
+                formatter.timeStyle = .medium
+            }
             if order.count >= limit, let oldest = order.first {
                 order.removeFirst()
                 storage.removeValue(forKey: oldest)
@@ -554,7 +601,7 @@ enum MeetingBrowserLogic {
         }
     }
 
-    private static let startTimeFormatters = StartTimeFormatterCache()
+    private static let dateFormatters = DateFormatterCache()
 
     private static func formatStartTimeFallback(_ raw: String) -> String {
         let clean = raw.replacingOccurrences(of: "T", with: " ")
@@ -669,7 +716,7 @@ struct MeetingsView: View {
             ScrollView {
                 let presentation = browserPresentation
                 VStack(alignment: .leading, spacing: MeetsTheme.spacing24) {
-                    PageTitle("Meetings")
+                    PageTitle(currentFolderName)
 
                     if !appState.upcomingCalendarEvents.isEmpty {
                         comingUpSection
@@ -729,24 +776,27 @@ struct MeetingsView: View {
     }
 
     /// Card grid columns, or a single flexible column when a multi-column grid
-    /// cannot hold its minimum card width without clipping.
+    /// cannot hold its minimum card width without clipping. A family card holds
+    /// a parent block plus its follow-up rows, so the minimum is wider than a
+    /// plain list row and two columns is the common desktop result.
     static func shelfColumns(for width: CGFloat) -> [GridItem] {
         guard width >= 640 else {
             return [GridItem(.flexible(minimum: 0, maximum: .infinity), spacing: 0, alignment: .top)]
         }
-        return [GridItem(.adaptive(minimum: 320, maximum: 460), spacing: MeetsTheme.spacing16, alignment: .top)]
+        return [GridItem(.adaptive(minimum: 380, maximum: 560), spacing: MeetsTheme.spacing16, alignment: .top)]
     }
 
-    /// Folder-card columns: same rule, with the smaller folder-card minimum.
+    /// Folder-tile columns: same rule, with the smaller folder-tile minimum, so
+    /// a folder level reads as one quiet row of tiles.
     static func folderColumns(for width: CGFloat) -> [GridItem] {
         guard width >= 640 else {
             return [GridItem(.flexible(minimum: 0, maximum: .infinity), spacing: 0, alignment: .top)]
         }
-        return [GridItem(.adaptive(minimum: 200, maximum: 340), spacing: MeetsTheme.spacing12, alignment: .top)]
+        return [GridItem(.adaptive(minimum: 180, maximum: 300), spacing: MeetsTheme.spacing8, alignment: .top)]
     }
 
-    /// Card width below which a title and its action cluster cannot share a row
-    /// without squeezing the title into a stub.
+    /// Card width below which a card drops to tighter padding and a single
+    /// preview line.
     static let compactCardWidth: CGFloat = 300
 
     /// Rendered width of one shelf card at the given page width, derived from
@@ -755,7 +805,7 @@ struct MeetingsView: View {
         let content = width - horizontalPadding(for: width) * 2
         guard width >= 640 else { return max(0, content) }
         let spacing = MeetsTheme.spacing16
-        let columns = max(1, Int((content + spacing) / (320 + spacing)))
+        let columns = max(1, Int((content + spacing) / (380 + spacing)))
         return max(0, (content - CGFloat(columns - 1) * spacing) / CGFloat(columns))
     }
 
@@ -1058,135 +1108,23 @@ struct MeetingsView: View {
         .help("Hide from Coming Up")
     }
 
+    /// Count and toolbar for the current scope. The scope's own name is the page
+    /// title above, so this row never repeats it.
     @ViewBuilder
     private func browserHeader(presentation: MeetingBrowserShelfPresentation) -> some View {
-        VStack(alignment: .leading, spacing: MeetsTheme.spacing8) {
-            ViewThatFits(in: .horizontal) {
-                HStack(alignment: .top, spacing: MeetsTheme.spacing16) {
-                    browserHeaderTitle
-                    Spacer(minLength: MeetsTheme.spacing16)
-                    browserHeaderActions(presentation: presentation)
-                }
-
-                VStack(alignment: .leading, spacing: MeetsTheme.spacing12) {
-                    browserHeaderTitle
-                    HStack {
-                        Spacer(minLength: 0)
-                        browserHeaderActions(presentation: presentation)
-                    }
-                }
-            }
-
-            MeetingBrowserHeaderMeta(
-                matchCount: presentation.matchCount,
-                contextCount: presentation.contextCount,
-                filter: selectedFilter
-            )
-        }
-    }
-
-    @ViewBuilder
-    private var browserHeaderTitle: some View {
-        Text(currentFolderName)
-            .font(MeetsTheme.title2())
-            .foregroundStyle(MeetsTheme.textPrimary)
-            .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    @ViewBuilder
-    private func browserHeaderActions(presentation: MeetingBrowserShelfPresentation) -> some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(spacing: MeetsTheme.spacing8) {
-                meetingActionButtons
-                browserDisplayControls(presentation: presentation)
-            }
-            .fixedSize(horizontal: true, vertical: false)
-
-            // Narrow detail columns cannot hold five controls on one line.
-            VStack(alignment: .trailing, spacing: MeetsTheme.spacing8) {
-                meetingActionButtons
-                browserDisplayControls(presentation: presentation)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .trailing)
-    }
-
-    @ViewBuilder
-    private func browserDisplayControls(presentation: MeetingBrowserShelfPresentation) -> some View {
-        MeetingBrowserDisplayControls(
+        MeetingBrowserHeader(
             filter: $selectedFilter,
             sort: $selectedSort,
             layout: $layout,
-            availableFilters: MeetingBrowserLogic.availableFilters(oldestStartDate: presentation.oldestStartDate)
+            availableFilters: MeetingBrowserLogic.availableFilters(
+                oldestStartDate: presentation.oldestStartDate
+            ),
+            matchCount: presentation.matchCount,
+            contextCount: presentation.contextCount,
+            isStartDisabled: appState.isMeetingRecording || appState.isMeetingStarting,
+            onQuickNote: { controller.startQuickNoteMeeting() },
+            onImportAudio: { controller.importAudioFile() }
         )
-    }
-
-    @ViewBuilder
-    private var meetingActionButtons: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(spacing: MeetsTheme.spacing8) {
-                quickNoteButton
-                importAudioButton
-            }
-            .fixedSize(horizontal: true, vertical: false)
-
-            VStack(alignment: .trailing, spacing: MeetsTheme.spacing8) {
-                quickNoteButton
-                importAudioButton
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var quickNoteButton: some View {
-        Button {
-            controller.startQuickNoteMeeting()
-        } label: {
-            HStack(spacing: 6) {
-                Image(systemName: "plus")
-                    .font(.system(size: 11, weight: .semibold))
-                Text("Quick Note")
-                    .font(.system(size: 12, weight: .semibold))
-                    .lineLimit(1)
-            }
-            .foregroundStyle(appState.isMeetingRecording || appState.isMeetingStarting ? MeetsTheme.textPrimary : MeetsTheme.accentContent)
-            .padding(.horizontal, MeetsTheme.spacing12)
-            .padding(.vertical, 8)
-            .background(appState.isMeetingRecording || appState.isMeetingStarting ? MeetsTheme.surfacePrimary : MeetsTheme.accent)
-            .clipShape(RoundedRectangle(cornerRadius: MeetsTheme.cornerSmall))
-        }
-        .buttonStyle(.plain)
-        .disabled(appState.isMeetingRecording || appState.isMeetingStarting)
-        .help("Start a quick meeting note")
-        .fixedSize()
-    }
-
-    @ViewBuilder
-    private var importAudioButton: some View {
-        Button {
-            controller.importAudioFile()
-        } label: {
-            HStack(spacing: 6) {
-                Image(systemName: "square.and.arrow.down")
-                    .font(.system(size: 11, weight: .semibold))
-                Text("Import Audio")
-                    .font(.system(size: 12, weight: .semibold))
-                    .lineLimit(1)
-            }
-            .foregroundStyle(MeetsTheme.textPrimary)
-            .padding(.horizontal, MeetsTheme.spacing12)
-            .padding(.vertical, 8)
-            .background(MeetsTheme.surfacePrimary)
-            .clipShape(RoundedRectangle(cornerRadius: MeetsTheme.cornerSmall))
-            .overlay(
-                RoundedRectangle(cornerRadius: MeetsTheme.cornerSmall)
-                    .strokeBorder(MeetsTheme.surfaceBorder, lineWidth: 1)
-            )
-        }
-        .buttonStyle(.plain)
-        .disabled(appState.isMeetingRecording || appState.isMeetingStarting)
-        .help("Import an audio file for offline transcription")
-        .fixedSize()
     }
 
     @ViewBuilder
@@ -1296,25 +1234,26 @@ struct MeetingsView: View {
 
             Text(emptyStateTitle)
                 .font(MeetsTheme.title3())
-                .foregroundStyle(MeetsTheme.textSecondary)
+                .foregroundStyle(MeetsTheme.textPrimary)
 
             Text(emptyStateInstruction)
-            .font(MeetsTheme.callout())
-            .foregroundStyle(MeetsTheme.textTertiary)
-            .frame(maxWidth: 320, alignment: .leading)
+                .font(MeetsTheme.callout())
+                .foregroundStyle(MeetsTheme.textSecondary)
+                .frame(maxWidth: 320, alignment: .leading)
         }
         .padding(MeetsTheme.spacing24)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(MeetsTheme.backgroundRaised)
-        .clipShape(RoundedRectangle(cornerRadius: MeetsTheme.cornerXL))
-        .overlay(
-            RoundedRectangle(cornerRadius: MeetsTheme.cornerXL)
-                .strokeBorder(MeetsTheme.surfaceBorder, lineWidth: 1)
-        )
+        .clipShape(RoundedRectangle(cornerRadius: MeetsTheme.cornerLarge))
     }
 
     private var emptyStateTitle: String {
-        appState.selectedFolderID == nil ? "No meetings yet" : "No meetings in this folder"
+        if selectedFilter != .all {
+            return appState.selectedFolderID == nil
+                ? "No meetings in this range"
+                : "No meetings in this folder for this range"
+        }
+        return appState.selectedFolderID == nil ? "No meetings yet" : "No meetings in this folder"
     }
 
     private var emptyStateInstruction: String {
@@ -1328,7 +1267,7 @@ struct MeetingsView: View {
 
     // MARK: - Folders
 
-    /// Breadcrumb for the current scope plus cards for the folder level
+    /// Breadcrumb for the current scope plus tiles for the folder level
     /// directly beneath it, so nested folders stay reachable without leaving
     /// the meetings browser.
     @ViewBuilder
@@ -1341,7 +1280,7 @@ struct MeetingsView: View {
                     folderBreadcrumb(path)
                 }
                 if !childFolders.isEmpty {
-                    folderCards(childFolders, width: width)
+                    folderTiles(childFolders, width: width)
                 }
             }
         }
@@ -1406,11 +1345,11 @@ struct MeetingsView: View {
     }
 
     @ViewBuilder
-    private func folderCards(_ folders: [MeetingFolder], width: CGFloat) -> some View {
+    private func folderTiles(_ folders: [MeetingFolder], width: CGFloat) -> some View {
         LazyVGrid(
             columns: Self.folderColumns(for: width),
             alignment: .leading,
-            spacing: MeetsTheme.spacing12
+            spacing: MeetsTheme.spacing8
         ) {
             ForEach(folders) { folder in
                 MeetingFolderCardView(
@@ -1441,7 +1380,7 @@ struct MeetingsView: View {
                 shelfCells(shelves: shelves, meetingIDsWithFollowUps: meetingIDsWithFollowUps, width: width)
             }
         case .list:
-            LazyVStack(alignment: .leading, spacing: MeetsTheme.spacing16) {
+            LazyVStack(alignment: .leading, spacing: MeetsTheme.spacing8) {
                 shelfCells(shelves: shelves, meetingIDsWithFollowUps: meetingIDsWithFollowUps, width: width)
             }
         }
@@ -1456,6 +1395,7 @@ struct MeetingsView: View {
         let actions = shelfActions
         let breadcrumbs = folderBreadcrumbsByID
         let compact = Self.usesCompactCardHeader(for: width)
+        let dense = layout == .list
         ForEach(shelves) { shelf in
             MeetingShelfView(
                 shelf: shelf,
@@ -1466,6 +1406,7 @@ struct MeetingsView: View {
                 folders: appState.folders,
                 folderBreadcrumbs: breadcrumbs,
                 compact: compact,
+                dense: dense,
                 annotatesHiddenMatches: selectedFilter != .all,
                 actions: actions
             )

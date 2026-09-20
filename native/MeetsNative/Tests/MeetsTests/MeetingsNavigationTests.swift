@@ -1498,6 +1498,20 @@ struct MeetingsNavigationTests {
 @Suite("Meeting browser logic")
 struct MeetingBrowserLogicTests {
 
+    @Test("folder breadcrumb leaf name is the last path component")
+    func folderBreadcrumbLeafName() {
+        let folders = [
+            MeetingFolder(id: 1, name: "Clients", parentID: nil, createdAt: ""),
+            MeetingFolder(id: 2, name: "Acme Inc", parentID: 1, createdAt: ""),
+            MeetingFolder(id: 3, name: "Quarterly reviews", parentID: 2, createdAt: "")
+        ]
+        let paths = MeetingFolderBreadcrumbs.paths(for: folders)
+
+        #expect(paths[3] == "Clients / Acme Inc / Quarterly reviews")
+        #expect(MeetingFolderBreadcrumbs.leafName(of: paths[3] ?? "") == "Quarterly reviews")
+        #expect(MeetingFolderBreadcrumbs.leafName(of: "Inbox") == "Inbox")
+    }
+
     @Test("available filters expand with older meeting history")
     func availableFiltersExpandWithHistory() {
         let now = Date(timeIntervalSince1970: 1_710_000_000)
@@ -1581,6 +1595,53 @@ struct MeetingBrowserLogicTests {
         #expect(formatted.contains("Jun 15, 2025"))
         #expect(formatted.contains("12:30"))
         #expect(formatted.localizedCaseInsensitiveContains("PM"))
+    }
+
+    @Test("formatListDate names recent days and drops seconds")
+    func formatListDateNamesRecentDays() {
+        // Rows in the library show this instead of the full timestamp, so the
+        // two things that must never drift are the named recent days and the
+        // absence of seconds.
+        let timeZone = TimeZone(identifier: "America/Los_Angeles")!
+        let locale = Locale(identifier: "en_US")
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = timeZone
+
+        let now = Date(timeIntervalSince1970: 1_750_000_000)
+        guard let todayNoon = calendar.date(bySettingHour: 12, minute: 4, second: 30, of: now),
+              let yesterday = calendar.date(byAdding: .day, value: -1, to: todayNoon),
+              let lastMonth = calendar.date(byAdding: .day, value: -40, to: todayNoon),
+              let lastYear = calendar.date(byAdding: .year, value: -1, to: todayNoon) else {
+            Issue.record("Expected the fixture dates to resolve")
+            return
+        }
+
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        func render(_ date: Date) -> String {
+            MeetingBrowserLogic.formatListDate(
+                formatter.string(from: date),
+                now: now,
+                locale: locale,
+                timeZone: timeZone,
+                calendar: calendar
+            )
+        }
+
+        let todayText = render(todayNoon)
+        #expect(todayText.hasPrefix("Today \u{00B7} "))
+        #expect(todayText.contains("12:04"))
+        #expect(todayText.localizedCaseInsensitiveContains("PM"))
+        #expect(!todayText.contains(":30"))
+
+        #expect(render(yesterday).hasPrefix("Yesterday \u{00B7} "))
+
+        let sameYearText = render(lastMonth)
+        #expect(!sameYearText.contains("Today"))
+        #expect(!sameYearText.contains("Yesterday"))
+        #expect(!sameYearText.contains(String(calendar.component(.year, from: now))))
+
+        #expect(render(lastYear).contains(String(calendar.component(.year, from: lastYear))))
     }
 
     private static func isoDate(daysAgo: Int, now: Date, calendar: Calendar) -> String {

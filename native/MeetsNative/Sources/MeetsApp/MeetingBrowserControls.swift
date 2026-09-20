@@ -1,9 +1,149 @@
 import SwiftUI
 
+/// The browser's header row: what the current scope holds on the leading side,
+/// the meeting actions and display controls on the trailing side.
+///
+/// One view, used by `MeetingsView` and by the render harness, so the header
+/// that ships is the header that gets inspected. Both groups fall back to a
+/// stacked arrangement as the detail column narrows, because the window's
+/// detail column can be as tight as ~220 points once the sidebar is subtracted.
+struct MeetingBrowserHeader: View {
+    @Binding var filter: MeetingBrowserFilter
+    @Binding var sort: MeetingBrowserSort
+    @Binding var layout: MeetingBrowserLayout
+    /// Ranges worth offering, derived from the oldest meeting in scope.
+    let availableFilters: [MeetingBrowserFilter]
+    let matchCount: Int
+    /// Meetings shown only to keep a matching follow-up's thread intact.
+    let contextCount: Int
+    /// True while a recording is being prepared or is running: both meeting
+    /// actions hold back for the same window.
+    let isStartDisabled: Bool
+    let onQuickNote: () -> Void
+    let onImportAudio: () -> Void
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .center, spacing: MeetsTheme.spacing16) {
+                meta
+                Spacer(minLength: MeetsTheme.spacing16)
+                actions
+            }
+
+            VStack(alignment: .leading, spacing: MeetsTheme.spacing8) {
+                meta
+                HStack(spacing: 0) {
+                    Spacer(minLength: 0)
+                    actions
+                }
+            }
+        }
+    }
+
+    private var meta: some View {
+        MeetingBrowserHeaderMeta(
+            matchCount: matchCount,
+            contextCount: contextCount,
+            filter: filter
+        )
+    }
+
+    @ViewBuilder
+    private var actions: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: MeetsTheme.spacing8) {
+                meetingActionButtons
+                displayControls
+            }
+            .fixedSize(horizontal: true, vertical: false)
+
+            // Narrow detail columns cannot hold five controls on one line.
+            VStack(alignment: .trailing, spacing: MeetsTheme.spacing8) {
+                meetingActionButtons
+                displayControls
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var meetingActionButtons: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: MeetsTheme.spacing8) {
+                quickNoteButton
+                importAudioButton
+            }
+            .fixedSize(horizontal: true, vertical: false)
+
+            VStack(alignment: .trailing, spacing: MeetsTheme.spacing8) {
+                quickNoteButton
+                importAudioButton
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var displayControls: some View {
+        MeetingBrowserDisplayControls(
+            filter: $filter,
+            sort: $sort,
+            layout: $layout,
+            availableFilters: availableFilters
+        )
+    }
+
+    @ViewBuilder
+    private var quickNoteButton: some View {
+        Button(action: onQuickNote) {
+            HStack(spacing: 6) {
+                Image(systemName: "plus")
+                    .font(.system(size: 11, weight: .semibold))
+                Text("Quick Note")
+                    .font(.system(size: 12, weight: .semibold))
+                    .lineLimit(1)
+            }
+            .foregroundStyle(isStartDisabled ? MeetsTheme.textPrimary : MeetsTheme.accentContent)
+            .padding(.horizontal, MeetsTheme.spacing12)
+            .padding(.vertical, 6)
+            .background(isStartDisabled ? MeetsTheme.surfacePrimary : MeetsTheme.accent)
+            .clipShape(RoundedRectangle(cornerRadius: MeetsTheme.cornerSmall))
+        }
+        .buttonStyle(.plain)
+        .disabled(isStartDisabled)
+        .help("Start a quick meeting note")
+        .fixedSize()
+    }
+
+    @ViewBuilder
+    private var importAudioButton: some View {
+        Button(action: onImportAudio) {
+            HStack(spacing: 6) {
+                Image(systemName: "square.and.arrow.down")
+                    .font(.system(size: 11, weight: .semibold))
+                Text("Import Audio")
+                    .font(.system(size: 12, weight: .semibold))
+                    .lineLimit(1)
+            }
+            .foregroundStyle(MeetsTheme.textPrimary)
+            .padding(.horizontal, MeetsTheme.spacing12)
+            .padding(.vertical, 6)
+            .background(MeetsTheme.surfacePrimary)
+            .clipShape(RoundedRectangle(cornerRadius: MeetsTheme.cornerSmall))
+            .overlay(
+                RoundedRectangle(cornerRadius: MeetsTheme.cornerSmall)
+                    .strokeBorder(MeetsTheme.surfaceBorder, lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+        .disabled(isStartDisabled)
+        .help("Import an audio file for offline transcription")
+        .fixedSize()
+    }
+}
+
 /// Sort, date-range, and layout controls for the meetings browser.
 ///
 /// Extracted from `MeetingsView` so the header and the narrow-width render
-/// harness exercise the same controls: each group falls back to a stacked
+/// harness exercise the same controls: each group falls back to a tighter
 /// arrangement as the detail column narrows, because the window's detail column
 /// can be as tight as ~220 points once the sidebar is subtracted.
 struct MeetingBrowserDisplayControls: View {
@@ -14,9 +154,19 @@ struct MeetingBrowserDisplayControls: View {
     let availableFilters: [MeetingBrowserFilter]
 
     var body: some View {
+        // Full labels first. Then the sort label drops to its symbol, which
+        // costs nothing because the menu still reports the active order. Only
+        // when even that will not fit do the groups stack.
         ViewThatFits(in: .horizontal) {
             HStack(spacing: MeetsTheme.spacing8) {
-                sortButton
+                sortButton(showsLabel: true)
+                dateFilterButton
+                layoutControl
+            }
+            .fixedSize(horizontal: true, vertical: false)
+
+            HStack(spacing: MeetsTheme.spacing8) {
+                sortButton(showsLabel: false)
                 dateFilterButton
                 layoutControl
             }
@@ -24,23 +174,16 @@ struct MeetingBrowserDisplayControls: View {
 
             VStack(alignment: .trailing, spacing: MeetsTheme.spacing8) {
                 HStack(spacing: MeetsTheme.spacing8) {
-                    sortButton
+                    sortButton(showsLabel: false)
                     dateFilterButton
                 }
                 .fixedSize(horizontal: true, vertical: false)
                 layoutControl
             }
-
-            VStack(alignment: .trailing, spacing: MeetsTheme.spacing8) {
-                sortButton
-                dateFilterButton
-                layoutControl
-            }
         }
     }
 
-    @ViewBuilder
-    private var sortButton: some View {
+    private func sortButton(showsLabel: Bool) -> some View {
         Menu {
             ForEach([MeetingBrowserSort.newestFirst, .oldestFirst], id: \.self) { option in
                 Button {
@@ -55,26 +198,20 @@ struct MeetingBrowserDisplayControls: View {
                 }
             }
         } label: {
-            HStack(spacing: 4) {
-                Image(systemName: "arrow.up.arrow.down")
-                    .font(.system(size: 11))
-                Text(sort.label)
-                    .font(.system(size: 11))
-                    .lineLimit(1)
-            }
-            .foregroundStyle(sort != .newestFirst ? MeetsTheme.accent : MeetsTheme.textSecondary)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 3)
-            .background(sort != .newestFirst ? MeetsTheme.accent.opacity(0.12) : MeetsTheme.surfacePrimary.opacity(0.5))
-            .clipShape(Capsule())
+            chipLabel(
+                systemImage: "arrow.up.arrow.down",
+                title: showsLabel ? sort.label : nil,
+                isActive: sort != .newestFirst
+            )
         }
         .menuStyle(.borderlessButton)
         .fixedSize()
-        .help("Sort meetings")
+        .help("Sort meetings, \(sort.label)")
         .accessibilityLabel("Sort meetings, \(sort.label)")
     }
 
-    @ViewBuilder
+    /// The active range is always named, so "All time" is a visible state
+    /// rather than an absence.
     private var dateFilterButton: some View {
         Menu {
             ForEach(availableFilters, id: \.self) { option in
@@ -90,32 +227,20 @@ struct MeetingBrowserDisplayControls: View {
                 }
             }
         } label: {
-            HStack(spacing: 4) {
-                Image(systemName: "line.3.horizontal.decrease")
-                    .font(.system(size: 11))
-                if filter != .all {
-                    Text(filter.label)
-                        .font(.system(size: 11))
-                        .lineLimit(1)
-                }
-            }
-            .foregroundStyle(filter != .all ? MeetsTheme.accent : MeetsTheme.textTertiary)
-            .padding(.horizontal, filter != .all ? 8 : 0)
-            .padding(.vertical, 3)
-            .background(filter != .all ? MeetsTheme.accent.opacity(0.12) : Color.clear)
-            .clipShape(Capsule())
+            chipLabel(
+                systemImage: "line.3.horizontal.decrease",
+                title: filter.label,
+                isActive: filter != .all
+            )
         }
         .menuStyle(.borderlessButton)
         .fixedSize()
-        .help("Filter by date range")
-        .accessibilityLabel(
-            filter == .all ? "Filter by date range" : "Filter by date range, \(filter.label)"
-        )
+        .help("Filter by date range, \(filter.label)")
+        .accessibilityLabel("Filter by date range, \(filter.label)")
     }
 
     /// Grid/list switch. A native segmented picker keeps the choice on the
     /// keyboard focus ring instead of hiding it behind a menu.
-    @ViewBuilder
     private var layoutControl: some View {
         Picker("Meeting layout", selection: $layout) {
             ForEach(MeetingBrowserLayout.allCases, id: \.self) { option in
@@ -130,12 +255,33 @@ struct MeetingBrowserDisplayControls: View {
         .help("Switch between the card grid and the list")
         .accessibilityLabel("Meeting layout")
     }
+
+    /// One compact toolbar control: same height, corner, and neutral fill for
+    /// sort, range, and every future control, with the accent reserved for a
+    /// non-default state.
+    private func chipLabel(systemImage: String, title: String?, isActive: Bool) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: systemImage)
+                .font(.system(size: 11))
+            if let title {
+                Text(title)
+                    .font(.system(size: 11))
+                    .lineLimit(1)
+            }
+        }
+        .foregroundStyle(isActive ? MeetsTheme.accent : MeetsTheme.textSecondary)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(isActive ? MeetsTheme.accent.opacity(0.12) : MeetsTheme.surfacePrimary.opacity(0.5))
+        .clipShape(RoundedRectangle(cornerRadius: MeetsTheme.cornerSmall))
+    }
 }
 
-/// Count and hint line under the browser title.
+/// Count line for the current scope.
 ///
-/// The matching count sits on its own line with the hint beneath it, so a narrow
-/// detail column stacks them instead of squeezing both into one row.
+/// One line of current state: how many meetings the scope holds, the active
+/// range when there is one, and how many earlier meetings are on screen only to
+/// keep a follow-up thread intact. Nothing here explains what the app is for.
 struct MeetingBrowserHeaderMeta: View {
     let matchCount: Int
     /// Meetings shown only to keep a matching follow-up's thread intact.
@@ -143,31 +289,23 @@ struct MeetingBrowserHeaderMeta: View {
     let filter: MeetingBrowserFilter
 
     var body: some View {
-        VStack(alignment: .leading, spacing: MeetsTheme.spacing4) {
-            Text(countSummary)
-                .font(MeetsTheme.callout())
-                .foregroundStyle(MeetsTheme.textSecondary)
-                .lineLimit(1)
-
-            Text(hint)
-                .font(MeetsTheme.callout())
-                .foregroundStyle(MeetsTheme.textSecondary)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        Text(summary)
+            .font(MeetsTheme.callout())
+            .foregroundStyle(MeetsTheme.textSecondary)
+            .lineLimit(3)
+            .fixedSize(horizontal: false, vertical: true)
     }
 
     /// Counts only meetings that satisfy the active range, so a range can never
     /// claim meetings the user did not ask for.
-    private var countSummary: String {
-        let meetings = "\(matchCount) meeting\(matchCount == 1 ? "" : "s")"
-        guard filter != .all else { return meetings }
-        return "\(meetings) in \(filter.label.lowercased())"
-    }
-
-    private var hint: String {
-        guard contextCount > 0 else {
-            return "Open a meeting to review notes, transcript, and template-driven summaries"
+    private var summary: String {
+        var parts = ["\(matchCount) meeting\(matchCount == 1 ? "" : "s")"]
+        if filter != .all {
+            parts.append(filter.label.lowercased())
         }
-        return "\(contextCount) earlier meeting\(contextCount == 1 ? "" : "s") shown to keep follow-up threads intact"
+        if contextCount > 0 {
+            parts.append("\(contextCount) earlier shown for thread context")
+        }
+        return parts.joined(separator: " \u{00B7} ")
     }
 }
