@@ -115,6 +115,9 @@ struct SettingsView: View {
     @State private var acpConfigOptionsCommand = ""
     @State private var acpConfigOptionsLoadTask: Task<Void, Never>?
     @State private var acpOptionsUnavailable = false
+    /// Providers whose settings are showing in the AI pane's connections list.
+    /// Session-scoped: a fresh launch collapses every row again.
+    @State private var expandedAIProviders: Set<AIProvider> = []
 
     init(appState: AppState, controller: MeetsController) {
         self.appState = appState
@@ -1608,16 +1611,57 @@ struct SettingsView: View {
         }
     }
 
-    /// Every service Meets can send work to, each with the one control that
-    /// connects it. Connecting here deliberately leaves the defaults below
-    /// alone, so signing in never redirects work the user already routed.
+    /// The list is the shape of the page: one collapsed row per service showing
+    /// its name and connection state, with that service's settings behind the
+    /// row. Connecting here deliberately leaves the defaults below alone, so
+    /// signing in never redirects work the user already routed.
     private func aiConnectionsSection(state: AIConnectionState) -> some View {
         settingsSection("Connections", iconName: "link") {
             ForEach(AIProvider.allCases) { provider in
                 if provider != AIProvider.allCases.first {
                     Divider().background(MeetsTheme.surfaceBorder)
                 }
-                aiConnectionRows(provider, state: state)
+
+                let isExpanded = expandedAIProviders.contains(provider)
+                VStack(alignment: .leading, spacing: MeetsTheme.spacing8) {
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.15)) {
+                            if isExpanded {
+                                expandedAIProviders.remove(provider)
+                            } else {
+                                expandedAIProviders.insert(provider)
+                            }
+                        }
+                    } label: {
+                        HStack(spacing: 10) {
+                            Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundStyle(MeetsTheme.textTertiary)
+                                .frame(width: 8)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(provider.label)
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundStyle(MeetsTheme.textPrimary)
+                                Text(aiConnectionLine(provider, state: state))
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(MeetsTheme.textTertiary)
+                                    .lineLimit(1)
+                            }
+                            Spacer(minLength: 0)
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(provider.label)
+                    .accessibilityValue(aiConnectionLine(provider, state: state))
+                    .accessibilityHint(isExpanded ? "Hide settings" : "Show settings")
+
+                    if isExpanded {
+                        aiConnectionRows(provider, state: state)
+                            .padding(.top, MeetsTheme.spacing8)
+                            .transition(.opacity.combined(with: .move(edge: .top)))
+                    }
+                }
             }
         }
     }
