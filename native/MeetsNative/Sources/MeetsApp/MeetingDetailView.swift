@@ -299,11 +299,6 @@ struct MeetingDetailView: View {
 
             threadBreadcrumb
 
-            if let savedRecordingPath = meeting.savedRecordingPath,
-               FileManager.default.fileExists(atPath: savedRecordingPath) {
-                MeetingRecordingPlayerView(recordingPath: savedRecordingPath)
-            }
-
             activeMeetingAudioWarningBanner(for: meeting)
 
             if !showsManualNotesEditor(for: meeting), isRawTranscript(meeting), documentMode == .notes {
@@ -677,6 +672,12 @@ struct MeetingDetailView: View {
             VStack(alignment: .leading, spacing: MeetsTheme.spacing12) {
                 contentToolbar(for: meeting)
 
+                if let savedRecordingPath = meeting.savedRecordingPath,
+                   FileManager.default.fileExists(atPath: savedRecordingPath) {
+                    MeetingRecordingPlayerView(recordingPath: savedRecordingPath)
+                        .frame(maxWidth: .infinity)
+                }
+
                 TextEditor(text: $editableTranscript)
                     .font(.system(size: 14))
                     .foregroundStyle(MeetsTheme.textPrimary)
@@ -697,23 +698,23 @@ struct MeetingDetailView: View {
                 contentToolbar(for: meeting)
 
                 ZStack(alignment: .topLeading) {
-                    VStack(alignment: .leading, spacing: MeetsTheme.spacing12) {
-                        if documentMode == .notes, hasStoredManualNotes(meeting) {
-                            completedManualNotesSection(meeting)
-                        }
-                        MeetingNotesView(markdown: Self.notesContent(for: meeting))
-                            .opacity(documentMode == .notes ? 1 : 0)
-                            .allowsHitTesting(documentMode == .notes)
-                            .accessibilityHidden(documentMode != .notes)
-                    }
-                    .opacity(documentMode == .notes ? 1 : 0)
-                    .allowsHitTesting(documentMode == .notes)
-                    .accessibilityHidden(documentMode != .notes)
+                    completedNotesColumn(for: meeting)
+                        .opacity(documentMode == .notes ? 1 : 0)
+                        .allowsHitTesting(documentMode == .notes)
+                        .accessibilityHidden(documentMode != .notes)
 
-                    MeetingTranscriptView(transcript: meeting.rawTranscript)
-                        .opacity(documentMode == .transcript ? 1 : 0)
-                        .allowsHitTesting(documentMode == .transcript)
-                        .accessibilityHidden(documentMode != .transcript)
+                    VStack(alignment: .leading, spacing: MeetsTheme.spacing12) {
+                        if let savedRecordingPath = meeting.savedRecordingPath,
+                           FileManager.default.fileExists(atPath: savedRecordingPath) {
+                            MeetingRecordingPlayerView(recordingPath: savedRecordingPath)
+                                .frame(maxWidth: .infinity)
+                        }
+
+                        MeetingTranscriptView(transcript: meeting.rawTranscript)
+                    }
+                    .opacity(documentMode == .transcript ? 1 : 0)
+                    .allowsHitTesting(documentMode == .transcript)
+                    .accessibilityHidden(documentMode != .transcript)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
@@ -725,13 +726,56 @@ struct MeetingDetailView: View {
         }
     }
 
+    /// Written Notes and the generated summary read as peers when width allows,
+    /// and fall back to the original stacked order in a narrow window.
+    @ViewBuilder
+    private func completedNotesColumn(for meeting: MeetingRecord) -> some View {
+        if hasStoredManualNotes(meeting) {
+            ResponsiveHorizontalLayout(
+                wideIdentifier: "meeting.notes.wide",
+                compactIdentifier: "meeting.notes.compact"
+            ) {
+                HStack(alignment: .top, spacing: MeetsTheme.spacing24) {
+                    completedManualNotesSection(meeting, fillsHeight: true)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+
+                    completedSummarySection(for: meeting)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                }
+            } compact: {
+                VStack(alignment: .leading, spacing: MeetsTheme.spacing12) {
+                    completedManualNotesSection(meeting)
+
+                    MeetingNotesView(markdown: Self.notesContent(for: meeting))
+                }
+            }
+        } else {
+            MeetingNotesView(markdown: Self.notesContent(for: meeting))
+        }
+    }
+
+    private func completedSummarySection(for meeting: MeetingRecord) -> some View {
+        VStack(alignment: .leading, spacing: MeetsTheme.spacing8) {
+            HStack(spacing: 6) {
+                Image(systemName: "sparkles")
+                    .font(.system(size: 11, weight: .semibold))
+                Text("Summary")
+                    .font(MeetsTheme.headline())
+                Spacer()
+            }
+            .foregroundStyle(MeetsTheme.textPrimary)
+
+            MeetingNotesView(markdown: Self.notesContent(for: meeting))
+        }
+    }
+
     /// Raw notes typed during the meeting stay visible after it completes,
     /// with an inline editor so they remain editable.
     private func hasStoredManualNotes(_ meeting: MeetingRecord) -> Bool {
         !meeting.manualNotes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
-    private func completedManualNotesSection(_ meeting: MeetingRecord) -> some View {
+    private func completedManualNotesSection(_ meeting: MeetingRecord, fillsHeight: Bool = false) -> some View {
         VStack(alignment: .leading, spacing: MeetsTheme.spacing8) {
             HStack(spacing: 6) {
                 Image(systemName: "square.and.pencil")
@@ -759,7 +803,7 @@ struct MeetingDetailView: View {
                         saveManualNotes(meetingID: meeting.id, notes: notes)
                     }
                 )
-                .frame(minHeight: 120, maxHeight: 260)
+                .frame(minHeight: 120, maxHeight: fillsHeight ? .infinity : 260)
                 .background(MeetsTheme.backgroundBase)
                 .clipShape(RoundedRectangle(cornerRadius: MeetsTheme.cornerSmall))
                 .overlay(
@@ -768,7 +812,7 @@ struct MeetingDetailView: View {
                 )
             } else {
                 MeetingNotesView(markdown: meeting.manualNotes)
-                    .frame(maxWidth: .infinity, maxHeight: 220, alignment: .topLeading)
+                    .frame(maxWidth: .infinity, maxHeight: fillsHeight ? .infinity : 220, alignment: .topLeading)
                     .background(MeetsTheme.backgroundBase)
                     .clipShape(RoundedRectangle(cornerRadius: MeetsTheme.cornerSmall))
                     .overlay(
@@ -876,36 +920,53 @@ struct MeetingDetailView: View {
         }
     }
 
+    /// One shared geometry for every content action so the toolbar buttons keep
+    /// identical size as their labels and busy states change.
+    private func contentActionButton(
+        systemImage: String,
+        label: String,
+        isBusy: Bool = false,
+        busyLabel: String? = nil,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                if isBusy {
+                    ProgressView()
+                        .controlSize(.small)
+                } else {
+                    Image(systemName: systemImage)
+                        .font(.system(size: 10, weight: .semibold))
+                }
+                Text(isBusy ? (busyLabel ?? label) : label)
+                    .font(.system(size: 12, weight: .semibold))
+            }
+            .foregroundStyle(MeetsTheme.textPrimary)
+            .padding(.horizontal, MeetsTheme.spacing12)
+            .frame(minWidth: 132, minHeight: 28, maxHeight: 28)
+            .background(
+                RoundedRectangle(cornerRadius: MeetsTheme.cornerSmall)
+                    .fill(MeetsTheme.accent.opacity(0.18))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: MeetsTheme.cornerSmall)
+                    .strokeBorder(MeetsTheme.accent.opacity(0.35), lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
     @ViewBuilder
     private func transcriptCleanupAction(for meeting: MeetingRecord) -> some View {
         if !meeting.rawTranscript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            Button {
+            contentActionButton(
+                systemImage: "wand.and.stars",
+                label: "Clean Up",
+                isBusy: isCleaningTranscript,
+                busyLabel: "Cleaning…"
+            ) {
                 showCleanupConfirmation = true
-            } label: {
-                HStack(spacing: 6) {
-                    if isCleaningTranscript {
-                        ProgressView()
-                            .controlSize(.small)
-                    } else {
-                        Image(systemName: "wand.and.stars")
-                            .font(.system(size: 10, weight: .semibold))
-                    }
-                    Text(isCleaningTranscript ? "Cleaning…" : "Clean Up")
-                        .font(.system(size: 12, weight: .semibold))
-                }
-                .foregroundStyle(MeetsTheme.textPrimary)
-                .padding(.horizontal, MeetsTheme.spacing12)
-                .padding(.vertical, 7)
-                .background(
-                    RoundedRectangle(cornerRadius: MeetsTheme.cornerSmall)
-                        .fill(MeetsTheme.accent.opacity(0.18))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: MeetsTheme.cornerSmall)
-                        .strokeBorder(MeetsTheme.accent.opacity(0.35), lineWidth: 1)
-                )
             }
-            .buttonStyle(.plain)
             .disabled(isCleaningTranscript)
             .help("Clean up the transcript with the configured LLM cleanup backend")
         }
@@ -983,21 +1044,21 @@ struct MeetingDetailView: View {
     @ViewBuilder
     private func retranscribeAction(for meeting: MeetingRecord) -> some View {
         if meeting.savedRecordingPath != nil {
-            if isRetranscribing {
-                HStack(spacing: 6) {
-                    ProgressView()
-                        .controlSize(.small)
-                    Text("Re-transcribing...")
-                        .font(.system(size: 11))
-                        .foregroundStyle(MeetsTheme.textTertiary)
-                }
-                .padding(.horizontal, MeetsTheme.spacing8)
-            } else {
-                iconButton("arrow.clockwise", label: "Re-transcribe") {
-                    startRetranscription(for: meeting)
-                }
-                .disabled(meeting.status == .recording || meeting.status == .processing || isEditingNotes || isEditingTranscript)
+            contentActionButton(
+                systemImage: "arrow.clockwise",
+                label: "Re-transcribe",
+                isBusy: isRetranscribing,
+                busyLabel: "Re-transcribing…"
+            ) {
+                startRetranscription(for: meeting)
             }
+            .disabled(
+                isRetranscribing
+                    || meeting.status == .recording
+                    || meeting.status == .processing
+                    || isEditingNotes
+                    || isEditingTranscript
+            )
         }
     }
 
@@ -1068,35 +1129,34 @@ struct MeetingDetailView: View {
 
     @ViewBuilder
     private func contentToolbar(for meeting: MeetingRecord) -> some View {
-        HStack {
+        HStack(spacing: MeetsTheme.spacing8) {
             Spacer()
 
-            transcriptCleanupAction(for: meeting)
-
-            retranscribeAction(for: meeting)
-
-            Button(action: {
-                controller.copyToClipboard(activeCopyText(for: meeting))
-            }) {
-                HStack(spacing: 6) {
-                    Image(systemName: "doc.on.doc")
-                        .font(.system(size: 10, weight: .semibold))
-                    Text(copyButtonLabel)
-                        .font(.system(size: 12, weight: .semibold))
+            if documentMode == .notes {
+                contentActionButton(
+                    systemImage: "sparkles",
+                    label: primarySummaryActionLabel(for: meeting),
+                    isBusy: isSummarizing,
+                    busyLabel: "Summarizing…"
+                ) {
+                    beginSummary(for: meeting)
                 }
-                .foregroundStyle(MeetsTheme.textPrimary)
-                .padding(.horizontal, MeetsTheme.spacing12)
-                .padding(.vertical, 7)
-                .background(
-                    RoundedRectangle(cornerRadius: MeetsTheme.cornerSmall)
-                        .fill(MeetsTheme.accent.opacity(0.18))
+                .disabled(
+                    isSummarizing
+                        || isRetranscribing
+                        || isEditingNotes
+                        || isEditingTranscript
+                        || meeting.rawTranscript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 )
-                .overlay(
-                    RoundedRectangle(cornerRadius: MeetsTheme.cornerSmall)
-                        .strokeBorder(MeetsTheme.accent.opacity(0.35), lineWidth: 1)
-                )
+            } else {
+                transcriptCleanupAction(for: meeting)
+
+                retranscribeAction(for: meeting)
             }
-            .buttonStyle(.plain)
+
+            contentActionButton(systemImage: "doc.on.doc", label: copyButtonLabel) {
+                controller.copyToClipboard(activeCopyText(for: meeting))
+            }
         }
         .frame(maxWidth: 980, alignment: .leading)
     }
