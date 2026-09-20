@@ -880,7 +880,11 @@ struct MeetingDetailView: View {
         }
         .pickerStyle(.segmented)
         .tint(MeetsTheme.accent)
-        .frame(width: 260)
+        // No fixed width: the segmented control lays its segments out at the
+        // width the two labels need and draws outside a narrower frame, which
+        // pushed the right segment past the strip it sits in. Sizing to the
+        // control's own width keeps it inside that strip.
+        .fixedSize()
         .disabled(isEditingNotes || isEditingTranscript)
     }
 
