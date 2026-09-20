@@ -1093,7 +1093,6 @@ struct OnboardingView: View {
             RoundedRectangle(cornerRadius: MeetsTheme.cornerSmall)
                 .strokeBorder(MeetsTheme.surfaceBorder, lineWidth: 1)
         )
-        .frame(width: CGFloat(cleanupBackendOptions.count) * Self.providerTabWidth)
     }
 
     /// Per-backend config below the tabs — renders the same component views
@@ -1238,7 +1237,6 @@ struct OnboardingView: View {
             RoundedRectangle(cornerRadius: MeetsTheme.cornerSmall)
                 .strokeBorder(MeetsTheme.surfaceBorder, lineWidth: 1)
         )
-        .frame(width: CGFloat(MeetingSummaryBackendOption.all.count) * Self.providerTabWidth)
     }
 
     @ViewBuilder
@@ -1764,21 +1762,33 @@ struct OnboardingView: View {
     }
 
     private func providerTab(_ title: String, selected: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(title)
+        let shortTitle = providerTabTitle(title)
+        return Button(action: action) {
+            Text(shortTitle)
                 .font(.system(size: 12, weight: selected ? .semibold : .regular))
                 .foregroundStyle(selected ? MeetsTheme.textPrimary : MeetsTheme.textSecondary)
-                .frame(width: Self.providerTabWidth)
-                .padding(.vertical, MeetsTheme.spacing8)
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
+                .padding(.horizontal, 12)
+                .frame(height: 28)
                 .background(selected ? MeetsTheme.surfacePrimary : Color.clear)
                 .clipShape(RoundedRectangle(cornerRadius: MeetsTheme.cornerSmall))
         }
         .buttonStyle(.plain)
+        .help(title)
+        .accessibilityLabel(title)
     }
 
-    /// Width of one provider tab. Tab strips size themselves from the number of
-    /// backends they list.
-    private static let providerTabWidth: CGFloat = 80
+    /// Tab strips label each provider on one line, so a trailing parenthetical
+    /// ("Apple Intelligence (On-Device)", "Agent (ACP)") is dropped from the
+    /// visible title. The full label stays in the tab's help and accessibility
+    /// label.
+    private func providerTabTitle(_ label: String) -> String {
+        guard label.hasSuffix(")"), let range = label.range(of: " (", options: .backwards) else {
+            return label
+        }
+        return String(label[label.startIndex..<range.lowerBound])
+    }
 
     // MARK: - Actions
 
