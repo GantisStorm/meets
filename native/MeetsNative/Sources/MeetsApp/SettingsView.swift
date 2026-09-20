@@ -59,18 +59,6 @@ enum SettingsPermissionRefreshReason {
 }
 
 struct SettingsView: View {
-    private enum DisclosureSection: Hashable {
-        case generalData
-        case meetingSummaries
-        case transcriptCleanup
-        case meetingNotes
-        case notifications
-        case calendars
-        case syncAndExport
-        case automation
-        case maraudersMap
-    }
-
     private enum PendingDataDestruction {
         case meetings
 
@@ -127,7 +115,6 @@ struct SettingsView: View {
     @State private var acpConfigOptionsCommand = ""
     @State private var acpConfigOptionsLoadTask: Task<Void, Never>?
     @State private var acpOptionsUnavailable = false
-    @State private var expandedSections: Set<DisclosureSection> = []
 
     init(appState: AppState, controller: MeetsController) {
         self.appState = appState
@@ -754,7 +741,6 @@ struct SettingsView: View {
                 "Data Management",
                 summary: "Clear meetings and their stored transcripts, notes, and audio.",
                 icon: "externaldrive",
-                section: .generalData
             ) {
                 HStack(spacing: MeetsTheme.spacing12) {
                     actionButton("Clear meeting history", role: .destructive) {
@@ -986,7 +972,6 @@ struct SettingsView: View {
             "Meeting Summaries",
             summary: "\(appState.selectedMeetingSummaryBackend.label) writes notes after each meeting.",
             icon: "sparkles",
-            section: .meetingSummaries
         ) {
             settingsRow("Include written notes") {
                 settingsSwitch(isOn: appState.config.includeNotesInSummary) { newValue in
@@ -1267,7 +1252,6 @@ struct SettingsView: View {
                 ? "On · \(selectedCleanupBackend.label)"
                 : "Off · raw transcripts are preserved",
             icon: "wand.and.stars",
-            section: .transcriptCleanup
         ) {
             settingsRow(
                 "AI transcript cleanup",
@@ -1463,7 +1447,6 @@ struct SettingsView: View {
                 "Meeting Notes",
                 summary: "Templates and retry behavior for generated notes.",
                 icon: "doc.text",
-                section: .meetingNotes
             ) {
                 settingsRow(
                     "Default template",
@@ -1538,7 +1521,6 @@ struct SettingsView: View {
                 "Meeting Notifications",
                 summary: notificationSettingsSummary,
                 icon: "bell",
-                section: .notifications
             ) {
                 settingsRow("Scheduled meetings") {
                     settingsSwitch(isOn: appState.config.showScheduledMeetingNotifications) { newValue in
@@ -1609,7 +1591,6 @@ struct SettingsView: View {
                 "Calendars",
                 summary: calendarSettingsSummary,
                 icon: "calendar",
-                section: .calendars
             ) {
                 calendarSyncRow
                 Divider().background(MeetsTheme.surfaceBorder)
@@ -1661,7 +1642,6 @@ struct SettingsView: View {
                 "Sync & Export",
                 summary: syncAndExportSettingsSummary,
                 icon: "arrow.triangle.2.circlepath",
-                section: .syncAndExport
             ) {
                 settingsRow(
                     "Auto-export meetings",
@@ -1801,7 +1781,6 @@ struct SettingsView: View {
                 "Automation",
                 summary: appState.config.meetingHookEnabled ? "Post-meeting hook enabled" : "Run an optional script after meetings",
                 icon: "terminal",
-                section: .automation
             ) {
                 settingsRow(
                     "Enable post-meeting hook",
@@ -2055,7 +2034,6 @@ struct SettingsView: View {
                     "Marauder\u{2019}s Map",
                     summary: "Meeting countdown audio and reset controls.",
                     icon: "map",
-                    section: .maraudersMap
                 ) {
                     settingsRow("Meeting countdown audio") {
                         maraudersMapControl
@@ -2753,19 +2731,6 @@ struct SettingsView: View {
 
     // MARK: - Layout Primitives
 
-    private func disclosureBinding(for section: DisclosureSection) -> Binding<Bool> {
-        Binding(
-            get: { expandedSections.contains(section) },
-            set: { isExpanded in
-                if isExpanded {
-                    expandedSections.insert(section)
-                } else {
-                    expandedSections.remove(section)
-                }
-            }
-        )
-    }
-
     private func defaultSectionIcon(for title: String) -> String {
         switch title {
         case "Startup": "power"
@@ -2811,62 +2776,45 @@ struct SettingsView: View {
         .clipShape(RoundedRectangle(cornerRadius: MeetsTheme.cornerLarge))
     }
 
+    /// Section card with a title, descriptive summary, and always-visible content.
     @ViewBuilder
     private func settingsDisclosureSection(
         _ title: String,
         summary: String,
         icon: String,
-        section: DisclosureSection,
         @ViewBuilder content: () -> some View
     ) -> some View {
-        let isExpanded = disclosureBinding(for: section)
         VStack(alignment: .leading, spacing: 0) {
-            Button {
-                withAnimation(.easeOut(duration: 0.18)) {
-                    isExpanded.wrappedValue.toggle()
-                }
-            } label: {
-                HStack(spacing: MeetsTheme.spacing12) {
-                    Image(systemName: icon)
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(MeetsTheme.textSecondary)
-                        .frame(width: 18)
+            HStack(spacing: MeetsTheme.spacing12) {
+                Image(systemName: icon)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(MeetsTheme.textSecondary)
+                    .frame(width: 18)
 
-                    VStack(alignment: .leading, spacing: MeetsTheme.spacing4) {
-                        Text(title)
-                            .font(MeetsTheme.headline())
-                            .foregroundStyle(MeetsTheme.textPrimary)
-                        Text(summary)
-                            .font(MeetsTheme.caption())
-                            .foregroundStyle(MeetsTheme.textTertiary)
-                            .lineLimit(2)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-
-                    Spacer(minLength: MeetsTheme.spacing16)
-
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(MeetsTheme.textTertiary)
-                        .rotationEffect(.degrees(isExpanded.wrappedValue ? 90 : 0))
-                }
-                .contentShape(Rectangle())
-                .padding(.horizontal, MeetsTheme.spacing20)
-                .padding(.vertical, MeetsTheme.spacing16)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("\(title), \(summary)")
-            .accessibilityHint(isExpanded.wrappedValue ? "Collapse settings" : "Expand settings")
-
-            if isExpanded.wrappedValue {
-                Divider().background(MeetsTheme.surfaceBorder)
                 VStack(alignment: .leading, spacing: MeetsTheme.spacing4) {
-                    content()
+                    Text(title)
+                        .font(MeetsTheme.headline())
+                        .foregroundStyle(MeetsTheme.textPrimary)
+                        .accessibilityAddTraits(.isHeader)
+                    Text(summary)
+                        .font(MeetsTheme.caption())
+                        .foregroundStyle(MeetsTheme.textTertiary)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
-                .padding(.horizontal, MeetsTheme.spacing20)
-                .padding(.vertical, MeetsTheme.spacing16)
-                .transition(.opacity.combined(with: .move(edge: .top)))
+
+                Spacer(minLength: MeetsTheme.spacing16)
             }
+            .padding(.horizontal, MeetsTheme.spacing20)
+            .padding(.vertical, MeetsTheme.spacing16)
+
+            Divider().background(MeetsTheme.surfaceBorder)
+
+            VStack(alignment: .leading, spacing: MeetsTheme.spacing4) {
+                content()
+            }
+            .padding(.horizontal, MeetsTheme.spacing20)
+            .padding(.vertical, MeetsTheme.spacing16)
         }
         .background(MeetsTheme.backgroundRaised)
         .clipShape(RoundedRectangle(cornerRadius: MeetsTheme.cornerLarge))
