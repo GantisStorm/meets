@@ -1,25 +1,20 @@
-import AppKit
+import Foundation
 import MeetsCore
 import SwiftUI
 
 /// The transcript tab's reader: bubbles that follow the saved recording.
 ///
-/// While audio plays, the word being spoken is highlighted, the active line
-/// scrolls into view, and clicking any highlighted word seeks to it. A
-/// transcript with no word timings — or no timings at all — renders exactly like
-/// a plain transcript and stays inert.
+/// While audio plays, the line being spoken is outlined, the active line scrolls
+/// into view, and clicking a line seeks to it. A transcript with no line timings
+/// — or no timings at all — renders exactly like a plain transcript and stays
+/// inert.
 struct MeetingTranscriptPlaybackView: View {
     let transcript: String
-    let words: [TranscriptWordTiming]
+    let timings: [TranscriptLineTiming]
     @ObservedObject var model: MeetingPlaybackModel
 
     @State private var messages: [TranscriptChatMessage]
     @State private var alignment: TranscriptAlignment
-    @State private var baseStrings: [Int: AttributedString]
-    /// Memoises the active line's highlighted text. Mutated from `body`, so it is
-    /// a plain reference type rather than `@State` value — nothing here drives a
-    /// redraw.
-    @State private var highlightCache = HighlightCache()
     @State private var isFollowing = true
     @State private var hasObservedScroll = false
     @State private var lastScrollOffset: CGFloat = 0
@@ -33,14 +28,15 @@ struct MeetingTranscriptPlaybackView: View {
     /// A clock jump this large is a seek, not playback.
     private static let seekJump: TimeInterval = 0.5
 
-    init(transcript: String, words: [TranscriptWordTiming], model: MeetingPlaybackModel) {
+    init(transcript: String, timings: [TranscriptLineTiming], model: MeetingPlaybackModel) {
         self.transcript = transcript
-        self.words = words
+        self.timings = timings
         self.model = model
         let messages = TranscriptChatMessage.messages(from: transcript)
         _messages = State(initialValue: messages)
-        _alignment = State(initialValue: TranscriptWordAligner.align(lines: messages, words: words))
-        _baseStrings = State(initialValue: Self.baseStrings(for: messages))
+        _alignment = State(
+            initialValue: TranscriptLineAligner.align(lines: messages, timings: timings)
+        )
     }
 
     var body: some View {
@@ -89,45 +85,26 @@ struct MeetingTranscriptPlaybackView: View {
             }
         }
         .onChange(of: transcript) { _, newTranscript in
-            rebuild(from: newTranscript, words: words)
+            rebuild(from: newTranscript, timings: timings)
         }
-        .onChange(of: words) { _, newWords in
-            rebuild(from: transcript, words: newWords)
+        .onChange(of: timings) { _, newTimings in
+            rebuild(from: transcript, timings: newTimings)
         }
     }
 
     // MARK: - Alignment state
 
-    /// Line whose words are being spoken, or nil while there is nothing to
-    /// follow (no recording loaded, or the clock is parked at 0).
+    /// Line being spoken, or nil while there is nothing to follow (no recording
+    /// loaded, or the clock is parked at 0).
     private var activeLineIndex: Int? {
         guard model.isLoaded, model.isPlaying || model.currentTime > 0 else { return nil }
         return alignment.activeLine(at: model.currentTime)
     }
 
-    private func activeWordIndex(in lineIndex: Int) -> Int? {
-        alignment.activeWord(at: model.currentTime, in: lineIndex)
-    }
-
-    private func rebuild(from transcript: String, words: [TranscriptWordTiming]) {
+    private func rebuild(from transcript: String, timings: [TranscriptLineTiming]) {
         let messages = TranscriptChatMessage.messages(from: transcript)
         self.messages = messages
-        baseStrings = Self.baseStrings(for: messages)
-        alignment = TranscriptWordAligner.align(lines: messages, words: words)
-        highlightCache.lineIndex = -1
-        highlightCache.text = nil
-    }
-
-    /// Plain per-line text, built once per transcript change so a playing clock
-    /// only ever restyles the one line being spoken.
-    private static func baseStrings(for messages: [TranscriptChatMessage]) -> [Int: AttributedString] {
-        var cache: [Int: AttributedString] = [:]
-        for (index, message) in messages.enumerated() {
-            var string = AttributedString(message.text)
-            string.foregroundColor = MeetsTheme.textPrimary
-            cache[index] = string
-        }
-        return cache
+        alignment = TranscriptLineAligner.align(lines: messages, timings: timings)
     }
 
     // MARK: - Bubbles
@@ -136,74 +113,13 @@ struct MeetingTranscriptPlaybackView: View {
     private func bubble(for message: TranscriptChatMessage, activeLine: Int?) -> some View {
         let index = message.id
         let line = alignment.lines.indices.contains(index) ? alignment.lines[index] : nil
-        let isActive = index == activeLine
-        let activeWord = activeWord(for: index, line: line)
         TranscriptChatBubble(
             message: message,
-            text: isActive
-                ? activeLineText(for: message, index: index, line: line, activeWord: activeWord)
-                : baseStrings[index],
-            alignedWords: line?.words ?? [],
-            isActiveLine: isActive,
+            isActiveLine: index == activeLine,
+            seekTarget: line?.start,
             onSeek: { start in model.seek(to: start) }
         )
         .id(index)
-    }
-
-    private func activeWord(for lineIndex: Int, line: AlignedLine?) -> Int? {
-        line == nil ? nil : activeWordIndex(in: lineIndex)
-    }
-
-    /// The active line's text, rebuilt only when the spoken word changes rather
-    /// than on every clock tick.
-    private func activeLineText(
-        for message: TranscriptChatMessage,
-        index: Int,
-        line: AlignedLine?,
-        activeWord: Int?
-    ) -> AttributedString {
-        let cache = highlightCache
-        if cache.lineIndex == index, cache.wordIndex == activeWord, let text = cache.text {
-            return text
-        }
-        let text = highlightedText(for: message, line: line, activeWord: activeWord)
-        cache.lineIndex = index
-        cache.wordIndex = activeWord
-        cache.text = text
-        return text
-    }
-
-    /// The active line's text with the spoken word boxed. Every other word keeps
-    /// the transcript's normal colour, which the theme already resolves to
-    /// `textPrimary`, so only the spoken word needs an attribute.
-    private func highlightedText(
-        for message: TranscriptChatMessage,
-        line: AlignedLine?,
-        activeWord: Int?
-    ) -> AttributedString {
-        guard let line, !line.words.isEmpty else {
-            return baseStrings[message.id] ?? AttributedString(message.text)
-        }
-
-        var string = AttributedString()
-        var cursor = message.text.startIndex
-        for (index, word) in line.words.enumerated() where word.range.lowerBound >= cursor {
-            append(&string, message.text[cursor..<word.range.lowerBound], isSpoken: false)
-            append(&string, message.text[word.range], isSpoken: index == activeWord)
-            cursor = word.range.upperBound
-        }
-        append(&string, message.text[cursor...], isSpoken: false)
-        return string
-    }
-
-    private func append(_ string: inout AttributedString, _ text: Substring, isSpoken: Bool) {
-        guard !text.isEmpty else { return }
-        var piece = AttributedString(String(text))
-        piece.foregroundColor = MeetsTheme.textPrimary
-        if isSpoken {
-            piece.backgroundColor = MeetsTheme.accent.opacity(0.35)
-        }
-        string += piece
     }
 
     // MARK: - Following the audio
@@ -276,7 +192,7 @@ struct MeetingTranscriptPlaybackView: View {
         }
         .buttonStyle(.plain)
         .padding(MeetsTheme.spacing12)
-        .help("Scroll the transcript back to the words being spoken")
+        .help("Scroll the transcript back to the line being spoken")
     }
 }
 
@@ -288,27 +204,18 @@ private struct TranscriptScrollOffsetKey: PreferenceKey {
     }
 }
 
-/// Holds the active line's highlighted text between redraws. A reference type so
-/// the view can refresh it while it evaluates its body.
-private final class HighlightCache {
-    var lineIndex = -1
-    var wordIndex: Int?
-    var text: AttributedString?
-}
-
 /// One transcript line: the speaker/time metadata, then the line text.
 ///
-/// When the line has aligned words the text also carries tap targets over those
-/// words — see `TranscriptWordHitTesting` — so a click seeks to that word.
+/// The line being played is outlined and tinted. Clicking the bubble seeks to
+/// that line; the tap sits on the bubble's own background — with a matching
+/// content shape — and never on the `Text`, so `.textSelection(.enabled)` keeps
+/// working and dragging inside the line still selects.
 struct TranscriptChatBubble: View {
     let message: TranscriptChatMessage
-    var text: AttributedString?
-    var alignedWords: [AlignedWord] = []
     var isActiveLine = false
+    /// When the line has a time, clicking the bubble seeks to it.
+    var seekTarget: Double?
     var onSeek: ((Double) -> Void)?
-
-    @State private var measuredTextWidth: CGFloat = 0
-    @State private var hits: [TranscriptWordHit] = []
 
     var body: some View {
         HStack(alignment: .bottom, spacing: MeetsTheme.spacing8) {
@@ -316,24 +223,7 @@ struct TranscriptChatBubble: View {
                 Spacer(minLength: 80)
             }
 
-            VStack(alignment: .leading, spacing: 4) {
-                if let metadata {
-                    Text(metadata)
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundStyle(MeetsTheme.textTertiary)
-                        .textSelection(.enabled)
-                }
-                lineText
-            }
-            .padding(.horizontal, MeetsTheme.spacing12)
-            .padding(.vertical, 8)
-            .background(message.isUser ? MeetsTheme.accent.opacity(0.18) : MeetsTheme.surfacePrimary)
-            .clipShape(RoundedRectangle(cornerRadius: MeetsTheme.cornerSmall))
-            .overlay(
-                RoundedRectangle(cornerRadius: MeetsTheme.cornerSmall)
-                    .strokeBorder(borderColor, lineWidth: 1)
-            )
-            .frame(maxWidth: 680, alignment: message.isUser ? .trailing : .leading)
+            interactiveBubble
 
             if !message.isUser {
                 Spacer(minLength: 80)
@@ -342,57 +232,53 @@ struct TranscriptChatBubble: View {
         .frame(maxWidth: .infinity, alignment: message.isUser ? .trailing : .leading)
     }
 
-    private var lineText: some View {
-        Text(text ?? plainText)
-            .font(.system(size: 14))
-            .foregroundStyle(MeetsTheme.textPrimary)
-            .lineSpacing(2)
-            .textSelection(.enabled)
-            .background(
-                GeometryReader { proxy in
-                    Color.clear
-                        .onAppear { updateHits(width: proxy.size.width) }
-                        .onChange(of: proxy.size.width) { _, width in updateHits(width: width) }
-                }
-            )
-            .overlay(alignment: .topLeading) { wordHitTargets }
-    }
-
-    private var plainText: AttributedString {
-        var string = AttributedString(message.text)
-        string.foregroundColor = MeetsTheme.textPrimary
-        return string
-    }
-
+    /// A line with no time has nothing to seek to, so it takes no click.
     @ViewBuilder
-    private var wordHitTargets: some View {
-        if !hits.isEmpty {
-            ForEach(hits.indices, id: \.self) { index in
-                let hit = hits[index]
-                Color.clear
-                    .contentShape(Rectangle())
-                    .frame(width: hit.rect.width, height: hit.rect.height)
-                    .offset(x: hit.rect.minX, y: hit.rect.minY)
-                    .onTapGesture { onSeek?(hit.start) }
-            }
+    private var interactiveBubble: some View {
+        if let seekTarget {
+            bubble.onTapGesture { onSeek?(seekTarget) }
+        } else {
+            bubble
         }
     }
 
-    private func updateHits(width: CGFloat) {
-        guard onSeek != nil, !alignedWords.isEmpty, width > 1 else {
-            if !hits.isEmpty {
-                hits = []
+    private var bubble: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            if let metadata {
+                Text(metadata)
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(isActiveLine ? MeetsTheme.textSecondary : MeetsTheme.textTertiary)
+                    .textSelection(.enabled)
             }
-            return
+            Text(message.text)
+                .font(.system(size: 14))
+                .foregroundStyle(MeetsTheme.textPrimary)
+                .lineSpacing(2)
+                .textSelection(.enabled)
         }
-        guard hits.isEmpty || abs(width - measuredTextWidth) > 0.5 else { return }
-        measuredTextWidth = width
-        hits = TranscriptWordHitTesting.hits(text: message.text, words: alignedWords, width: width)
+        .padding(.horizontal, MeetsTheme.spacing12)
+        .padding(.vertical, 8)
+        .background(bubbleFill)
+        .clipShape(RoundedRectangle(cornerRadius: MeetsTheme.cornerSmall))
+        .overlay(
+            RoundedRectangle(cornerRadius: MeetsTheme.cornerSmall)
+                .strokeBorder(borderColor, lineWidth: 1)
+        )
+        .contentShape(RoundedRectangle(cornerRadius: MeetsTheme.cornerSmall))
+        .frame(maxWidth: 680, alignment: message.isUser ? .trailing : .leading)
+        .animation(.easeOut(duration: 0.15), value: isActiveLine)
+    }
+
+    private var bubbleFill: Color {
+        if isActiveLine {
+            return MeetsTheme.accent.opacity(0.10)
+        }
+        return message.isUser ? MeetsTheme.accent.opacity(0.18) : MeetsTheme.surfacePrimary
     }
 
     private var borderColor: Color {
         if isActiveLine {
-            return MeetsTheme.accent.opacity(0.6)
+            return MeetsTheme.accent.opacity(0.7)
         }
         return message.isUser ? MeetsTheme.accent.opacity(0.25) : MeetsTheme.surfaceBorder
     }
@@ -407,62 +293,6 @@ struct TranscriptChatBubble: View {
             return timestamp
         case (nil, nil):
             return nil
-        }
-    }
-}
-
-/// A tap target over one aligned word, in the bubble text's own coordinates.
-struct TranscriptWordHit: Equatable {
-    let rect: CGRect
-    let start: Double
-}
-
-/// Places the aligned words where `Text` actually draws them.
-///
-/// The line is rendered as one `Text` so selection and the `AttributedString`
-/// styling survive, which leaves no per-word view to tap. The same string, font,
-/// and width are laid out through `NSLayoutManager` instead, and the resulting
-/// glyph rectangles become invisible tap targets over the `Text`. Word positions
-/// are unaffected by the highlight, so the rectangles are computed once per
-/// width and reused while the clock moves.
-enum TranscriptWordHitTesting {
-    static let fontSize: CGFloat = 14
-    /// Matches the `Text`'s `.lineSpacing(2)`.
-    static let lineSpacing: CGFloat = 2
-
-    static func hits(text: String, words: [AlignedWord], width: CGFloat) -> [TranscriptWordHit] {
-        guard width > 1, !words.isEmpty else { return [] }
-
-        let paragraph = NSMutableParagraphStyle()
-        paragraph.lineSpacing = lineSpacing
-        paragraph.lineBreakMode = .byWordWrapping
-        let attributed = NSAttributedString(
-            string: text,
-            attributes: [
-                .font: NSFont.systemFont(ofSize: fontSize),
-                .paragraphStyle: paragraph
-            ]
-        )
-        let storage = NSTextStorage(attributedString: attributed)
-        let layoutManager = NSLayoutManager()
-        let container = NSTextContainer(size: CGSize(width: width, height: .greatestFiniteMagnitude))
-        container.lineFragmentPadding = 0
-        container.lineBreakMode = .byWordWrapping
-        layoutManager.addTextContainer(container)
-        storage.addLayoutManager(layoutManager)
-        layoutManager.ensureLayout(for: container)
-
-        return words.compactMap { word in
-            let range = NSRange(word.range, in: text)
-            guard range.length > 0 else { return nil }
-            let glyphRange = layoutManager.glyphRange(forCharacterRange: range, actualCharacterRange: nil)
-            let rect = layoutManager.boundingRect(forGlyphRange: glyphRange, in: container)
-            guard rect.width > 0, rect.height > 0 else { return nil }
-            // A slightly taller target than the glyphs: word boxes are short.
-            return TranscriptWordHit(
-                rect: rect.insetBy(dx: 0, dy: -1),
-                start: word.start
-            )
         }
     }
 }

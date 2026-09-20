@@ -119,7 +119,7 @@ struct MeetingDetailView: View {
     /// open meeting changes, because `MeetingDetailView` is created with
     /// `.id(meeting.id)` at every call site.
     @StateObject private var playbackModel = MeetingPlaybackModel()
-    @State private var transcriptWords: [TranscriptWordTiming] = []
+    @State private var transcriptLines: [TranscriptLineTiming] = []
     @State private var transcriptEditHadStructuredNotes = false
     @State private var showFolderPopover = false
     @State private var showNewFolderPrompt = false
@@ -189,11 +189,11 @@ struct MeetingDetailView: View {
                     showsWrittenNotes = MeetingViewPreferences.shared.showsWrittenNotes(for: meeting.id)
                 }
                 .task(id: meeting.id) {
-                    // Word timings are seconds into the saved recording, so a
+                    // Line timings are seconds into the saved recording, so a
                     // meeting without one needs none of them.
-                    transcriptWords = meeting.savedRecordingPath == nil
+                    transcriptLines = meeting.savedRecordingPath == nil
                         ? []
-                        : controller.transcriptWords(for: meeting.id)
+                        : controller.transcriptLines(for: meeting.id)
                 }
                 .onChange(of: meeting.id) { _, _ in
                     syncLocalState(with: meeting)
@@ -730,7 +730,7 @@ struct MeetingDetailView: View {
 
                         MeetingTranscriptPlaybackView(
                             transcript: meeting.rawTranscript,
-                            words: transcriptWords,
+                            timings: transcriptLines,
                             model: playbackModel
                         )
                     }

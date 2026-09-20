@@ -13,9 +13,9 @@ struct MeetingStreamingPartialSessionTests {
         for text in ["Final words.", ""] {
             let result = await MeetingSession.resolveChunkTranscript(timing: timing, finalizedText: { text }) {
                 Issue.record("Recorded audio must not be transcribed after successful streaming")
-                return MeetingChunkTranscription()
+                return []
             }
-            #expect(result.segments.map(\.text) == (text.isEmpty ? [] : [text]))
+            #expect(result.map(\.text) == (text.isEmpty ? [] : [text]))
         }
     }
 
@@ -25,14 +25,10 @@ struct MeetingStreamingPartialSessionTests {
         var calls = 0
         let result = await MeetingSession.resolveChunkTranscript(timing: timing, finalizedText: { nil }) {
             calls += 1
-            return MeetingChunkTranscription(
-                segments: [SpeechSegment(start: 0, end: 1, text: "Recovered.")],
-                words: [SpeechWord(start: 0, end: 0.5, text: "Recovered.")]
-            )
+            return [SpeechSegment(start: 0, end: 1, text: "Recovered.")]
         }
         #expect(calls == 1)
-        #expect(result.segments.map(\.text) == ["Recovered."])
-        #expect(result.words.map(\.text) == ["Recovered."])
+        #expect(result.map(\.text) == ["Recovered."])
     }
 
     @Test("cancellation while finalizing does not launch recorded-audio transcription")
@@ -44,10 +40,10 @@ struct MeetingStreamingPartialSessionTests {
                 return nil
             }) {
                 Issue.record("Cancellation must not start batch transcription")
-                return MeetingChunkTranscription()
+                return []
             }
         }
-        #expect(await task.value.segments.isEmpty)
+        #expect(await task.value.isEmpty)
     }
 
     @Test("finalized silence is successful at both chunk and stop boundaries")

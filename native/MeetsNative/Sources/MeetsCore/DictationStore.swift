@@ -146,11 +146,11 @@ public final class DictationStore {
         CREATE INDEX IF NOT EXISTS idx_meeting_transcript_checkpoints_meeting
             ON meeting_transcript_checkpoints(meeting_id, start_seconds, id);
 
-        -- Permanent per-word timings for the saved recording, written when a
+        -- Permanent per-line timings for the saved recording, written when a
         -- meeting's transcript is finalized. Unlike the live checkpoints
         -- above, these outlive the recording session so the player can
-        -- highlight each word while the saved audio plays.
-        CREATE TABLE IF NOT EXISTS meeting_transcript_words (
+        -- highlight each line while the saved audio plays.
+        CREATE TABLE IF NOT EXISTS meeting_transcript_lines (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             meeting_id INTEGER NOT NULL REFERENCES meetings(id) ON DELETE CASCADE,
             ordinal INTEGER NOT NULL,
@@ -159,8 +159,8 @@ public final class DictationStore {
             end_seconds REAL NOT NULL,
             text TEXT NOT NULL
         );
-        CREATE INDEX IF NOT EXISTS idx_meeting_transcript_words_meeting
-            ON meeting_transcript_words(meeting_id, ordinal);
+        CREATE INDEX IF NOT EXISTS idx_meeting_transcript_lines_meeting
+            ON meeting_transcript_lines(meeting_id, ordinal);
 
         CREATE TABLE IF NOT EXISTS meeting_resume_snapshots (
             meeting_id INTEGER PRIMARY KEY REFERENCES meetings(id) ON DELETE CASCADE,
@@ -264,6 +264,10 @@ public final class DictationStore {
         for table in ["dictations", "computer_use_traces", "cloud_sync_state", "local_migrations"] {
             _ = sqlite3_exec(db, "DROP TABLE IF EXISTS \(table)", nil, nil, nil)
         }
+        // Per-word timings were abandoned in favour of per-line timings that
+        // every speech model can supply. Existing databases keep a populated
+        // table nothing reads any more, so drop it outright.
+        _ = sqlite3_exec(db, "DROP TABLE IF EXISTS meeting_transcript_words", nil, nil, nil)
         for column in ["deleted_at", "cloud_record_name", "cloud_change_tag", "cloud_system_fields",
                        "cloud_transcript_record_name", "last_synced_at", "sync_dirty", "follow_up_to_record_name"] {
             let sql = "ALTER TABLE meetings DROP COLUMN \(column)"
@@ -2385,7 +2389,7 @@ public final class DictationStore {
         do {
             try deleteResumeSnapshot(meetingID: id, db: db)
             try deleteLiveTranscriptCheckpoints(meetingID: id, db: db)
-            try deleteTranscriptWords(meetingID: id, db: db)
+            try deleteTranscriptLines(meetingID: id, db: db)
             try deleteMeetingParticipants(meetingID: id, db: db)
             var statement: OpaquePointer?
             let sql = "DELETE FROM meetings WHERE id = ?"
@@ -2413,7 +2417,7 @@ public final class DictationStore {
         defer { sqlite3_close(db) }
         try exec("DELETE FROM meeting_resume_snapshots", db: db)
         try exec("DELETE FROM meeting_transcript_checkpoints", db: db)
-        try exec("DELETE FROM meeting_transcript_words", db: db)
+        try exec("DELETE FROM meeting_transcript_lines", db: db)
         try exec("DELETE FROM meeting_participants", db: db)
         try exec("DELETE FROM meeting_event_links", db: db)
         try exec("DELETE FROM meetings", db: db)
@@ -2613,15 +2617,15 @@ public final class DictationStore {
         return try liveTranscriptCheckpointText(meetingID: meetingID, db: db)
     }
 
-    /// Replaces the permanent per-word timings for one meeting in a single
-    /// transaction: existing rows are deleted, then `words` are inserted in
+    /// Replaces the permanent per-line timings for one meeting in a single
+    /// transaction: existing rows are deleted, then `lines` are inserted in
     /// array order.
     ///
     /// Ordinals are stored as given when they form a gap-free increasing run
     /// (0, 1, 2, … or any starting offset). Duplicate, unordered, or gapped
     /// ordinals are renumbered by array position instead, so the stored
     /// sequence is always contiguous in reading order.
-    public func replaceTranscriptWords(meetingID: Int64, words: [TranscriptWordTiming]) throws {
+    public func replaceTranscriptLines(meetingID: Int64, lines: [TranscriptLineTiming]) throws {
         let db = try openDatabase()
         defer { sqlite3_close(db) }
         guard sqlite3_exec(db, "BEGIN TRANSACTION", nil, nil, nil) == SQLITE_OK else {
@@ -2629,14 +2633,14 @@ public final class DictationStore {
         }
 
         do {
-            try deleteTranscriptWords(meetingID: meetingID, db: db)
+            try deleteTranscriptLines(meetingID: meetingID, db: db)
 
-            let contiguouslyNumbered = words.indices.allSatisfy { index in
-                words[index].ordinal == words[0].ordinal + index
+            let contiguouslyNumbered = lines.indices.allSatisfy { index in
+                lines[index].ordinal == lines[0].ordinal + index
             }
 
             let sql = """
-            INSERT INTO meeting_transcript_words
+            INSERT INTO meeting_transcript_lines
             (meeting_id, ordinal, speaker, start_seconds, end_seconds, text)
             VALUES (?, ?, ?, ?, ?, ?)
             """
@@ -2646,15 +2650,15 @@ public final class DictationStore {
             }
             defer { sqlite3_finalize(statement) }
 
-            for (index, word) in words.enumerated() {
+            for (index, line) in lines.enumerated() {
                 sqlite3_reset(statement)
                 sqlite3_clear_bindings(statement)
                 sqlite3_bind_int64(statement, 1, meetingID)
-                sqlite3_bind_int(statement, 2, Int32(contiguouslyNumbered ? word.ordinal : index))
-                sqlite3_bind_text(statement, 3, (word.speaker as NSString).utf8String, -1, nil)
-                sqlite3_bind_double(statement, 4, word.startSeconds)
-                sqlite3_bind_double(statement, 5, word.endSeconds)
-                sqlite3_bind_text(statement, 6, (word.text as NSString).utf8String, -1, nil)
+                sqlite3_bind_int(statement, 2, Int32(contiguouslyNumbered ? line.ordinal : index))
+                sqlite3_bind_text(statement, 3, (line.speaker as NSString).utf8String, -1, nil)
+                sqlite3_bind_double(statement, 4, line.startSeconds)
+                sqlite3_bind_double(statement, 5, line.endSeconds)
+                sqlite3_bind_text(statement, 6, (line.text as NSString).utf8String, -1, nil)
                 guard sqlite3_step(statement) == SQLITE_DONE else {
                     throw lastError(db)
                 }
@@ -2669,13 +2673,13 @@ public final class DictationStore {
         }
     }
 
-    /// Every stored word timing for a meeting, ordered by `ordinal`.
-    public func transcriptWords(meetingID: Int64) throws -> [TranscriptWordTiming] {
+    /// Every stored line timing for a meeting, ordered by `ordinal`.
+    public func transcriptLines(meetingID: Int64) throws -> [TranscriptLineTiming] {
         let db = try openDatabase()
         defer { sqlite3_close(db) }
         let sql = """
         SELECT ordinal, speaker, start_seconds, end_seconds, text
-        FROM meeting_transcript_words
+        FROM meeting_transcript_lines
         WHERE meeting_id = ?
         ORDER BY ordinal
         """
@@ -2686,10 +2690,10 @@ public final class DictationStore {
         defer { sqlite3_finalize(statement) }
         sqlite3_bind_int64(statement, 1, meetingID)
 
-        var words: [TranscriptWordTiming] = []
+        var lines: [TranscriptLineTiming] = []
         while sqlite3_step(statement) == SQLITE_ROW {
-            words.append(
-                TranscriptWordTiming(
+            lines.append(
+                TranscriptLineTiming(
                     ordinal: Int(sqlite3_column_int64(statement, 0)),
                     speaker: stringColumn(statement, index: 1),
                     startSeconds: sqlite3_column_double(statement, 2),
@@ -2698,13 +2702,13 @@ public final class DictationStore {
                 )
             )
         }
-        return words
+        return lines
     }
 
-    public func deleteTranscriptWords(meetingID: Int64) throws {
+    public func deleteTranscriptLines(meetingID: Int64) throws {
         let db = try openDatabase()
         defer { sqlite3_close(db) }
-        try deleteTranscriptWords(meetingID: meetingID, db: db)
+        try deleteTranscriptLines(meetingID: meetingID, db: db)
     }
 
     @discardableResult
@@ -3234,8 +3238,8 @@ public final class DictationStore {
         }
     }
 
-    private func deleteTranscriptWords(meetingID: Int64, db: OpaquePointer?) throws {
-        let sql = "DELETE FROM meeting_transcript_words WHERE meeting_id = ?"
+    private func deleteTranscriptLines(meetingID: Int64, db: OpaquePointer?) throws {
+        let sql = "DELETE FROM meeting_transcript_lines WHERE meeting_id = ?"
         var statement: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
             throw lastError(db)

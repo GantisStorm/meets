@@ -538,23 +538,23 @@ struct MeetingChunkCollectorTests {
         _ = collector.add(
             Task {
                 try? await Task.sleep(for: .milliseconds(30))
-                return MeetingChunkTranscription(segments: [SpeechSegment(start: 30, end: 31, text: "later")])
+                return [SpeechSegment(start: 30, end: 31, text: "later")]
             }
         )
         _ = collector.add(
             Task {
                 try? await Task.sleep(for: .milliseconds(5))
-                return MeetingChunkTranscription()
+                return []
             }
         )
         _ = collector.add(
             Task {
                 try? await Task.sleep(for: .milliseconds(10))
-                return MeetingChunkTranscription(segments: [SpeechSegment(start: 10, end: 11, text: "earlier")])
+                return [SpeechSegment(start: 10, end: 11, text: "earlier")]
             }
         )
 
-        let segments = await collector.closeAndDrain().segments
+        let segments = await collector.closeAndDrainSortedSegments()
 
         #expect(segments.map(\.text) == ["earlier", "later"])
         #expect(segments.map(\.start) == [10, 30])
@@ -563,16 +563,16 @@ struct MeetingChunkCollectorTests {
     @Test("collector rejects tasks after closing")
     func collectorRejectsLateTasks() async {
         let collector = MeetingChunkCollector()
-        let initialTask = Task<MeetingChunkTranscription, Never> {
-            MeetingChunkTranscription(segments: [SpeechSegment(start: 1, end: 2, text: "first")])
+        let initialTask = Task<[SpeechSegment], Never> {
+            [SpeechSegment(start: 1, end: 2, text: "first")]
         }
         #expect(collector.add(initialTask).registered)
 
-        let initial = await collector.closeAndDrain()
-        #expect(initial.segments.map(\.text) == ["first"])
+        let initial = await collector.closeAndDrainSortedSegments()
+        #expect(initial.map(\.text) == ["first"])
 
-        let lateTask = Task<MeetingChunkTranscription, Never> {
-            MeetingChunkTranscription(segments: [SpeechSegment(start: 3, end: 4, text: "late")])
+        let lateTask = Task<[SpeechSegment], Never> {
+            [SpeechSegment(start: 3, end: 4, text: "late")]
         }
         #expect(!collector.add(lateTask).registered)
         lateTask.cancel()
@@ -581,45 +581,37 @@ struct MeetingChunkCollectorTests {
     @Test("collector retire returns false after drain closes collector")
     func collectorRetireReturnsFalseAfterDrain() async {
         let collector = MeetingChunkCollector()
-        let task = Task<MeetingChunkTranscription, Never> {
+        let task = Task<[SpeechSegment], Never> {
             try? await Task.sleep(for: .milliseconds(10))
-            return MeetingChunkTranscription(segments: [SpeechSegment(start: 1, end: 2, text: "first")])
+            return [SpeechSegment(start: 1, end: 2, text: "first")]
         }
         let registration = collector.add(task)
         #expect(registration.registered)
 
-        let drained = await collector.closeAndDrain()
-        let retired = collector.retire(id: registration.retireID, transcription: await task.value)
+        let drained = await collector.closeAndDrainSortedSegments()
+        let retired = collector.retire(id: registration.retireID, segments: await task.value)
 
-        #expect(drained.segments.map(\.text) == ["first"])
+        #expect(drained.map(\.text) == ["first"])
         #expect(retired == false)
     }
 
-    @Test("collector flattens timed segments and words from a single chunk and sorts them")
+    @Test("collector flattens timed segments from a single chunk and sorts them")
     func collectorFlattensChunkSegments() async {
         let collector = MeetingChunkCollector()
 
         _ = collector.add(
             Task {
-                MeetingChunkTranscription(
-                    segments: [
-                        SpeechSegment(start: 12, end: 12.5, text: "second"),
-                        SpeechSegment(start: 11, end: 11.5, text: "first")
-                    ],
-                    words: [
-                        SpeechWord(start: 12, end: 12.5, text: "second"),
-                        SpeechWord(start: 11, end: 11.5, text: "first")
-                    ]
-                )
+                [
+                    SpeechSegment(start: 12, end: 12.5, text: "second"),
+                    SpeechSegment(start: 11, end: 11.5, text: "first")
+                ]
             }
         )
 
-        let drained = await collector.closeAndDrain()
+        let segments = await collector.closeAndDrainSortedSegments()
 
-        #expect(drained.segments.map(\.text) == ["first", "second"])
-        #expect(drained.segments.map(\.start) == [11, 12])
-        #expect(drained.words.map(\.text) == ["first", "second"])
-        #expect(drained.words.map(\.start) == [11, 12])
+        #expect(segments.map(\.text) == ["first", "second"])
+        #expect(segments.map(\.start) == [11, 12])
     }
 }
 

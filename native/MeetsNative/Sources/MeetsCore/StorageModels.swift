@@ -53,14 +53,16 @@ public struct LiveTranscriptCheckpointEntry: Sendable, Equatable {
     }
 }
 
-/// One word of a saved meeting transcript, with the sample-clock timing the
+/// One line of a saved meeting transcript, with the sample-clock timing the
 /// recording player needs to highlight it while audio plays.
 ///
 /// `speaker` is the display label the transcript line uses ("You", "Others",
 /// "Speaker 1", or "" when unknown). `startSeconds`/`endSeconds` are seconds
 /// into the saved recording — the same clock `LiveTranscriptCheckpointEntry`
-/// uses — so playback position maps directly onto words.
-public struct TranscriptWordTiming: Equatable, Sendable, Codable {
+/// uses — so playback position maps directly onto lines. `text` is the line's
+/// full text as it appears in the transcript, without the
+/// "[HH:MM:SS] Speaker:" prefix.
+public struct TranscriptLineTiming: Equatable, Sendable, Codable {
     public let ordinal: Int
     public let speaker: String
     public let startSeconds: Double

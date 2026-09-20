@@ -128,9 +128,11 @@ enum AudioFileImportController {
         let formattedNotes: String
         let durationSeconds: Double
         let wordCount: Int
-        /// Per-word timings stored for this meeting, in the same reading order as
-        /// `rawTranscript`, each carrying the speaker label of its transcript line.
-        let words: [TranscriptWordTiming]
+        /// Line timings stored for this meeting, in the same reading order as
+        /// `rawTranscript`. Empty when the stored transcript has no speaker
+        /// labels, which means the lines the formatter would time are not the
+        /// lines the meeting shows.
+        let transcriptLines: [TranscriptLineTiming]
     }
 
     struct ImportContext {
@@ -204,10 +206,11 @@ enum AudioFileImportController {
 
         // Run speaker diarization if available
         var diarizedTranscript = rawTranscript
-        // Word timings inherit the speaker attribution of the transcript they are
-        // stored with, resolved at each word's midpoint. Nil means the stored
-        // transcript carries no speaker labels, so words stay unattributed.
-        var wordSpeakerLabeler: ((Double) -> String)?
+        // Line timings come from the same formatter call that writes the stored
+        // transcript, so every stored line matches a line the user sees. Without
+        // speaker labels the raw transcript is stored as one block and there is
+        // nothing to time.
+        var transcriptLines: [TranscriptLineTiming] = []
         if let diarizerManager = await transcriptionCoordinator.getDiarizerManager(),
            diarizerManager.isAvailable {
             progress("Identifying speakers...")
@@ -221,22 +224,13 @@ enum AudioFileImportController {
                 )
                 let diarizationSegments = diarizationResult.segments
                 if !diarizationSegments.isEmpty {
-                    diarizedTranscript = formatTranscriptWithSpeakers(
+                    let formatted = formatTranscriptWithSpeakersAndLines(
                         transcription: transcription,
                         diarizationSegments: diarizationSegments,
                         meetingStart: importedTranscriptTimelineStart()
                     )
-                    if annotatesSpeakers(
-                        transcription: transcription,
-                        diarizationSegments: diarizationSegments
-                    ) {
-                        wordSpeakerLabeler = { seconds in
-                            TranscriptFormatter.speakerLabel(
-                                at: seconds,
-                                diarizationSegments: diarizationSegments
-                            )
-                        }
-                    }
+                    diarizedTranscript = formatted.text
+                    transcriptLines = formatted.lines
                 }
             } catch is CancellationError {
                 throw CancellationError()
@@ -246,10 +240,6 @@ enum AudioFileImportController {
         }
 
         try Task.checkCancellation()
-
-        let transcriptWords = TranscriptWordTimingBuilder.tagged(transcription.words) { seconds in
-            wordSpeakerLabeler?(seconds) ?? ""
-        }
 
         let wordCount = DictationStore.countWords(in: diarizedTranscript)
         let generatedTitle: String
@@ -307,7 +297,7 @@ enum AudioFileImportController {
             selectedTemplateName: templateSnapshot.name,
             selectedTemplateKind: templateSnapshot.kind,
             selectedTemplatePrompt: templateSnapshot.prompt,
-            transcriptWords: transcriptWords
+            transcriptLines: transcriptLines
         )
 
         return ImportResult(
@@ -317,7 +307,7 @@ enum AudioFileImportController {
             formattedNotes: formattedNotes,
             durationSeconds: duration,
             wordCount: wordCount,
-            words: transcriptWords
+            transcriptLines: transcriptLines
         )
     }
 
@@ -463,32 +453,49 @@ enum AudioFileImportController {
         }
     }
 
-    /// Formats transcript text with speaker labels based on diarization segments.
+    /// Formats transcript text with speaker labels based on diarization segments,
+    /// returning the line timings for that formatted transcript alongside the text.
     /// When diarization identifies multiple speakers, the transcript is annotated with
     /// speaker labels using ASR segment timestamps so both the user and summarizer can
     /// attribute spoken text to individual speakers without inventing text boundaries.
-    static func formatTranscriptWithSpeakers(
+    ///
+    /// Without speaker labels the stored transcript is the raw text, whose lines are
+    /// not the lines `mergeWithTimings` would emit, so the result is `(rawText, [])`.
+    static func formatTranscriptWithSpeakersAndLines(
         transcription: SpeechTranscriptionResult,
         diarizationSegments: [TimedSpeakerSegment],
         meetingStart: Date
-    ) -> String {
+    ) -> (text: String, lines: [TranscriptLineTiming]) {
         let rawText = transcription.text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard annotatesSpeakers(
             transcription: transcription,
             diarizationSegments: diarizationSegments
-        ) else { return rawText }
+        ) else { return (rawText, []) }
 
         let transcribedSegments = transcription.segments.filter {
             !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         }
 
-        let formatted = TranscriptFormatter.merge(
+        let formatted = TranscriptFormatter.mergeWithTimings(
             micSegments: [],
             systemSegments: transcribedSegments,
             diarizationSegments: diarizationSegments,
             meetingStart: meetingStart
         )
-        return formatted.isEmpty ? rawText : formatted
+        return formatted.text.isEmpty ? (rawText, []) : (formatted.text, formatted.lines)
+    }
+
+    /// Formats transcript text with speaker labels based on diarization segments.
+    static func formatTranscriptWithSpeakers(
+        transcription: SpeechTranscriptionResult,
+        diarizationSegments: [TimedSpeakerSegment],
+        meetingStart: Date
+    ) -> String {
+        formatTranscriptWithSpeakersAndLines(
+            transcription: transcription,
+            diarizationSegments: diarizationSegments,
+            meetingStart: meetingStart
+        ).text
     }
 
     /// Backward-compatible helper for tests and any callers that only have raw text.

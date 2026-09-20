@@ -2670,8 +2670,6 @@ struct ParakeetUnifiedPlanTests {
         let installedPaths = [
             "parakeet_unified_encoder_int8.mlmodelc/coremldata.bin",
             "parakeet_unified_encoder_int8.mlmodelc/weights/weight.bin",
-            "parakeet_unified_encoder_streaming_70_13_13_int8.mlmodelc/coremldata.bin",
-            "parakeet_unified_encoder_streaming_70_13_13_int8.mlmodelc/weights/weight.bin",
             "parakeet_unified_decoder.mlmodelc/coremldata.bin",
             "parakeet_unified_decoder.mlmodelc/weights/weight.bin",
             "parakeet_unified_joint_decision_single_step.mlmodelc/coremldata.bin",

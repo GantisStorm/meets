@@ -1385,116 +1385,166 @@ struct DictationStoreTests {
         #expect(try store.liveTranscriptCheckpointText(meetingID: meetingID) == nil)
     }
 
-    // MARK: - Transcript Word Timings
+    // MARK: - Transcript Line Timings
 
-    @Test("replace transcript words stores them in ordinal order")
-    func replaceTranscriptWordsStoresInOrder() throws {
+    @Test("replace transcript lines stores them in ordinal order")
+    func replaceTranscriptLinesStoresInOrder() throws {
         let store = try makeStore()
-        let id = try store.createLiveMeeting(title: "Words", calendarEventID: nil, startTime: Date())
+        let id = try store.createLiveMeeting(title: "Lines", calendarEventID: nil, startTime: Date())
 
-        try store.replaceTranscriptWords(meetingID: id, words: [
-            TranscriptWordTiming(ordinal: 0, speaker: "You", startSeconds: 0.25, endSeconds: 0.6, text: "Hello"),
-            TranscriptWordTiming(ordinal: 1, speaker: "You", startSeconds: 0.6, endSeconds: 0.9, text: "there"),
-            TranscriptWordTiming(ordinal: 2, speaker: "Others", startSeconds: 1.1, endSeconds: 1.5, text: "Hi")
+        try store.replaceTranscriptLines(meetingID: id, lines: [
+            TranscriptLineTiming(ordinal: 0, speaker: "You", startSeconds: 0.25, endSeconds: 0.6, text: "Hello there"),
+            TranscriptLineTiming(ordinal: 1, speaker: "You", startSeconds: 0.6, endSeconds: 2.9, text: "How are you"),
+            TranscriptLineTiming(ordinal: 2, speaker: "Others", startSeconds: 3.1, endSeconds: 4.5, text: "Hi")
         ])
 
-        let words = try store.transcriptWords(meetingID: id)
-        #expect(words.map(\.ordinal) == [0, 1, 2])
-        #expect(words.map(\.text) == ["Hello", "there", "Hi"])
-        #expect(words.map(\.speaker) == ["You", "You", "Others"])
-        #expect(words.first?.startSeconds == 0.25)
-        #expect(words.last?.endSeconds == 1.5)
+        let lines = try store.transcriptLines(meetingID: id)
+        #expect(lines.map(\.ordinal) == [0, 1, 2])
+        #expect(lines.map(\.text) == ["Hello there", "How are you", "Hi"])
+        #expect(lines.map(\.speaker) == ["You", "You", "Others"])
+        #expect(lines.first?.startSeconds == 0.25)
+        #expect(lines.last?.endSeconds == 4.5)
     }
 
-    @Test("replace transcript words overwrites the previous run")
-    func replaceTranscriptWordsOverwrites() throws {
+    @Test("replace transcript lines overwrites the previous run")
+    func replaceTranscriptLinesOverwrites() throws {
         let store = try makeStore()
         let id = try store.createLiveMeeting(title: "Reworded", calendarEventID: nil, startTime: Date())
 
-        try store.replaceTranscriptWords(meetingID: id, words: [
-            TranscriptWordTiming(ordinal: 0, speaker: "You", startSeconds: 0, endSeconds: 1, text: "Draft"),
-            TranscriptWordTiming(ordinal: 1, speaker: "You", startSeconds: 1, endSeconds: 2, text: "words")
+        try store.replaceTranscriptLines(meetingID: id, lines: [
+            TranscriptLineTiming(ordinal: 0, speaker: "You", startSeconds: 0, endSeconds: 1, text: "Draft line"),
+            TranscriptLineTiming(ordinal: 1, speaker: "You", startSeconds: 1, endSeconds: 2, text: "second line")
         ])
-        try store.replaceTranscriptWords(meetingID: id, words: [
-            TranscriptWordTiming(ordinal: 0, speaker: "Others", startSeconds: 0, endSeconds: 1, text: "Rewritten")
+        try store.replaceTranscriptLines(meetingID: id, lines: [
+            TranscriptLineTiming(ordinal: 0, speaker: "Others", startSeconds: 0, endSeconds: 1, text: "Rewritten line")
         ])
 
-        let words = try store.transcriptWords(meetingID: id)
-        #expect(words.map(\.text) == ["Rewritten"])
-        #expect(words.map(\.speaker) == ["Others"])
+        let lines = try store.transcriptLines(meetingID: id)
+        #expect(lines.map(\.text) == ["Rewritten line"])
+        #expect(lines.map(\.speaker) == ["Others"])
     }
 
     @Test("non-contiguous ordinals are renumbered by reading order")
-    func replaceTranscriptWordsRenumbersGappedOrdinals() throws {
+    func replaceTranscriptLinesRenumbersGappedOrdinals() throws {
         let store = try makeStore()
         let id = try store.createLiveMeeting(title: "Gaps", calendarEventID: nil, startTime: Date())
 
-        try store.replaceTranscriptWords(meetingID: id, words: [
-            TranscriptWordTiming(ordinal: 0, speaker: "You", startSeconds: 0, endSeconds: 1, text: "first"),
-            TranscriptWordTiming(ordinal: 4, speaker: "You", startSeconds: 1, endSeconds: 2, text: "second"),
-            TranscriptWordTiming(ordinal: 9, speaker: "You", startSeconds: 2, endSeconds: 3, text: "third")
+        try store.replaceTranscriptLines(meetingID: id, lines: [
+            TranscriptLineTiming(ordinal: 0, speaker: "You", startSeconds: 0, endSeconds: 1, text: "first line"),
+            TranscriptLineTiming(ordinal: 4, speaker: "You", startSeconds: 1, endSeconds: 2, text: "second line"),
+            TranscriptLineTiming(ordinal: 9, speaker: "You", startSeconds: 2, endSeconds: 3, text: "third line")
         ])
 
-        let words = try store.transcriptWords(meetingID: id)
-        #expect(words.map(\.ordinal) == [0, 1, 2])
-        #expect(words.map(\.text) == ["first", "second", "third"])
+        let lines = try store.transcriptLines(meetingID: id)
+        #expect(lines.map(\.ordinal) == [0, 1, 2])
+        #expect(lines.map(\.text) == ["first line", "second line", "third line"])
     }
 
-    @Test("delete transcript words clears only the named meeting")
-    func deleteTranscriptWordsScopesToOneMeeting() throws {
+    @Test("delete transcript lines clears only the named meeting")
+    func deleteTranscriptLinesScopesToOneMeeting() throws {
         let store = try makeStore()
         let kept = try store.createLiveMeeting(title: "Keep", calendarEventID: nil, startTime: Date())
         let cleared = try store.createLiveMeeting(title: "Clear", calendarEventID: nil, startTime: Date())
-        let words = [TranscriptWordTiming(ordinal: 0, speaker: "You", startSeconds: 0, endSeconds: 0.5, text: "word")]
-        try store.replaceTranscriptWords(meetingID: kept, words: words)
-        try store.replaceTranscriptWords(meetingID: cleared, words: words)
+        let lines = [TranscriptLineTiming(ordinal: 0, speaker: "You", startSeconds: 0, endSeconds: 0.5, text: "one line")]
+        try store.replaceTranscriptLines(meetingID: kept, lines: lines)
+        try store.replaceTranscriptLines(meetingID: cleared, lines: lines)
 
-        try store.deleteTranscriptWords(meetingID: cleared)
+        try store.deleteTranscriptLines(meetingID: cleared)
 
-        #expect(try store.transcriptWords(meetingID: cleared).isEmpty)
-        #expect(try store.transcriptWords(meetingID: kept).count == 1)
+        #expect(try store.transcriptLines(meetingID: cleared).isEmpty)
+        #expect(try store.transcriptLines(meetingID: kept).count == 1)
     }
 
-    @Test("delete meeting removes transcript words")
-    func deleteMeetingRemovesTranscriptWords() throws {
+    @Test("delete meeting removes transcript lines")
+    func deleteMeetingRemovesTranscriptLines() throws {
         let store = try makeStore()
-        let id = try store.createLiveMeeting(title: "Delete Words", calendarEventID: nil, startTime: Date())
-        try store.replaceTranscriptWords(meetingID: id, words: [
-            TranscriptWordTiming(ordinal: 0, speaker: "You", startSeconds: 0, endSeconds: 0.5, text: "word")
+        let id = try store.createLiveMeeting(title: "Delete Lines", calendarEventID: nil, startTime: Date())
+        try store.replaceTranscriptLines(meetingID: id, lines: [
+            TranscriptLineTiming(ordinal: 0, speaker: "You", startSeconds: 0, endSeconds: 0.5, text: "one line")
         ])
-        #expect(try store.transcriptWords(meetingID: id).count == 1)
+        #expect(try store.transcriptLines(meetingID: id).count == 1)
 
         try store.deleteMeeting(id: id)
 
-        #expect(try store.transcriptWords(meetingID: id).isEmpty)
+        #expect(try store.transcriptLines(meetingID: id).isEmpty)
     }
 
-    @Test("clear meetings removes transcript words")
-    func clearMeetingsRemovesTranscriptWords() throws {
+    @Test("clear meetings removes transcript lines")
+    func clearMeetingsRemovesTranscriptLines() throws {
         let store = try makeStore()
         let first = try store.createLiveMeeting(title: "One", calendarEventID: nil, startTime: Date())
         let second = try store.createLiveMeeting(title: "Two", calendarEventID: nil, startTime: Date())
-        let words = [TranscriptWordTiming(ordinal: 0, speaker: "You", startSeconds: 0, endSeconds: 0.5, text: "word")]
-        try store.replaceTranscriptWords(meetingID: first, words: words)
-        try store.replaceTranscriptWords(meetingID: second, words: words)
+        let lines = [TranscriptLineTiming(ordinal: 0, speaker: "You", startSeconds: 0, endSeconds: 0.5, text: "one line")]
+        try store.replaceTranscriptLines(meetingID: first, lines: lines)
+        try store.replaceTranscriptLines(meetingID: second, lines: lines)
 
         try store.clearMeetings()
 
-        #expect(try store.transcriptWords(meetingID: first).isEmpty)
-        #expect(try store.transcriptWords(meetingID: second).isEmpty)
+        #expect(try store.transcriptLines(meetingID: first).isEmpty)
+        #expect(try store.transcriptLines(meetingID: second).isEmpty)
     }
 
-    @Test("replacing with no words clears stored timings")
-    func replaceTranscriptWordsWithEmptyArrayClears() throws {
+    @Test("replacing with no lines clears stored timings")
+    func replaceTranscriptLinesWithEmptyArrayClears() throws {
         let store = try makeStore()
         let id = try store.createLiveMeeting(title: "Emptied", calendarEventID: nil, startTime: Date())
-        try store.replaceTranscriptWords(meetingID: id, words: [
-            TranscriptWordTiming(ordinal: 0, speaker: "You", startSeconds: 0, endSeconds: 0.5, text: "word")
+        try store.replaceTranscriptLines(meetingID: id, lines: [
+            TranscriptLineTiming(ordinal: 0, speaker: "You", startSeconds: 0, endSeconds: 0.5, text: "one line")
         ])
 
-        try store.replaceTranscriptWords(meetingID: id, words: [])
+        try store.replaceTranscriptLines(meetingID: id, lines: [])
 
-        #expect(try store.transcriptWords(meetingID: id).isEmpty)
+        #expect(try store.transcriptLines(meetingID: id).isEmpty)
+    }
+
+    @Test("a fresh database never carries the abandoned words table")
+    func freshDatabaseHasNoWordsTable() throws {
+        let store = try makeStore()
+
+        #expect(try tableExists("meeting_transcript_words", at: store.databasePath()) == false)
+        #expect(try tableExists("meeting_transcript_lines", at: store.databasePath()))
+    }
+
+    @Test("migrating a database that still carries the words table drops it")
+    func migrationDropsAbandonedWordsTable() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("meets-legacy-words-\(UUID().uuidString).db")
+        var db: OpaquePointer?
+        #expect(sqlite3_open(url.path, &db) == SQLITE_OK)
+        let sql = """
+        CREATE TABLE meeting_transcript_words (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            meeting_id INTEGER NOT NULL,
+            ordinal INTEGER NOT NULL,
+            speaker TEXT NOT NULL DEFAULT '',
+            start_seconds REAL NOT NULL,
+            end_seconds REAL NOT NULL,
+            text TEXT NOT NULL
+        );
+        """
+        #expect(sqlite3_exec(db, sql, nil, nil, nil) == SQLITE_OK)
+        sqlite3_close(db)
+
+        let store = DictationStore(databaseURL: url)
+        try store.migrateIfNeeded()
+
+        #expect(try tableExists("meeting_transcript_words", at: url) == false)
+        #expect(try tableExists("meeting_transcript_lines", at: url))
+    }
+
+    private func tableExists(_ name: String, at url: URL) throws -> Bool {
+        var db: OpaquePointer?
+        guard sqlite3_open(url.path, &db) == SQLITE_OK else {
+            throw sqliteTestError("failed to open \(url.lastPathComponent)")
+        }
+        defer { sqlite3_close(db) }
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, "SELECT name FROM sqlite_master WHERE name = ?", -1, &statement, nil) == SQLITE_OK else {
+            throw sqliteTestError("failed to prepare sqlite_master lookup")
+        }
+        defer { sqlite3_finalize(statement) }
+        sqlite3_bind_text(statement, 1, (name as NSString).utf8String, -1, nil)
+        return sqlite3_step(statement) == SQLITE_ROW
     }
 
     // MARK: - Editable Meeting Title

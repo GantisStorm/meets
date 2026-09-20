@@ -15,6 +15,66 @@ enum TranscriptFormatter {
         diarizationSegments: [TimedSpeakerSegment]?,
         meetingStart: Date
     ) -> String {
+        mergeWithTimings(
+            micSegments: micSegments,
+            systemSegments: systemSegments,
+            diarizationSegments: diarizationSegments,
+            meetingStart: meetingStart
+        ).text
+    }
+
+    /// Merge with optional speaker diarization, returning both the transcript
+    /// string `merge` produces and one timing entry per emitted line.
+    ///
+    /// Each entry's `text` is exactly the line body `merge` writes after the
+    /// `"] Speaker: "` prefix, so playback can match stored lines against the
+    /// displayed transcript. `startSeconds` is the first segment's start and
+    /// `endSeconds` the run's last end (never less than a tenth of a second
+    /// after the start).
+    static func mergeWithTimings(
+        micSegments: [SpeechSegment],
+        systemSegments: [SpeechSegment],
+        diarizationSegments: [TimedSpeakerSegment]?,
+        meetingStart: Date
+    ) -> (text: String, lines: [TranscriptLineTiming]) {
+        let consolidated = consolidatedSegments(
+            micSegments: micSegments,
+            systemSegments: systemSegments,
+            diarizationSegments: diarizationSegments
+        )
+
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = .current
+        formatter.dateFormat = "HH:mm:ss"
+
+        var rendered: [String] = []
+        rendered.reserveCapacity(consolidated.count)
+        var lines: [TranscriptLineTiming] = []
+        lines.reserveCapacity(consolidated.count)
+        for (ordinal, taggedSegment) in consolidated.enumerated() {
+            let start = taggedSegment.segment.start
+            let timestamp = meetingStart.addingTimeInterval(start)
+            let text = taggedSegment.segment.text.trimmingCharacters(in: .whitespaces)
+            rendered.append("[\(formatter.string(from: timestamp))] \(taggedSegment.speaker): \(text)")
+            lines.append(TranscriptLineTiming(
+                ordinal: ordinal,
+                speaker: taggedSegment.speaker,
+                startSeconds: start,
+                endSeconds: max(taggedSegment.segment.end, start + 0.1),
+                text: text
+            ))
+        }
+        return (rendered.joined(separator: "\n"), lines)
+    }
+
+    /// Tag mic and system segments with the speaker labels the transcript
+    /// prints, then consolidate them into one entry per emitted line.
+    private static func consolidatedSegments(
+        micSegments: [SpeechSegment],
+        systemSegments: [SpeechSegment],
+        diarizationSegments: [TimedSpeakerSegment]?
+    ) -> [TaggedSegment] {
         // The formatter is intentionally source-agnostic: upstream capture decides
         // which mic/system segments are valid, then this layer only labels/merges.
         let displayMicSegments = micSegments
@@ -36,18 +96,7 @@ enum TranscriptFormatter {
         let tagged = (taggedMic + taggedSystem).sorted { $0.segment.start < $1.segment.start }
 
         // Consolidate consecutive segments from the same speaker into single lines
-        let consolidated = consolidate(tagged)
-
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = .current
-        formatter.dateFormat = "HH:mm:ss"
-
-        return consolidated.map { taggedSegment in
-            let timestamp = meetingStart.addingTimeInterval(taggedSegment.segment.start)
-            let text = taggedSegment.segment.text.trimmingCharacters(in: .whitespaces)
-            return "[\(formatter.string(from: timestamp))] \(taggedSegment.speaker): \(text)"
-        }.joined(separator: "\n")
+        return consolidate(tagged)
     }
 
     /// Merge consecutive segments from the same speaker into single entries,
@@ -105,20 +154,6 @@ enum TranscriptFormatter {
             }
         }
         return labelMap
-    }
-
-    /// The speaker label the merged transcript gives to speech at one point in
-    /// time, so per-word timings can carry the same attribution as the lines
-    /// they came from. "Others" when there is no diarization to attribute to.
-    static func speakerLabel(
-        at seconds: Double,
-        diarizationSegments: [TimedSpeakerSegment]?,
-        labelMap: [String: String]? = nil
-    ) -> String {
-        guard let diarizationSegments, !diarizationSegments.isEmpty else { return "Others" }
-        let resolvedLabelMap = labelMap ?? speakerLabelMap(for: diarizationSegments)
-        let probe = SpeechSegment(start: seconds, end: seconds, text: "")
-        return findSpeaker(for: probe, in: diarizationSegments, labelMap: resolvedLabelMap)
     }
 
     /// Find the best-matching speaker for an ASR segment by time overlap with diarization segments.

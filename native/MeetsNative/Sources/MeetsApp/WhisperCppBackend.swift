@@ -62,7 +62,7 @@ actor WhisperKitTranscriber {
     func transcribe(
         wavURL: URL,
         language: WhisperKitLanguage = .defaultLanguage
-    ) async throws -> (text: String, words: [SpeechWord], processingTime: Double) {
+    ) async throws -> (text: String, processingTime: Double) {
         guard let whisperKit else { throw TranscriberError.notLoaded }
         guard let loadedModel else { throw TranscriberError.notLoaded }
 
@@ -73,11 +73,7 @@ actor WhisperKitTranscriber {
 
         let text = results.map(\.text).joined(separator: " ")
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        let words = TranscriptWordTimingBuilder.words(fromWhisper: results
-            .flatMap { $0.segments }
-            .flatMap { $0.words ?? [] }
-            .map { word in (word: word.word, start: Double(word.start), end: Double(word.end)) })
-        return (text: text, words: words, processingTime: elapsed)
+        return (text: text, processingTime: elapsed)
     }
 
     /// Build WhisperKit decode options for the loaded model.
@@ -86,18 +82,16 @@ actor WhisperKitTranscriber {
         language: WhisperKitLanguage,
         modelName: String
     ) -> DecodingOptions {
-        // Word timestamps are collected for every decode so saved meetings can
-        // highlight the transcript word by word during playback.
         guard let effective = WhisperKitLanguage.preferenceForLoadedModel(language, modelName: modelName) else {
-            return DecodingOptions(wordTimestamps: true)
+            return DecodingOptions()
         }
         switch effective {
         case .auto:
             // Default DecodingOptions leaves detectLanguage false when usePrefillPrompt is true,
             // which silently forces English. Request detection explicitly for multilingual models.
-            return DecodingOptions(detectLanguage: true, wordTimestamps: true)
+            return DecodingOptions(detectLanguage: true)
         default:
-            return DecodingOptions(language: effective.rawValue, wordTimestamps: true)
+            return DecodingOptions(language: effective.rawValue)
         }
     }
 

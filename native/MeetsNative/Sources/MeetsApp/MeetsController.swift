@@ -679,8 +679,8 @@ public final class MeetsController: NSObject {
         return try? dictationStore.meeting(id: id)
     }
 
-    func transcriptWords(for meetingID: Int64) -> [TranscriptWordTiming] {
-        (try? dictationStore.transcriptWords(meetingID: meetingID)) ?? []
+    func transcriptLines(for meetingID: Int64) -> [TranscriptLineTiming] {
+        (try? dictationStore.transcriptLines(meetingID: meetingID)) ?? []
     }
 
 
@@ -3106,11 +3106,11 @@ public final class MeetsController: NSObject {
                     throw MeetingRetranscriptionError.failedToSave(underlying: error)
                 }
 
-                // No diarization runs on this path, so every word is unattributed.
-                try? self.dictationStore.replaceTranscriptWords(
-                    meetingID: meeting.id,
-                    words: TranscriptWordTimingBuilder.tagged(transcription.words) { _ in "" }
-                )
+                // Re-transcription replaces the whole transcript from one audio
+                // file, which carries no per-line times, so the timings stored
+                // for the previous transcript are dropped rather than left
+                // attached to text they no longer describe.
+                try? self.dictationStore.deleteTranscriptLines(meetingID: meeting.id)
 
                 self.syncAppState()
                 self.historyWindowController?.reload()
@@ -4824,7 +4824,7 @@ public final class MeetsController: NSObject {
         selectedTemplateName: String?,
         selectedTemplateKind: MeetingTemplateKind?,
         selectedTemplatePrompt: String?,
-        transcriptWords: [TranscriptWordTiming] = []
+        transcriptLines: [TranscriptLineTiming] = []
     ) throws -> Int64 {
         let meetingID = try dictationStore.insertMeeting(
             title: title,
@@ -4842,10 +4842,10 @@ public final class MeetsController: NSObject {
             selectedTemplatePrompt: selectedTemplatePrompt,
             source: .audioImport
         )
-        // Word timings attach to an already-stored transcript, so a failed word
-        // write leaves the meeting readable without per-word highlighting.
-        if !transcriptWords.isEmpty {
-            try? dictationStore.replaceTranscriptWords(meetingID: meetingID, words: transcriptWords)
+        // Line timings attach to an already-stored transcript, so a failed timing
+        // write leaves the meeting readable without playback highlighting.
+        if !transcriptLines.isEmpty {
+            try? dictationStore.replaceTranscriptLines(meetingID: meetingID, lines: transcriptLines)
         }
         meetingHookDispatcher.dispatchCompletedMeetingHook(
             meetingID: meetingID,
@@ -5888,7 +5888,7 @@ public final class MeetsController: NSObject {
                 visualContext: result.visualContext
             )
         }
-        try? dictationStore.replaceTranscriptWords(meetingID: meetingID, words: result.transcriptWords)
+        try? dictationStore.replaceTranscriptLines(meetingID: meetingID, lines: result.transcriptLines)
         return CompletedMeetingPersistenceResult(meetingID: meetingID, recordingSaveError: recordingSaveError)
     }
 
