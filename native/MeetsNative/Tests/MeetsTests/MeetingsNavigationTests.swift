@@ -1685,7 +1685,7 @@ struct MeetingBrowserLogicTests {
 /// Follow-up hierarchy coverage: deep chains, siblings, out-of-scope parents,
 /// dangling links, cycles, date-filter context, sort ties, and shelves that
 /// stay complete when the loaded record window excludes members — plus the
-/// ledger sections, gutters, and follow-up pills those shelves are rendered
+/// flat row order, ledger sections, and gutters those shelves are rendered
 /// into.
 @Suite("Meeting browser shelves")
 struct MeetingBrowserShelfTests {
@@ -2017,37 +2017,8 @@ struct MeetingBrowserShelfTests {
         #expect(presentation.shelves.allSatisfy { $0.root.record != nil })
     }
 
-    @Test("a shelf opens itself only when a range is keeping an out-of-range root")
-    func shelfStartsExpandedOnlyForRetainedRoots() {
-        #expect(!MeetingBrowserLogic.shelfStartsExpanded(rootMatchesRange: true, annotatesMatches: false))
-        #expect(!MeetingBrowserLogic.shelfStartsExpanded(rootMatchesRange: false, annotatesMatches: false))
-        #expect(!MeetingBrowserLogic.shelfStartsExpanded(rootMatchesRange: true, annotatesMatches: true))
-        #expect(MeetingBrowserLogic.shelfStartsExpanded(rootMatchesRange: false, annotatesMatches: true))
-    }
-
-    @Test("a thread kept only for a matching follow-up opens itself")
-    func retainedThreadOpensItself() throws {
-        let entries = [
-            entry(1, daysAgo: 20),
-            entry(2, daysAgo: 15, followUpTo: 1),
-            entry(3, daysAgo: 1, followUpTo: 2)
-        ]
-
-        let shelf = try #require(shelves(entries, filter: .lastWeek).shelves.first)
-
-        #expect(!shelf.root.matchesFilter)
-        #expect(MeetingBrowserLogic.shelfStartsExpanded(
-            rootMatchesRange: shelf.root.matchesFilter,
-            annotatesMatches: true
-        ))
-        #expect(!MeetingBrowserLogic.shelfStartsExpanded(
-            rootMatchesRange: shelf.root.matchesFilter,
-            annotatesMatches: false
-        ))
-    }
-
-    @Test("a collapsed filtered family's pill reports the matches it is hiding")
-    func collapsedFilteredFamilyPillReportsHiddenMatches() throws {
+    @Test("a filtered family keeps thread order and marks only its matches")
+    func filteredFamilyKeepsThreadOrderAndMatchFlags() throws {
         let entries = [
             entry(1, daysAgo: 2),
             entry(2, daysAgo: 20, followUpTo: 1),
@@ -2058,21 +2029,13 @@ struct MeetingBrowserShelfTests {
 
         let shelf = try #require(shelves(entries, filter: .lastWeek).shelves.first { $0.id == 1 })
 
-        // The root matched, so the family stays folded. Two of the four
+        // The root matched, so the family stays whole. Two of the four
         // follow-ups are inside the range, kept as ancestors of a later match,
-        // and all four sit behind the pill: thread order is untouched, and the
-        // pill reports the matches it is holding back rather than reordering the
-        // thread to reach them.
+        // and every one of them stays on screen: thread order is untouched, and
+        // the rows outside the range are marked rather than dropped.
         #expect(shelf.root.matchesFilter)
         #expect(shelf.nodes.map(\.id) == [1, 2, 3, 4, 5])
         #expect(shelf.descendants.map(\.matchesFilter) == [false, true, false, true])
-
-        #expect(MeetingBrowserLogic.followUpPillLabel(
-            descendantCount: shelf.descendants.count,
-            hiddenMatchCount: shelf.descendants.filter(\.matchesFilter).count,
-            annotatesMatches: true,
-            isExpanded: false
-        ) == "4 follow-ups \u{00B7} 2 in range")
     }
 
     // MARK: - Ledger sections
@@ -2185,86 +2148,47 @@ struct MeetingBrowserShelfTests {
         #expect(monthLabel.contains("9:00"))
     }
 
-    @Test("a follow-up's gutter names its date unless it shares its root's day")
-    func childGutterLabelsNameTheirOwnDate() {
-        let locale = Locale(identifier: "en_US")
-        let root = ledgerDate(2026, 2, 5, hour: 10, minute: 0)
+    @Test("the flat row list carries every node in date order")
+    func flatRowsCarryEveryNodeByDate() throws {
+        let entries = [
+            entry(1, daysAgo: 10),
+            entry(2, daysAgo: 20, followUpTo: 1),
+            entry(3, daysAgo: 5, followUpTo: 2)
+        ]
+        let presentation = shelves(entries)
 
-        func label(_ child: Date) -> String {
-            MeetingBrowserLogic.ledgerChildGutterLabel(
-                childDate: child,
-                rootDate: root,
-                now: ledgerNow,
-                calendar: utcCalendar,
-                locale: locale
-            )
-        }
+        let newestFirst = MeetingBrowserLogic.flatRows(from: presentation.shelves, sort: .newestFirst)
+        #expect(newestFirst.map(\.id) == [3, 1, 2])
+        // A follow-up is a row of its own, filed by its own start time rather
+        // than by the meeting it follows on from.
+        #expect(newestFirst.map(\.depth) == [2, 0, 1])
 
-        // Same calendar day as the root: the time alone, and no seconds.
-        let sameDay = label(ledgerDate(2026, 2, 5, hour: 14, minute: 5, second: 45))
-        #expect(sameDay.contains("2:05"))
-        #expect(!sameDay.contains(":45"))
-        #expect(!sameDay.localizedCaseInsensitiveContains("Feb"))
-
-        // A day earlier: the date, because a bare time under a "Today" root
-        // would read as this morning's.
-        #expect(label(ledgerDate(2026, 2, 4, hour: 9, minute: 30)) == "Feb 4")
-
-        // Another day in the current year, and one that is not.
-        #expect(label(ledgerDate(2026, 1, 18, hour: 9, minute: 30)) == "Jan 18")
-        #expect(label(ledgerDate(2025, 9, 17, hour: 9, minute: 30)) == "Sep 2025")
+        let oldestFirst = MeetingBrowserLogic.flatRows(from: presentation.shelves, sort: .oldestFirst)
+        #expect(oldestFirst.map(\.id) == [2, 1, 3])
     }
 
-    @Test("the pill names the follow-up count and, folded, how much of it is in range")
-    func followUpPillLabelCountsFollowUpsAndRangeMatches() {
-        #expect(MeetingBrowserLogic.followUpPillLabel(
-            descendantCount: 1,
-            hiddenMatchCount: 1,
-            annotatesMatches: false,
-            isExpanded: false
-        ) == "1 follow-up")
+    @Test("a row whose timestamp does not parse sorts last either way")
+    func flatRowsPutUnparseableDatesLast() throws {
+        let entries = [
+            entry(1, daysAgo: 1),
+            entry(2, daysAgo: 5, followUpTo: 1),
+            MeetingBrowserEntry(
+                id: 3,
+                title: "No timestamp",
+                startTime: "not a date",
+                durationSeconds: 60,
+                folderID: nil,
+                status: .completed
+            )
+        ]
+        let presentation = shelves(entries)
+        #expect(presentation.shelves.count == 2)
 
-        #expect(MeetingBrowserLogic.followUpPillLabel(
-            descendantCount: 3,
-            hiddenMatchCount: 2,
-            annotatesMatches: true,
-            isExpanded: false
-        ) == "3 follow-ups \u{00B7} 2 in range")
-
-        // "All time": there is no range, so a count of matches would be noise.
-        #expect(MeetingBrowserLogic.followUpPillLabel(
-            descendantCount: 3,
-            hiddenMatchCount: 3,
-            annotatesMatches: false,
-            isExpanded: false
-        ) == "3 follow-ups")
-
-        // A collapsed family whose range matches none of its follow-ups reports
-        // the count alone: there is nothing in range to point at.
-        #expect(MeetingBrowserLogic.followUpPillLabel(
-            descendantCount: 4,
-            hiddenMatchCount: 0,
-            annotatesMatches: true,
-            isExpanded: false
-        ) == "4 follow-ups")
-
-        // Expanded, the follow-ups are on screen under the pill, so the range
-        // clause has nothing left to say.
-        #expect(MeetingBrowserLogic.followUpPillLabel(
-            descendantCount: 3,
-            hiddenMatchCount: 2,
-            annotatesMatches: true,
-            isExpanded: true
-        ) == "3 follow-ups")
-
-        // A single expanded follow-up keeps the singular, with the same clause
-        // dropped.
-        #expect(MeetingBrowserLogic.followUpPillLabel(
-            descendantCount: 1,
-            hiddenMatchCount: 1,
-            annotatesMatches: true,
-            isExpanded: true
-        ) == "1 follow-up")
+        for sort in [MeetingBrowserSort.newestFirst, .oldestFirst] {
+            let rows = MeetingBrowserLogic.flatRows(from: presentation.shelves, sort: sort)
+            #expect(rows.count == 3)
+            #expect(rows.last?.id == 3)
+        }
     }
 
     private func ledgerGroups(
@@ -2274,15 +2198,14 @@ struct MeetingBrowserShelfTests {
         now: Date? = nil
     ) -> [MeetingLedgerGroup] {
         MeetingBrowserLogic.ledgerGroups(
-            from: presentation.shelves,
-            sort: sort,
+            from: MeetingBrowserLogic.flatRows(from: presentation.shelves, sort: sort),
             now: now ?? baseDate,
             calendar: calendar
         )
     }
 
-    @Test("ledger sections follow the roots' dates and never repeat")
-    func ledgerSectionsFollowRootDatesOnce() throws {
+    @Test("ledger sections follow each row's date and never repeat")
+    func ledgerSectionsFollowRowDatesOnce() throws {
         // Thursday, so "today" and "earlier this week" are different sections.
         let thursday = ledgerDate(2026, 2, 5, hour: 10)
         let entries = [
@@ -2300,10 +2223,12 @@ struct MeetingBrowserShelfTests {
         let newestFirst = ledgerGroups(presentation, calendar: utcCalendar, now: thursday)
         #expect(newestFirst.map(\.kind) == [
             .today,
+            .yesterday,
             .earlierThisWeek,
             .month(year: 2025, month: 8)
         ])
-        // A section is one run of families, so no kind can appear twice.
+        #expect(newestFirst.map { $0.rows.map(\.id) } == [[1], [4], [2], [3]])
+        // A section is one run of rows, so no kind can appear twice.
         #expect(Set(newestFirst.map(\.kind)).count == newestFirst.count)
 
         let oldestFirst = ledgerGroups(
@@ -2315,12 +2240,13 @@ struct MeetingBrowserShelfTests {
         #expect(oldestFirst.map(\.kind) == [
             .month(year: 2025, month: 8),
             .earlierThisWeek,
+            .yesterday,
             .today
         ])
     }
 
-    @Test("ledger sections group consecutive shelves by their roots' dates")
-    func ledgerGroupsFollowRootOrder() {
+    @Test("ledger sections group consecutive rows by their own dates")
+    func ledgerGroupsFollowRowOrder() {
         // Base date is Monday 2 February 2026 02:40 UTC, so the fixture lands
         // on: today, yesterday, the Saturday of last week, the Sunday that
         // started last week, and a December meeting.
@@ -2340,10 +2266,10 @@ struct MeetingBrowserShelfTests {
             .lastWeek,
             .month(year: 2025, month: 12)
         ])
-        // Consecutive families sharing a section merge into one group, in date
+        // Consecutive rows sharing a section merge into one group, in date
         // order.
-        #expect(groups.map { $0.shelves.map(\.id) } == [[1], [2], [3, 4], [5]])
-        #expect(groups.map(\.meetingCount) == [1, 1, 2, 1])
+        #expect(groups.map { $0.rows.map(\.id) } == [[1], [2], [3, 4], [5]])
+        #expect(groups.map { $0.rows.count } == [1, 1, 2, 1])
         #expect(Set(groups.map(\.id)).count == groups.count)
     }
 
@@ -2365,15 +2291,16 @@ struct MeetingBrowserShelfTests {
             .yesterday,
             .today
         ])
-        #expect(groups.map { $0.shelves.map(\.id) } == [[3], [2], [1]])
+        #expect(groups.map { $0.rows.map(\.id) } == [[3], [2], [1]])
     }
 
-    @Test("a family files under the date of the meeting it started from")
-    func familyFilesUnderItsRootsDate() throws {
-        // A root two months old, kept in the ledger by a follow-up from today.
-        // The family belongs under the root's own month: filing it by its newest
-        // meeting would float it among the recent days and print that month a
-        // second time, further down, for the older meeting on its own.
+    @Test("a follow-up files under its own date, not the meeting it follows on from")
+    func followUpRowsFileUnderTheirOwnDates() throws {
+        // A root two months old, with a follow-up from today. The follow-up is
+        // its own row in its own section, so it sits with the other meetings
+        // from today while the root it came from stays in December — and the
+        // December heading still prints once, because every December row is
+        // consecutive in a list sorted by date.
         let entries = [
             entry(1, daysAgo: 60),
             entry(2, daysAgo: 0, followUpTo: 1),
@@ -2384,7 +2311,7 @@ struct MeetingBrowserShelfTests {
 
         let groups = ledgerGroups(shelves(entries, calendar: utcCalendar), calendar: utcCalendar)
 
-        #expect(groups.map { $0.shelves.map(\.id) } == [[3], [4], [5, 1]])
+        #expect(groups.map { $0.rows.map(\.id) } == [[2, 3], [4], [5, 1]])
         #expect(groups.map(\.kind) == [
             .today,
             .lastWeek,

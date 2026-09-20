@@ -1,82 +1,8 @@
 import SwiftUI
 import MeetsCore
 
-/// Resolved display data for one meeting row.
-///
-/// Built either from a full `MeetingRecord` — meetings inside the recently
-/// loaded window — or from the lightweight `MeetingBrowserEntry` that covers
-/// the whole library. The entry path has no notes or transcript, so
-/// `previewText` stays nil rather than showing invented content.
-struct MeetingListItemDisplay {
-    let id: Int64
-    let title: String
-    let startTime: String
-    let durationSeconds: Double
-    let status: MeetingStatus
-    let folderID: Int64?
-    let source: MeetingSource
-    let savedRecordingPath: String?
-    let previewText: String?
-
-    init(entry: MeetingBrowserEntry, previewText: String? = nil) {
-        self.id = entry.id
-        self.title = entry.title
-        self.startTime = entry.startTime
-        self.durationSeconds = entry.durationSeconds
-        self.status = entry.status
-        self.folderID = entry.folderID
-        self.source = entry.source
-        self.savedRecordingPath = entry.savedRecordingPath
-        self.previewText = previewText
-    }
-
-    init(record: MeetingRecord) {
-        self.init(
-            entry: MeetingBrowserEntry(record: record),
-            previewText: Self.resolvedPreviewText(for: record)
-        )
-    }
-
-    /// Display for a browser node: full detail when the record is loaded,
-    /// otherwise the browse entry alone.
-    init(entry: MeetingBrowserEntry, record: MeetingRecord?) {
-        if let record {
-            self.init(record: record)
-        } else {
-            self.init(entry: entry)
-        }
-    }
-
-    var isImportedAudio: Bool {
-        source == .audioImport || hasLegacyImportedRecordingPath
-    }
-
-    var hasSavedRecording: Bool {
-        guard let savedRecordingPath else { return false }
-        return !savedRecordingPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
-
-    private var hasLegacyImportedRecordingPath: Bool {
-        guard let savedRecordingPath else { return false }
-        let filename = URL(fileURLWithPath: savedRecordingPath).lastPathComponent
-        let pattern = #"^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}_.+_[0-9A-Fa-f]{8}\.wav$"#
-        return filename.range(of: pattern, options: .regularExpression) != nil
-    }
-
-    private static func resolvedPreviewText(for record: MeetingRecord) -> String {
-        let source: String
-        if !record.manualNotes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-           record.status != .completed {
-            source = record.manualNotes
-        } else {
-            source = record.formattedNotes.isEmpty ? record.rawTranscript : record.formattedNotes
-        }
-        return MeetingPreviewText.snippet(from: source)
-    }
-}
-
 /// Folder id → "Grandparent / Parent / Folder". Computed once per render so
-/// cards and rows never walk the folder tree per row.
+/// menus never walk the folder tree per row.
 enum MeetingFolderBreadcrumbs {
     static func paths(for folders: [MeetingFolder]) -> [Int64: String] {
         let foldersByID = Dictionary(folders.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
@@ -119,37 +45,6 @@ enum MeetingListItemFormat {
             return "\(rounded / 60)m"
         }
         return "<1m"
-    }
-}
-
-struct MeetingStatusBadge: View {
-    let status: MeetingStatus
-
-    var body: some View {
-        Text(status.displayLabel)
-            .font(.system(size: 10, weight: .semibold))
-            .foregroundStyle(status.displayColor)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
-            .background(status.displayColor.opacity(0.12))
-            .clipShape(Capsule())
-            .accessibilityLabel("Status: \(status.displayLabel)")
-    }
-}
-
-/// Marks a meeting kept in view only because a matching descendant needs its
-/// thread context.
-struct MeetingOutsideRangeChip: View {
-    var body: some View {
-        Text("Outside range")
-            .font(.system(size: 9, weight: .medium))
-            .foregroundStyle(MeetsTheme.textSecondary)
-            .padding(.horizontal, 5)
-            .padding(.vertical, 1)
-            .background(MeetsTheme.textSecondary.opacity(0.12))
-            .clipShape(Capsule())
-            .help("Kept so this follow-up thread stays intact. This meeting is outside the active date range.")
-            .accessibilityLabel("Outside the active date range")
     }
 }
 
@@ -247,7 +142,7 @@ struct MeetingRowActionMenu: View {
         } label: {
             Image(systemName: "ellipsis")
                 .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(isHovering ? MeetsTheme.textPrimary : MeetsTheme.textSecondary)
+                .foregroundStyle(isHovering ? MeetsTheme.textPrimary : MeetsTheme.textTertiary)
                 .frame(width: 26, height: 22)
                 .contentShape(Rectangle())
         }
