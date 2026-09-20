@@ -1674,26 +1674,30 @@ struct SettingsView: View {
         return provider.isLocalServer ? "\(status) · Runs on a server on this Mac" : status
     }
 
-    /// Read-only report of the agents this Mac can run. The Connections page
-    /// only shows what is connected; choosing the agent happens under Defaults.
+    /// Plain-text list of the agents this Mac can run. Choosing the agent
+    /// happens under Defaults; this is only the inventory discovery found.
     /// The free-text field survives as the empty-state fallback because
     /// discovery only knows the launchers it ships with, so a bespoke agent
     /// would otherwise be unreachable here.
     @ViewBuilder
     private func acpInstalledAgentList(state: AIConnectionState) -> some View {
-        let selected = appState.config.acpAgentCommand
-            .trimmingCharacters(in: .whitespacesAndNewlines)
         if state.installedACPAgents.isEmpty {
-            PastableTextField(
-                text: appState.config.acpAgentCommand,
-                placeholder: "omp acp",
-                onChange: { val in controller.updateConfig { $0.acpAgentCommand = val } }
-            )
-            .frame(height: 22)
+            settingsRow(
+                "Command",
+                description: "Launcher for a custom ACP agent.",
+                controlWidth: meetingControlWidth
+            ) {
+                PastableTextField(
+                    text: appState.config.acpAgentCommand,
+                    placeholder: "omp acp",
+                    onChange: { val in controller.updateConfig { $0.acpAgentCommand = val } }
+                )
+                .frame(height: 22)
+            }
         } else {
-            VStack(alignment: .trailing, spacing: MeetsTheme.spacing4) {
+            VStack(alignment: .leading, spacing: 2) {
                 ForEach(state.installedACPAgents, id: \.command) { agent in
-                    VStack(alignment: .trailing, spacing: 2) {
+                    HStack(spacing: 6) {
                         Text(agent.label)
                             .font(.system(size: 11, weight: .medium))
                             .foregroundStyle(MeetsTheme.textSecondary)
@@ -1702,13 +1706,10 @@ struct SettingsView: View {
                             .foregroundStyle(MeetsTheme.textTertiary)
                             .lineLimit(1)
                             .truncationMode(.middle)
-                        Image(systemName: agent.command == selected ? "checkmark.circle.fill" : "circle")
-                            .font(.system(size: 10))
-                            .foregroundStyle(agent.command == selected ? MeetsTheme.success : MeetsTheme.textTertiary)
                     }
-                    .help(agent.command == selected ? "Used for this provider" : agent.command)
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
@@ -1765,13 +1766,7 @@ struct SettingsView: View {
             Divider().background(MeetsTheme.surfaceBorder)
             customLLMSettingsRows()
         case .acpAgent:
-            settingsRow(
-                provider.label,
-                description: aiConnectionLine(provider, state: state),
-                controlWidth: meetingControlWidth
-            ) {
-                acpInstalledAgentList(state: state)
-            }
+            acpInstalledAgentList(state: state)
         case .appleIntelligence:
             appleIntelligenceStatusRow
         case .ollama:
