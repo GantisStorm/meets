@@ -1446,6 +1446,9 @@ struct MeetingsView: View {
         width: CGFloat
     ) -> some View {
         let annotatesMatches = selectedFilter != .all
+        // Built once for the whole page: every row in every group reads its
+        // facts out of this map.
+        let facts = meetingFacts(from: presentation.shelves)
         MeetingLedgerView(
             groups: MeetingBrowserLogic.ledgerGroups(
                 from: presentation.shelves,
@@ -1465,12 +1468,34 @@ struct MeetingsView: View {
             currentFolderID: appState.selectedFolderID,
             compact: Self.usesCompactLedger(for: width),
             annotatesRange: annotatesMatches,
+            facts: facts,
             actions: shelfActions
         )
     }
 
     private var folderBreadcrumbsByID: [Int64: String] {
         MeetingFolderBreadcrumbs.paths(for: appState.folders)
+    }
+
+    /// What every row the page is about to render says about its meeting, built
+    /// once from the same shelves the ledger groups are cut from — a shelf's
+    /// root and its descendants — so a row can never disagree with the group it
+    /// sits in about which meetings are on screen.
+    ///
+    /// The event title is resolved here because only the view holds the
+    /// calendar: the entry carries an event id, and `MeetingFacts` decides what
+    /// an id with no title of its own is called.
+    private func meetingFacts(from shelves: [MeetingBrowserShelf]) -> [Int64: MeetingFacts] {
+        var facts: [Int64: MeetingFacts] = [:]
+        for shelf in shelves {
+            for node in shelf.nodes {
+                let eventTitle = appState.calendarEvents
+                    .first { $0.id == node.entry.calendarEventID }?
+                    .title
+                facts[node.entry.id] = MeetingFacts(entry: node.entry, eventTitle: eventTitle)
+            }
+        }
+        return facts
     }
 
     private var shelfActions: MeetingShelfActions {

@@ -379,6 +379,18 @@ public struct MeetingBrowserEntry: Identifiable, Equatable, Sendable {
     /// Resolved in the same read so a child whose parent sits outside the
     /// current scope can still name the parent it hangs from.
     public let predecessorTitle: String?
+    /// The meeting's primary calendar event id, when it came from one or was
+    /// attached to one.
+    public let calendarEventID: String?
+    /// People attached to the meeting, suppressed entries excluded.
+    public let participantCount: Int
+    /// Written notes typed during the meeting.
+    public let hasWrittenNotes: Bool
+    /// A generated summary is stored — structured notes, not the
+    /// raw-transcript fallback.
+    public let hasSummary: Bool
+    /// Any transcript text is stored.
+    public let hasTranscript: Bool
 
     public init(
         id: Int64,
@@ -390,7 +402,12 @@ public struct MeetingBrowserEntry: Identifiable, Equatable, Sendable {
         source: MeetingSource = .meeting,
         savedRecordingPath: String? = nil,
         followUpToID: Int64? = nil,
-        predecessorTitle: String? = nil
+        predecessorTitle: String? = nil,
+        calendarEventID: String? = nil,
+        participantCount: Int = 0,
+        hasWrittenNotes: Bool = false,
+        hasSummary: Bool = false,
+        hasTranscript: Bool = false
     ) {
         self.id = id
         self.title = title
@@ -402,9 +419,18 @@ public struct MeetingBrowserEntry: Identifiable, Equatable, Sendable {
         self.savedRecordingPath = savedRecordingPath
         self.followUpToID = followUpToID
         self.predecessorTitle = predecessorTitle
+        self.calendarEventID = calendarEventID
+        self.participantCount = participantCount
+        self.hasWrittenNotes = hasWrittenNotes
+        self.hasSummary = hasSummary
+        self.hasTranscript = hasTranscript
     }
 
     /// Browse entry for a meeting whose full record is already loaded.
+    ///
+    /// A record carries no participants, so `participantCount` is 0 here;
+    /// callers holding a store fill it from
+    /// `DictationStore.participantCounts(meetingIDs:)`.
     public init(record: MeetingRecord) {
         self.init(
             id: record.id,
@@ -415,7 +441,14 @@ public struct MeetingBrowserEntry: Identifiable, Equatable, Sendable {
             status: record.status,
             source: record.source,
             savedRecordingPath: record.savedRecordingPath,
-            followUpToID: record.followUpToID
+            followUpToID: record.followUpToID,
+            calendarEventID: record.calendarEventID,
+            participantCount: 0,
+            hasWrittenNotes: !record.manualNotes
+                .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+            hasSummary: record.notesState == .structuredNotes,
+            hasTranscript: !record.rawTranscript
+                .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         )
     }
 }

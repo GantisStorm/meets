@@ -683,6 +683,12 @@ public final class MeetsController: NSObject {
         (try? dictationStore.transcriptLines(meetingID: meetingID)) ?? []
     }
 
+    /// Participant counts for several meetings in one read, so a list can say
+    /// "3 people" without one query per row.
+    func participantCounts(meetingIDs: [Int64]) -> [Int64: Int] {
+        (try? dictationStore.participantCounts(meetingIDs: meetingIDs)) ?? [:]
+    }
+
 
 
     func meetingStats() -> MeetingStats {

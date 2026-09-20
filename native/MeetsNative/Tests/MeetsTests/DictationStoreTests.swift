@@ -1222,6 +1222,134 @@ struct DictationStoreTests {
         #expect(structuredWithTranscriptSection.notesState == .structuredNotes)
     }
 
+    @Test("browser entry reports the event, people, notes, summary and transcript")
+    func browserEntryReportsStoredFacts() throws {
+        let store = try makeStore()
+        let start = Date()
+        let id = try store.insertMeeting(
+            title: "Planning",
+            calendarEventID: "evt_planning",
+            startTime: start,
+            endTime: start.addingTimeInterval(1800),
+            rawTranscript: "Alice: hello\nBob: hi",
+            formattedNotes: "## Summary\nShip the browser facts",
+            micAudioPath: nil,
+            systemAudioPath: nil
+        )
+        try store.updateMeetingManualNotes(id: id, manualNotes: "- Decision: ship today")
+        try store.attachCalendarMeetingParticipants(
+            meetingID: id,
+            participants: [
+                MeetingParticipantDraft(participantIdentifier: "alice@example.test", displayName: "Alice"),
+                MeetingParticipantDraft(participantIdentifier: "bob@example.test", displayName: "Bob"),
+                MeetingParticipantDraft(participantIdentifier: "carol@example.test", displayName: "Carol"),
+            ]
+        )
+        try store.removeMeetingParticipant(
+            meetingID: id,
+            participantIdentifier: "carol@example.test"
+        )
+
+        let entry = try #require(try store.meetingBrowserEntries().first { $0.id == id })
+        #expect(entry.calendarEventID == "evt_planning")
+        #expect(entry.participantCount == 2)
+        #expect(entry.hasWrittenNotes)
+        #expect(entry.hasSummary)
+        #expect(entry.hasTranscript)
+    }
+
+    @Test("browser entry reads the raw transcript fallback as transcript, not summary")
+    func browserEntryReadsRawTranscriptFallback() throws {
+        let store = try makeStore()
+        let start = Date()
+        let id = try store.insertMeeting(
+            title: "Fallback",
+            calendarEventID: nil,
+            startTime: start,
+            endTime: start.addingTimeInterval(60),
+            rawTranscript: "Hello world",
+            formattedNotes: "## Raw Transcript\n\nHello world",
+            micAudioPath: nil,
+            systemAudioPath: nil
+        )
+
+        let entry = try #require(try store.meetingBrowserEntries().first { $0.id == id })
+        #expect(!entry.hasSummary)
+        #expect(entry.hasTranscript)
+        #expect(!entry.hasWrittenNotes)
+    }
+
+    @Test("browser entry reports a bare meeting as carrying nothing")
+    func browserEntryReportsBareMeeting() throws {
+        let store = try makeStore()
+        let start = Date()
+        let id = try store.insertMeeting(
+            title: "Bare",
+            calendarEventID: nil,
+            startTime: start,
+            endTime: start.addingTimeInterval(60),
+            rawTranscript: "",
+            formattedNotes: "",
+            micAudioPath: nil,
+            systemAudioPath: nil
+        )
+
+        let entry = try #require(try store.meetingBrowserEntries().first { $0.id == id })
+        #expect(entry.calendarEventID == nil)
+        #expect(entry.participantCount == 0)
+        #expect(!entry.hasWrittenNotes)
+        #expect(!entry.hasSummary)
+        #expect(!entry.hasTranscript)
+    }
+
+    @Test("participant counts batch several meetings and skip suppressed people")
+    func participantCountsBatchMeetings() throws {
+        let store = try makeStore()
+        let start = Date()
+        func insertMeeting(titled title: String) throws -> Int64 {
+            try store.insertMeeting(
+                title: title,
+                calendarEventID: nil,
+                startTime: start,
+                endTime: start.addingTimeInterval(60),
+                rawTranscript: "",
+                formattedNotes: "",
+                micAudioPath: nil,
+                systemAudioPath: nil
+            )
+        }
+        let twoPeople = try insertMeeting(titled: "Two people")
+        let onePerson = try insertMeeting(titled: "One person")
+        let nobody = try insertMeeting(titled: "Nobody")
+
+        try store.attachCalendarMeetingParticipants(
+            meetingID: twoPeople,
+            participants: [
+                MeetingParticipantDraft(participantIdentifier: "alice@example.test", displayName: "Alice"),
+                MeetingParticipantDraft(participantIdentifier: "bob@example.test", displayName: "Bob"),
+                MeetingParticipantDraft(participantIdentifier: "carol@example.test", displayName: "Carol"),
+            ]
+        )
+        try store.removeMeetingParticipant(
+            meetingID: twoPeople,
+            participantIdentifier: "carol@example.test"
+        )
+        try store.attachMeetingParticipant(
+            meetingID: onePerson,
+            participant: MeetingParticipantDraft(
+                participantIdentifier: "dana@example.test",
+                displayName: "Dana"
+            )
+        )
+
+        #expect(try store.participantCounts(meetingIDs: []) == [:])
+
+        let counts = try store.participantCounts(meetingIDs: [twoPeople, onePerson, nobody])
+        #expect(counts[twoPeople] == 2)
+        #expect(counts[onePerson] == 1)
+        #expect(counts[nobody] == nil)
+    }
+
     @Test("meeting stats aggregate correctly")
     func meetingStats() throws {
         let store = try makeStore()

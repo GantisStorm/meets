@@ -109,6 +109,11 @@ struct MeetingLedgerView: View {
     /// True when a date range is active, so a folded family can report the
     /// matches it is holding back.
     let annotatesRange: Bool
+    /// What every row says about its meeting, keyed by meeting id and built
+    /// once by the page from the same shelves the groups below are cut from.
+    /// Explicit, with no default: a page that forgets to build it must fail to
+    /// compile rather than render rows that quietly say nothing.
+    let facts: [Int64: MeetingFacts]
     let actions: MeetingShelfActions
 
     var body: some View {
@@ -126,6 +131,7 @@ struct MeetingLedgerView: View {
                             currentFolderID: currentFolderID,
                             compact: compact,
                             annotatesRange: annotatesRange,
+                            facts: facts,
                             actions: actions
                         )
                     }
@@ -156,6 +162,7 @@ struct MeetingLedgerFamily: View {
     let currentFolderID: Int64?
     let compact: Bool
     let annotatesRange: Bool
+    let facts: [Int64: MeetingFacts]
     let actions: MeetingShelfActions
 
     /// Every descendant is counted, not a visible prefix: folded, the count
@@ -190,6 +197,7 @@ struct MeetingLedgerFamily: View {
                 currentFolderID: currentFolderID,
                 compact: compact,
                 annotatesRange: annotatesRange,
+                facts: facts,
                 actions: actions
             )
 
@@ -224,6 +232,7 @@ struct MeetingLedgerFamily: View {
                     currentFolderID: currentFolderID,
                     compact: compact,
                     annotatesRange: annotatesRange,
+                    facts: facts,
                     actions: actions
                 )
             }
@@ -264,6 +273,9 @@ struct MeetingLedgerRow: View {
     /// True when a date range is active: a row the range excluded is dimmed and
     /// says why it is still on screen.
     let annotatesRange: Bool
+    /// What this row's meeting has to say, looked up by id. A meeting the page
+    /// built no facts for renders bare rather than borrowing another's.
+    let facts: [Int64: MeetingFacts]
     let actions: MeetingShelfActions
     @State private var isHovering = false
     @State private var isHoveringDisclosure = false
@@ -373,7 +385,8 @@ struct MeetingLedgerRow: View {
         }
     }
 
-    /// The row's whole content, on one line.
+    /// The row's whole content: the label line, and — when the page has
+    /// something to say about this meeting — the facts line beneath it.
     ///
     /// A narrow row tries the date beside the title first, sheds the date when
     /// the title would otherwise be squeezed to nothing, and sheds the trailing
@@ -381,19 +394,47 @@ struct MeetingLedgerRow: View {
     /// left for its title says nothing at all, and the section heading above
     /// still carries the date the label was naming.
     private var openButtonLabel: some View {
-        Group {
-            if compact {
-                ViewThatFits(in: .horizontal) {
-                    labelLine(showsDate: true, showsDuration: true)
+        VStack(alignment: .leading, spacing: MeetsTheme.spacing4) {
+            Group {
+                if compact {
+                    ViewThatFits(in: .horizontal) {
+                        labelLine(showsDate: true, showsDuration: true)
+                        labelLine(showsDate: false, showsDuration: true)
+                        labelLine(showsDate: false, showsDuration: false)
+                    }
+                } else {
                     labelLine(showsDate: false, showsDuration: true)
-                    labelLine(showsDate: false, showsDuration: false)
                 }
-            } else {
-                labelLine(showsDate: false, showsDuration: true)
             }
+            factsLine
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())
+    }
+
+    /// The facts line, directly under the label line and starting where the
+    /// title starts: it is a second line of the same row, not a column of its
+    /// own, so it never moves the time gutter the ledger is scanned down.
+    ///
+    /// Absent — not empty — when the page has nothing to say about this
+    /// meeting, so a bare meeting keeps a one-line row.
+    @ViewBuilder
+    private var factsLine: some View {
+        if let facts = facts[node.entry.id], !facts.text.isEmpty {
+            MeetingFactsRow(facts: facts)
+                .padding(.leading, titleLeadingInset)
+        }
+    }
+
+    /// How far the row's title sits from its leading edge, which is also where
+    /// the facts line starts: past the time gutter on a wide row, past nothing
+    /// on a narrow one where the column is gone, and one further step in for a
+    /// follow-up on either.
+    private var titleLeadingInset: CGFloat {
+        let gutter = compact
+            ? 0
+            : MeetingLedgerMetrics.gutterWidth + MeetingLedgerMetrics.gutterSpacing
+        return gutter + (kind == .child ? MeetingLedgerMetrics.followUpIndent : 0)
     }
 
     private func labelLine(showsDate: Bool, showsDuration: Bool) -> some View {
@@ -536,6 +577,11 @@ struct MeetingLedgerRow: View {
         parts.append(MeetingListItemFormat.duration(node.entry.durationSeconds))
         if node.entry.status != .completed {
             parts.append("status \(node.entry.status.displayLabel)")
+        }
+        // The label replaces the text the row draws, so the facts line has to
+        // be named here too or a screen reader never hears it.
+        if let facts = facts[node.entry.id], !facts.text.isEmpty {
+            parts.append(facts.text)
         }
         if node.entry.followUpToID != nil, let predecessorTitle {
             parts.append("follow-up to \(predecessorTitle)")

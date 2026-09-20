@@ -41,10 +41,25 @@ public final class DictationStore {
     """
 
     /// Column list for `meetingBrowserEntries(folderID:)`. Aliases `meetings`
-    /// as `m` and joins the predecessor as `p`, so `p.title` (the last column)
-    /// is NULL for root meetings.
+    /// as `m` and joins the predecessor as `p`, so `p.title` is NULL for root
+    /// meetings.
+    ///
+    /// The tail columns are what a list says about a meeting without loading
+    /// its text: the attached event, how many people are on it (suppressed
+    /// entries excluded), and whether written notes, a generated summary, or a
+    /// transcript is stored.
     private static let browserEntryColumns = """
-    m.id, m.title, m.start_time, m.duration_seconds, m.folder_id, m.meeting_status, m.source, m.saved_recording_path, m.follow_up_to_id, p.title
+    m.id, m.title, m.start_time, m.duration_seconds, m.folder_id, m.meeting_status, m.source, m.saved_recording_path, m.follow_up_to_id, p.title, m.calendar_event_id,
+    (SELECT COUNT(*) FROM meeting_participants mp WHERE mp.meeting_id = m.id AND mp.is_suppressed = 0),
+    CASE WHEN TRIM(COALESCE(m.manual_notes, '')) = '' THEN 0 ELSE 1 END,
+    -- A summary means structured notes. This CASE mirrors
+    -- `MeetingRecord.notesState` (StorageModels.swift) exactly: the browser and
+    -- a full record must not drift on what counts as a generated summary.
+    CASE WHEN TRIM(COALESCE(m.formatted_notes, '')) = '' THEN 0
+         WHEN LOWER(TRIM(m.formatted_notes)) = '## raw transcript' THEN 0
+         WHEN LOWER(TRIM(m.formatted_notes)) LIKE '## raw transcript' || CHAR(10) || '%' THEN 0
+         ELSE 1 END,
+    CASE WHEN TRIM(COALESCE(m.raw_transcript, '')) = '' THEN 0 ELSE 1 END
     """
 
     public init() {
@@ -681,7 +696,12 @@ public final class DictationStore {
                 source: MeetingSource(rawValue: stringColumn(statement, index: 6)) ?? .meeting,
                 savedRecordingPath: optionalStringColumn(statement, index: 7),
                 followUpToID: followUpToID,
-                predecessorTitle: optionalStringColumn(statement, index: 9)
+                predecessorTitle: optionalStringColumn(statement, index: 9),
+                calendarEventID: optionalStringColumn(statement, index: 10),
+                participantCount: Int(sqlite3_column_int64(statement, 11)),
+                hasWrittenNotes: sqlite3_column_int64(statement, 12) != 0,
+                hasSummary: sqlite3_column_int64(statement, 13) != 0,
+                hasTranscript: sqlite3_column_int64(statement, 14) != 0
             ))
         }
         return rows
@@ -906,6 +926,37 @@ public final class DictationStore {
             throw lastError(db)
         }
         return sqlite3_last_insert_rowid(db)
+    }
+
+    /// How many people each of several meetings carries, suppressed entries
+    /// excluded, in one read so a list can say "3 people" without one query per
+    /// row. Meetings with nobody attached are absent from the result.
+    public func participantCounts(meetingIDs: [Int64]) throws -> [Int64: Int] {
+        guard !meetingIDs.isEmpty else { return [:] }
+        let db = try openDatabase()
+        defer { sqlite3_close(db) }
+
+        let placeholders = Array(repeating: "?", count: meetingIDs.count).joined(separator: ", ")
+        let sql = """
+        SELECT meeting_id, COUNT(*)
+        FROM meeting_participants
+        WHERE is_suppressed = 0 AND meeting_id IN (\(placeholders))
+        GROUP BY meeting_id
+        """
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
+            throw lastError(db)
+        }
+        defer { sqlite3_finalize(statement) }
+        for (offset, meetingID) in meetingIDs.enumerated() {
+            sqlite3_bind_int64(statement, Int32(offset + 1), meetingID)
+        }
+
+        var counts: [Int64: Int] = [:]
+        while sqlite3_step(statement) == SQLITE_ROW {
+            counts[sqlite3_column_int64(statement, 0)] = Int(sqlite3_column_int64(statement, 1))
+        }
+        return counts
     }
 
     public func listMeetingParticipants(meetingID: Int64) throws -> [MeetingParticipant] {

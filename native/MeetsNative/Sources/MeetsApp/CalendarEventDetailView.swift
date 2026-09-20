@@ -25,6 +25,10 @@ struct CalendarEventDetailView: View {
     /// Non-nil while a meeting title edit awaits the event-backed sync.
     @State private var titleSyncMeetingID: Int64?
 
+    /// People counts for this event's recordings, loaded once for the whole
+    /// list so the facts line costs one query instead of one per row.
+    @State private var meetingFactsParticipantCounts: [Int64: Int] = [:]
+
     init(
         appState: AppState,
         controller: MeetsController,
@@ -105,6 +109,12 @@ struct CalendarEventDetailView: View {
         }
         .frame(width: 420)
         .background(MeetsTheme.backgroundBase)
+        .task(id: linkedMeetings.map(\.id)) {
+            // One query for every recording this event owns; the facts rows
+            // read their count out of the result.
+            let meetingIDs = linkedMeetings.map(\.id)
+            meetingFactsParticipantCounts = controller.participantCounts(meetingIDs: meetingIDs)
+        }
         .onAppear { editableTitle = event.title }
         .onChange(of: event.title) { _, newTitle in
             editableTitle = newTitle
@@ -639,6 +649,14 @@ struct CalendarEventDetailView: View {
                     Spacer(minLength: 0)
                 }
 
+                MeetingFactsRow(
+                    facts: MeetingFacts(
+                        record: meeting,
+                        eventTitle: event.title,
+                        peopleCount: meetingFactsParticipantCounts[meeting.id] ?? 0
+                    )
+                )
+
                 VStack(alignment: .leading, spacing: MeetsTheme.spacing8) {
                     openMeetingButton(meeting, label: "Open transcript & notes", prominent: true)
                     HStack(spacing: 8) {
@@ -658,7 +676,16 @@ struct CalendarEventDetailView: View {
                         .foregroundStyle(MeetsTheme.textTertiary)
                         .padding(.top, MeetsTheme.spacing4)
                     ForEach(additionalMeetings) { extra in
-                        openMeetingButton(extra, label: recordingRowLabel(extra), prominent: false)
+                        VStack(alignment: .leading, spacing: MeetsTheme.spacing4) {
+                            openMeetingButton(extra, label: recordingRowLabel(extra), prominent: false)
+                            MeetingFactsRow(
+                                facts: MeetingFacts(
+                                    record: extra,
+                                    eventTitle: event.title,
+                                    peopleCount: meetingFactsParticipantCounts[extra.id] ?? 0
+                                )
+                            )
+                        }
                     }
                 }
             }
