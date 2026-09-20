@@ -789,23 +789,30 @@ struct MeetingDetailView: View {
         }
     }
 
-    /// Icon button in the top-left header, toggling the notes written during the
-    /// meeting.
+    /// Text button in the top-left header, toggling the notes written during the
+    /// meeting. It names the action it performs and never moves: the same
+    /// surface and ink at rest, only their hover pair changing.
     private func writtenNotesToggle(for meeting: MeetingRecord) -> some View {
         Button {
             let shown = !showsWrittenNotes
             showsWrittenNotes = shown
             MeetingViewPreferences.shared.setShowsWrittenNotes(shown, for: meeting.id)
         } label: {
-            Image(systemName: showsWrittenNotes ? "sidebar.left" : "note.text")
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(isHoveringWrittenNotesToggle ? MeetsTheme.textPrimary : MeetsTheme.textSecondary)
-                .frame(width: 28, height: 28)
-                .background(
-                    RoundedRectangle(cornerRadius: MeetsTheme.cornerSmall)
-                        .fill(isHoveringWrittenNotesToggle ? MeetsTheme.backgroundHover : Color.clear)
-                )
-                .contentShape(Rectangle())
+            HStack(spacing: MeetsTheme.spacing4) {
+                Image(systemName: showsWrittenNotes ? "sidebar.left" : "note.text")
+                    .font(.system(size: 11, weight: .semibold))
+                Text(showsWrittenNotes ? "Hide written notes" : "Open written notes")
+                    .font(.system(size: 12, weight: .medium))
+                    .lineLimit(1)
+            }
+            .foregroundStyle(isHoveringWrittenNotesToggle ? MeetsTheme.textPrimary : MeetsTheme.textSecondary)
+            .padding(.horizontal, 10)
+            .frame(height: 26)
+            .background(
+                RoundedRectangle(cornerRadius: MeetsTheme.cornerSmall)
+                    .fill(isHoveringWrittenNotesToggle ? MeetsTheme.backgroundHover : MeetsTheme.surfacePrimary)
+            )
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .onHover { isHoveringWrittenNotesToggle = $0 }

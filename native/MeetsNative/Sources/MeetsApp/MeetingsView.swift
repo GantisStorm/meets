@@ -3,7 +3,7 @@ import MeetsCore
 
 // DIRECTION — Meetings browser (seed 0e51c253, Operate, distilled)
 // THESIS: A list of meetings by day. Text and spacing only.
-// FIRST VIEWPORT: title, a line of folders, a plain toolbar, "Today",
+// FIRST VIEWPORT: title, a plain toolbar, "Today",
 //   rows of time · title · duration, one family opened from its chevron.
 // MATERIAL: base canvas; hover fill is the only surface. Three text tones.
 //   Nothing filled, nothing bordered.
@@ -867,8 +867,8 @@ struct MeetingsView: View {
     @ViewBuilder
     private var browserView: some View {
         // The window's detail column can be as narrow as ~280 points once the
-        // sidebar is subtracted, so page padding and the folder line follow the
-        // space actually available instead of assuming a wide canvas.
+        // sidebar is subtracted, so page padding follows the space actually
+        // available instead of assuming a wide canvas.
         GeometryReader { proxy in
             let contentWidth = proxy.size.width
             ScrollView {
@@ -898,9 +898,9 @@ struct MeetingsView: View {
 
                     folderNavigation()
 
-                    // 24 under the folder line, then 16 between the toolbar and
-                    // the first section heading, which carries 8 of its own top
-                    // padding.
+                    // 24 under the title — or under the breadcrumb in a folder
+                    // scope — then 16 between the toolbar and the first section
+                    // heading, which carries 8 of its own top padding.
                     VStack(alignment: .leading, spacing: MeetsTheme.spacing16) {
                         browserHeader(presentation: presentation)
 
@@ -1371,21 +1371,13 @@ struct MeetingsView: View {
 
     // MARK: - Folders
 
-    /// Breadcrumb for the current scope plus one line of child folders, so
-    /// nested folders stay reachable without leaving the meetings browser.
+    /// Breadcrumb for the current scope. Folders live in the sidebar, so this is
+    /// only the way back to All Meetings once the sidebar is collapsed.
     @ViewBuilder
     private func folderNavigation() -> some View {
         let path = folderPath(to: appState.selectedFolderID)
-        let childFolders = childFolders(of: appState.selectedFolderID)
-        if !path.isEmpty || !childFolders.isEmpty {
-            VStack(alignment: .leading, spacing: MeetsTheme.spacing8) {
-                if !path.isEmpty {
-                    folderBreadcrumb(path)
-                }
-                if !childFolders.isEmpty {
-                    childFolderLine(childFolders)
-                }
-            }
+        if !path.isEmpty {
+            folderBreadcrumb(path)
         }
     }
 
@@ -1400,10 +1392,6 @@ struct MeetingsView: View {
             current = folder.parentID
         }
         return path
-    }
-
-    private func childFolders(of parentID: Int64?) -> [MeetingFolder] {
-        appState.folders.filter { $0.parentID == parentID }
     }
 
     /// The scope's ancestry, "All Meetings › Clients": plain caption text in
@@ -1443,38 +1431,6 @@ struct MeetingsView: View {
             }
             .buttonStyle(.plain)
             .help("Show \(name)")
-        }
-    }
-
-    /// The folder level directly below the scope, as one wrapping line of plain
-    /// text: "Clients 24". No icon, no fill, no border.
-    @ViewBuilder
-    private func childFolderLine(_ folders: [MeetingFolder]) -> some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(spacing: MeetsTheme.spacing20) {
-                childFolderButtons(folders)
-            }
-            .fixedSize(horizontal: true, vertical: false)
-
-            VStack(alignment: .leading, spacing: MeetsTheme.spacing8) {
-                childFolderButtons(folders)
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func childFolderButtons(_ folders: [MeetingFolder]) -> some View {
-        ForEach(folders) { folder in
-            Button {
-                controller.showMeetingsHome(folderID: folder.id)
-            } label: {
-                MeetingBrowserTextLabel(
-                    title: folder.name,
-                    count: appState.meetingCountsByFolder[folder.id] ?? 0
-                )
-            }
-            .buttonStyle(.plain)
-            .help("Show \(folder.name)")
         }
     }
 
