@@ -571,13 +571,12 @@ struct SettingsView: View {
         includesScreenOCR: Bool = false,
         controlWidth rowControlWidth: CGFloat? = nil
     ) -> some View {
-        let width = rowControlWidth ?? controlWidth
         settingsRow(
             title,
             description: screenContextDescription(includesScreenOCR: includesScreenOCR),
-            controlWidth: width
+            controlWidth: rowControlWidth
         ) {
-            screenContextControl(width: width)
+            screenContextControl()
         }
     }
 
@@ -729,7 +728,7 @@ struct SettingsView: View {
                     "Setup guide",
                     description: "Review meeting setup, permissions, transcription, and summaries."
                 ) {
-                    compactActionButton("Onboarding", systemImage: "arrow.up.right.square") {
+                    actionButton("Onboarding", systemImage: "arrow.up.right.square") {
                         controller.showOnboarding()
                     }
                 }
@@ -743,7 +742,7 @@ struct SettingsView: View {
                 icon: "externaldrive",
             ) {
                 HStack(spacing: MeetsTheme.spacing12) {
-                    actionButton("Clear meeting history", role: .destructive) {
+                    actionButton("Clear meeting history", role: .destructive, fillsWidth: true) {
                         pendingDataDestruction = .meetings
                     }
                     .disabled(controller.isMeetingRecording())
@@ -768,26 +767,11 @@ struct SettingsView: View {
                 .font(MeetsTheme.caption())
                 .foregroundStyle(MeetsTheme.textTertiary)
             Spacer(minLength: MeetsTheme.spacing12)
-            Button {
+            inlineLinkButton("Open", systemImage: "arrow.up.forward.square") {
                 controller.openLaunchAtLoginSettings()
-            } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: "arrow.up.forward.square")
-                        .font(.system(size: 11, weight: .semibold))
-                    Text("Open")
-                }
             }
-            .buttonStyle(.plain)
-            .font(.system(size: 11, weight: .medium))
-            .foregroundStyle(MeetsTheme.accent)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 4)
-            .background(MeetsTheme.accentSubtle)
-            .clipShape(RoundedRectangle(cornerRadius: MeetsTheme.cornerSmall))
             .help("Open Login Items in System Settings")
         }
-        .padding(.leading, MeetsTheme.spacing16)
-        .padding(.trailing, MeetsTheme.spacing16)
         .padding(.bottom, MeetsTheme.spacing8)
     }
 
@@ -1309,7 +1293,7 @@ struct SettingsView: View {
                                         .foregroundStyle(MeetsTheme.textTertiary)
                                 }
                             } else {
-                                compactActionButton("Download \(selectedCleanupLocalModel.sizeLabel)", systemImage: "arrow.down.circle") {
+                                actionButton("Download \(selectedCleanupLocalModel.sizeLabel)", systemImage: "arrow.down.circle") {
                                     downloadSelectedCleanupModel()
                                 }
                             }
@@ -1321,7 +1305,7 @@ struct SettingsView: View {
                             description: "Remove the downloaded cleanup model to free space.",
                             controlWidth: meetingControlWidth
                         ) {
-                            compactActionButton("Delete", systemImage: "trash") {
+                            actionButton("Delete", systemImage: "trash") {
                                 controller.deletePostProcessorModel(selectedCleanupLocalModel)
                             }
                         }
@@ -1594,17 +1578,11 @@ struct SettingsView: View {
             ) {
                 calendarSyncRow
                 Divider().background(MeetsTheme.surfaceBorder)
-                HStack(alignment: .top) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Use calendars already connected to your Mac.")
-                            .font(MeetsTheme.body())
-                        Text("Add or remove accounts in macOS System Settings.")
-                            .font(MeetsTheme.caption())
-                            .foregroundStyle(MeetsTheme.textSecondary)
-                    }
-                    Spacer()
-                    Button("Manage accounts…", action: CalendarIntegration.openAccounts)
-                        .buttonStyle(.borderedProminent)
+                settingsRow(
+                    "Use calendars already connected to your Mac",
+                    description: "Add or remove accounts in macOS System Settings."
+                ) {
+                    actionButton("Manage accounts…", action: CalendarIntegration.openAccounts)
                 }
                 Divider().background(MeetsTheme.surfaceBorder)
                 settingsRow(
@@ -1622,18 +1600,9 @@ struct SettingsView: View {
                 }
                 Divider().background(MeetsTheme.surfaceBorder)
                 settingsRow("Apple Calendar", description: "See what’s synced: accounts, calendars, per-calendar toggles, rename and delete.") {
-                    Button {
+                    inlineLinkButton("Manage…", systemImage: "arrow.right.circle") {
                         isShowingCalendarSettings = true
-                    } label: {
-                        HStack(spacing: 5) {
-                            Image(systemName: "arrow.right.circle")
-                                .font(.system(size: 12, weight: .semibold))
-                            Text("Manage…")
-                                .font(.system(size: 11, weight: .medium))
-                        }
-                        .foregroundStyle(MeetsTheme.accent)
                     }
-                    .buttonStyle(.plain)
                     .help("Manage Apple Calendar accounts and calendars")
                 }
             }
@@ -1763,7 +1732,7 @@ struct SettingsView: View {
                         "Sync Now",
                         description: "Mirror all meetings to the cloud folder now."
                     ) {
-                        compactActionButton(isSyncingCloud ? "Syncing…" : "Sync Now", systemImage: "arrow.triangle.2.circlepath") {
+                        actionButton(isSyncingCloud ? "Syncing…" : "Sync Now", systemImage: "arrow.triangle.2.circlepath") {
                             syncNowToCloud()
                         }
                         .disabled(isSyncingCloud)
@@ -1943,31 +1912,15 @@ struct SettingsView: View {
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(MeetsTheme.textSecondary)
                 Spacer(minLength: 0)
-                Button {
+                inlineLinkButton("Request Access", systemImage: "arrow.clockwise") {
                     refreshMeetingCalendarSources()
-                } label: {
-                    HStack(spacing: 4) {
-                        Image(systemName: "arrow.clockwise")
-                            .font(.system(size: 10, weight: .semibold))
-                        Text("Request Access")
-                            .font(.system(size: 11, weight: .medium))
-                    }
                 }
-                .buttonStyle(.plain)
-                .foregroundStyle(MeetsTheme.accent)
                 .disabled(isRefreshingCalendarAccess)
             }
         case .unknown:
-            Button(isRefreshingCalendarAccess ? "Checking…" : "Authorize") {
+            inlineLinkButton(isRefreshingCalendarAccess ? "Checking…" : "Authorize") {
                 refreshMeetingCalendarSources()
             }
-            .buttonStyle(.plain)
-            .font(.system(size: 11, weight: .medium))
-            .foregroundStyle(MeetsTheme.accent)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 3)
-            .background(MeetsTheme.accentSubtle)
-            .clipShape(RoundedRectangle(cornerRadius: MeetsTheme.cornerSmall))
             .disabled(isRefreshingCalendarAccess)
         }
     }
@@ -2040,16 +1993,11 @@ struct SettingsView: View {
                     }
                     Divider().background(MeetsTheme.surfaceBorder)
                     settingsRow("") {
-                        Button {
+                        actionButton("Mischief Managed") {
                             SoundController.stopMaraudersMapClip()
                             isPreviewingClip = false
                             controller.resetMaraudersMap()
-                        } label: {
-                            Text("Mischief Managed")
-                                .font(.system(size: 11))
-                                .foregroundColor(MeetsTheme.textSecondary)
                         }
-                        .buttonStyle(.plain)
                     }
                 }
             }
@@ -2301,13 +2249,11 @@ struct SettingsView: View {
                 }
                 .buttonStyle(.plain)
 
-                Button(isEnteringOpenRouterAPIKey ? "Cancel manual key" : "Enter API key manually") {
+                inlineLinkButton(isEnteringOpenRouterAPIKey ? "Cancel manual key" : "Enter API key manually") {
                     isEnteringOpenRouterAPIKey.toggle()
                     manualOpenRouterAPIKey = ""
                     openRouterSignInError = nil
                 }
-                .buttonStyle(.link)
-                .font(.system(size: 10))
 
                 if isEnteringOpenRouterAPIKey {
                     HStack(spacing: 6) {
@@ -2318,7 +2264,7 @@ struct SettingsView: View {
                         )
                         .frame(height: 22)
 
-                        Button("Save") {
+                        actionButton("Save") {
                             openRouterSignInError = controller.storeManualOpenRouterAPIKey(
                                 manualOpenRouterAPIKey,
                                 selectMeetingSummaryBackend: selectMeetingSummaryBackend
@@ -2381,7 +2327,7 @@ struct SettingsView: View {
                 Image(systemName: isPreviewingClip ? "stop.fill" : "play.fill")
                     .font(.system(size: 11))
                     .foregroundColor(MeetsTheme.textSecondary)
-                    .frame(width: 24, height: 24)
+                    .frame(width: 28, height: 28)
             }
             .buttonStyle(.plain)
             .contentShape(Rectangle())
@@ -2569,6 +2515,7 @@ struct SettingsView: View {
                     Image(systemName: "arrow.up.forward.square")
                         .font(.system(size: 11))
                         .foregroundStyle(MeetsTheme.textTertiary)
+                        .frame(width: 28, height: 28)
                 }
                 .buttonStyle(.plain)
                 .help("Open in System Settings")
@@ -2595,7 +2542,8 @@ struct SettingsView: View {
                 .font(.system(size: 11))
                 .foregroundStyle(MeetsTheme.success)
         case .checking:
-            grantButton("Checking…", isEnabled: false, action: action)
+            actionButton("Checking…", action: action)
+                .disabled(true)
         case .pending:
             HStack(spacing: MeetsTheme.spacing8) {
                 ProgressView()
@@ -2603,29 +2551,12 @@ struct SettingsView: View {
                 Text("Waiting for System Settings…")
                     .font(.system(size: 11))
                     .foregroundStyle(MeetsTheme.textSecondary)
-                grantButton("Grant", isEnabled: false, action: action)
+                actionButton("Grant", action: action)
+                    .disabled(true)
             }
         case .hint, .idle:
-            grantButton("Grant", isEnabled: true, action: action)
+            actionButton("Grant", action: action)
         }
-    }
-
-    private func grantButton(
-        _ title: String,
-        isEnabled: Bool,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(title) {
-            action()
-        }
-        .disabled(!isEnabled)
-        .buttonStyle(.plain)
-        .font(.system(size: 11, weight: .medium))
-        .foregroundStyle(MeetsTheme.accent)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 3)
-        .background(MeetsTheme.accentSubtle)
-        .clipShape(RoundedRectangle(cornerRadius: MeetsTheme.cornerSmall))
     }
 
     private func openPrivacyPane(_ pane: String) {
@@ -2635,25 +2566,15 @@ struct SettingsView: View {
     }
 
     @ViewBuilder
-    private func screenContextControl(width: CGFloat? = nil) -> some View {
+    private func screenContextControl() -> some View {
         if accessibilityGranted {
             settingsSwitch(isOn: appState.config.enableScreenContext) { newValue in
                 handleScreenContextToggle(newValue)
             }
-            .frame(width: width, alignment: .trailing)
         } else {
-            Button {
+            actionButton("Grant") {
                 handleScreenContextToggle(true)
-            } label: {
-                Text("Grant")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(MeetsTheme.accent)
-                    .frame(width: width)
-                    .frame(minHeight: 32)
-                    .background(MeetsTheme.accentSubtle)
-                    .clipShape(RoundedRectangle(cornerRadius: MeetsTheme.cornerSmall))
             }
-            .buttonStyle(.plain)
         }
     }
 
@@ -2928,33 +2849,27 @@ struct SettingsView: View {
             .frame(height: 24)
     }
 
+    /// Accent text affordance for rows whose action is a link rather than a
+    /// commit: "Manage…", "Open in System Settings", "Request Access". No fill;
+    /// the 28pt frame matches the height of `actionButton` in the control column.
     @ViewBuilder
-    private func compactActionButton(
+    private func inlineLinkButton(
         _ title: String,
         systemImage: String? = nil,
-        role: ButtonRole? = nil,
         action: @escaping () -> Void
     ) -> some View {
-        let isDestructive = role == .destructive
         Button(action: action) {
             HStack(spacing: 6) {
                 if let systemImage {
                     Image(systemName: systemImage)
-                        .font(.system(size: 11, weight: .semibold))
+                        .font(.system(size: 12, weight: .medium))
                 }
                 Text(title)
                     .lineLimit(1)
             }
             .font(.system(size: 12, weight: .medium))
-            .foregroundStyle(isDestructive ? MeetsTheme.recording : MeetsTheme.textPrimary)
-            .padding(.horizontal, 10)
-            .frame(height: 26)
-            .background(isDestructive ? MeetsTheme.recording.opacity(0.1) : MeetsTheme.surfacePrimary)
-            .clipShape(RoundedRectangle(cornerRadius: MeetsTheme.cornerSmall))
-            .overlay(
-                RoundedRectangle(cornerRadius: MeetsTheme.cornerSmall)
-                    .strokeBorder(isDestructive ? MeetsTheme.recording.opacity(0.25) : MeetsTheme.surfaceBorder, lineWidth: 1)
-            )
+            .foregroundStyle(MeetsTheme.accent)
+            .frame(height: 28)
         }
         .buttonStyle(.plain)
     }
@@ -3501,10 +3416,9 @@ struct SettingsView: View {
                 )
                 .frame(height: 24)
                 if case .failed = appState.openRouterSummaryCatalogState {
-                    Button("Retry") {
+                    actionButton("Retry") {
                         controller.loadOpenRouterModels(.text, force: true)
                     }
-                    .font(.system(size: 11, weight: .medium))
                 }
             }
         } else {
@@ -3515,10 +3429,9 @@ struct SettingsView: View {
                         .foregroundStyle(MeetsTheme.textTertiary)
                         .lineLimit(1)
                 }
-                Button(appState.openRouterSummaryCatalogState == .idle ? "Load" : "Retry") {
+                actionButton(appState.openRouterSummaryCatalogState == .idle ? "Load" : "Retry") {
                     controller.loadOpenRouterModels(.text, force: true)
                 }
-                .font(.system(size: 12, weight: .medium))
             }
             .frame(maxWidth: .infinity, alignment: .trailing)
         }
@@ -3542,11 +3455,15 @@ struct SettingsView: View {
         .frame(minHeight: 20)
     }
 
+    /// The standard compact action in a settings row: sized to its content and
+    /// 28pt tall so it centres in the row's trailing control column. Pass
+    /// `fillsWidth` only when the action is intentionally the card's full width.
     @ViewBuilder
     private func actionButton(
         _ title: String,
         systemImage: String? = nil,
         role: ButtonRole? = nil,
+        fillsWidth: Bool = false,
         action: @escaping () -> Void
     ) -> some View {
         let isDestructive = role == .destructive
@@ -3561,9 +3478,9 @@ struct SettingsView: View {
             }
                 .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(isDestructive ? MeetsTheme.recording : MeetsTheme.textPrimary)
-                .frame(maxWidth: .infinity)
-                .padding(.horizontal, MeetsTheme.spacing16)
-                .padding(.vertical, MeetsTheme.spacing8)
+                .padding(.horizontal, MeetsTheme.spacing12)
+                .frame(height: 28)
+                .frame(maxWidth: fillsWidth ? .infinity : nil)
                 .background(isDestructive ? MeetsTheme.recording.opacity(0.1) : MeetsTheme.surfacePrimary)
                 .clipShape(RoundedRectangle(cornerRadius: MeetsTheme.cornerSmall))
                 .overlay(
