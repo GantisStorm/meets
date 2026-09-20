@@ -1,6 +1,16 @@
 import SwiftUI
 import MeetsCore
 
+// DIRECTION — Meetings browser (seed 0e51c253, Operate)
+// THESIS: A ledger, not a deck of cards. Time is the spine: pinned date
+//   headings, a fixed time gutter, and follow-ups hanging from a thread rail.
+// FIRST VIEWPORT: "Today" heading, three rows with times in the gutter, one
+//   family open on its rail. Nothing is a card; nothing is nested in a card.
+// MATERIAL: base canvas, hairline rules, hover fill only. Weight and size
+//   carry hierarchy; color is reserved for status.
+// MOTION: one moment — a family unfolding along its rail, 180ms ease-out.
+// REFUSE: same-size cards, eyebrow labels, accent borders, decorative fills.
+
 enum MeetingBrowserFilter: Hashable {
     case all, last2Days, lastWeek, last2Weeks, lastMonth, last3Months
 
@@ -41,6 +51,10 @@ struct MeetingBrowserParentLink: Equatable {
 /// loaded in full.
 struct MeetingBrowserNode: Identifiable {
     let entry: MeetingBrowserEntry
+    /// Parsed start time, `.distantPast` when the timestamp does not parse.
+    /// Carried on the node so the ledger can place every row in its date
+    /// section without parsing a date again on each render.
+    let startDate: Date
     let record: MeetingRecord?
     /// Predecessor to link to when it sits outside this shelf.
     let externalParent: MeetingBrowserParentLink?
@@ -98,6 +112,56 @@ struct MeetingBrowserShelfPresentation {
     )
 }
 
+/// The date section a ledger group covers. Sections are coarse on purpose:
+/// the ledger's spine says where in time a meeting sits, not which day of the
+/// calendar it was.
+enum MeetingLedgerSectionKind: Hashable {
+    case today
+    case yesterday
+    case earlierThisWeek
+    case lastWeek
+    case month(year: Int, month: Int)
+
+    /// Heading text. Named days and weeks need no date; a month heading names
+    /// its year only when the year is not the current one, so the common case
+    /// stays a single word.
+    func title(now: Date, calendar: Calendar, locale: Locale) -> String {
+        switch self {
+        case .today: return "Today"
+        case .yesterday: return "Yesterday"
+        case .earlierThisWeek: return "Earlier this week"
+        case .lastWeek: return "Last week"
+        case let .month(year, month):
+            let name = MeetingBrowserLogic.monthName(month, locale: locale, timeZone: calendar.timeZone)
+            return year == calendar.component(.year, from: now) ? name : "\(name) \(year)"
+        }
+    }
+}
+
+/// A run of shelves that share one date section: the pinned heading and
+/// everything under it.
+struct MeetingLedgerGroup: Identifiable {
+    let kind: MeetingLedgerSectionKind
+    var shelves: [MeetingBrowserShelf]
+    /// Which run of this section this is. Almost always 0; a thread retained
+    /// for a matching follow-up can hang off a root older than the meetings
+    /// around it, which puts one section on screen twice, and a list keyed on
+    /// the section alone would then carry two rows with the same identity.
+    let runIndex: Int
+
+    /// Section plus run — never the section alone, which can repeat.
+    struct ID: Hashable {
+        let kind: MeetingLedgerSectionKind
+        let runIndex: Int
+    }
+
+    var id: ID { ID(kind: kind, runIndex: runIndex) }
+
+    /// Meetings under this heading, context rows included: the count describes
+    /// what the heading covers, not only what matched the active range.
+    var meetingCount: Int { shelves.reduce(0) { $0 + $1.totalCount } }
+}
+
 enum MeetingBrowserLogic {
     /// Deepest nesting level that still earns extra indentation. Descendants
     /// below it keep their place in the shelf and instead name the parent they
@@ -144,33 +208,159 @@ enum MeetingBrowserLogic {
         return filters
     }
 
-    /// Label for a shelf's disclosure control: what activating it does, and —
-    /// while the shelf is collapsed under an active date range — how many
-    /// follow-ups it is holding back that fall inside that range.
-    ///
-    /// The fold is all or nothing, so the label never varies with how many
-    /// follow-ups it covers; `descendantCount` is passed by the caller that
-    /// renders the count capsule beside it. The range annotation only appears
-    /// collapsed, because an expanded shelf already shows every match. "All
-    /// time" passes `false`: there is no range, so there is nothing to report.
-    static func followUpDisclosureLabel(
-        descendantCount: Int,
+    /// Follow-ups a collapsed thread shows before it offers the rest, so a
+    /// family reads as its root plus a hint of the thread without pushing every
+    /// later meeting off the screen.
+    static let ledgerCollapsedDescendantLimit = 2
+
+    /// Label for a thread's fold control: how many follow-ups are still behind
+    /// it, and — while a date range is active and some of them are inside it —
+    /// how many the range is looking for. The count is the whole information:
+    /// collapsed, the fold is all or nothing. Expanded, the control's only
+    /// remaining job is to close the thread again. "All time" passes `false`:
+    /// there is no range, so there is nothing to report.
+    static func ledgerMoreLabel(
+        hiddenCount: Int,
         hiddenMatchCount: Int,
-        isExpanded: Bool,
-        annotatesMatches: Bool
+        annotatesMatches: Bool,
+        isExpanded: Bool
     ) -> String {
-        let action = isExpanded ? "Collapse follow-ups" : "Expand follow-ups"
-        guard !isExpanded, annotatesMatches, hiddenMatchCount > 0 else { return action }
-        return "\(action) \u{00B7} \(hiddenMatchCount) in range"
+        guard !isExpanded else { return "Show fewer follow-ups" }
+        let base = "\(hiddenCount) more \(hiddenCount == 1 ? "follow-up" : "follow-ups")"
+        guard annotatesMatches, hiddenMatchCount > 0 else { return base }
+        return "\(base) \u{00B7} \(hiddenMatchCount) in range"
     }
 
-    /// Whether a shelf opens expanded before the user touches its disclosure.
+    /// The label in a row's time gutter. It carries exactly as much date as the
+    /// section heading above it does not: nothing but the time for today and
+    /// yesterday, the weekday for the named weeks, and the day of the month
+    /// once the section is a month. `kind` is the section of the row's *own*
+    /// date, so a follow-up from last month still reads "17 · 9:00 AM" under a
+    /// "Today" root. Seconds are never shown: a ledger is scanned, not audited.
+    static func ledgerGutterLabel(
+        for date: Date,
+        in kind: MeetingLedgerSectionKind,
+        calendar: Calendar = .current,
+        locale: Locale = .current
+    ) -> String {
+        let timeZone = calendar.timeZone
+        let time = dateFormatters.string(from: date, template: "jm", locale: locale, timeZone: timeZone)
+        switch kind {
+        case .today, .yesterday:
+            return time
+        case .earlierThisWeek, .lastWeek:
+            let weekday = dateFormatters.string(from: date, template: "EEE", locale: locale, timeZone: timeZone)
+            return "\(weekday) \(time)"
+        case .month:
+            let day = dateFormatters.string(from: date, template: "d", locale: locale, timeZone: timeZone)
+            return "\(day) \u{00B7} \(time)"
+        }
+    }
+
+    /// Gutter label for a follow-up row. A follow-up's time only means
+    /// something beside its root, so a child on the same calendar day as that
+    /// root shows the time alone and anything else shows its date instead —
+    /// with the year once the child is not from the current one. Without this,
+    /// a yesterday follow-up under a "Today" root reads "9:30 AM" and looks
+    /// like this morning.
+    static func ledgerChildGutterLabel(
+        childDate: Date,
+        rootDate: Date,
+        now: Date,
+        calendar: Calendar = .current,
+        locale: Locale = .current
+    ) -> String {
+        let timeZone = calendar.timeZone
+        if calendar.isDate(childDate, inSameDayAs: rootDate) {
+            return dateFormatters.string(from: childDate, template: "jm", locale: locale, timeZone: timeZone)
+        }
+        let sameYear = calendar.isDate(childDate, equalTo: now, toGranularity: .year)
+        return dateFormatters.string(
+            from: childDate,
+            template: sameYear ? "MMMd" : "MMMyyyy",
+            locale: locale,
+            timeZone: timeZone
+        )
+    }
+
+    /// Which section a meeting belongs to. Weeks follow the calendar's own
+    /// first weekday, so "earlier this week" means what the user's calendar
+    /// says it means. A future date — a scheduled meeting that has not
+    /// happened yet — reads as today, because that is when the user meets it.
+    static func ledgerSectionKind(
+        for date: Date,
+        now: Date,
+        calendar: Calendar
+    ) -> MeetingLedgerSectionKind {
+        if date > now { return .today }
+        if calendar.isDate(date, inSameDayAs: now) { return .today }
+        if let yesterday = calendar.date(byAdding: .day, value: -1, to: now),
+           calendar.isDate(date, inSameDayAs: yesterday) {
+            return .yesterday
+        }
+        guard let thisWeek = calendar.dateInterval(of: .weekOfYear, for: now)?.start else {
+            return monthKind(for: date, calendar: calendar)
+        }
+        if date >= thisWeek { return .earlierThisWeek }
+        if let lastWeek = calendar.date(byAdding: .weekOfYear, value: -1, to: thisWeek), date >= lastWeek {
+            return .lastWeek
+        }
+        return monthKind(for: date, calendar: calendar)
+    }
+
+    /// Sections for a shelf list. The incoming order is the ledger's order:
+    /// shelves arrive sorted and reordering them here would undo the user's
+    /// sort, so a group is only ever a *run* of shelves sharing a section.
+    /// Newest-first therefore reads today downwards and oldest-first reads the
+    /// same sections in reverse, which is exactly what that sort asked for.
+    static func ledgerGroups(
+        from shelves: [MeetingBrowserShelf],
+        now: Date,
+        calendar: Calendar
+    ) -> [MeetingLedgerGroup] {
+        var groups: [MeetingLedgerGroup] = []
+        var runsByKind: [MeetingLedgerSectionKind: Int] = [:]
+        for shelf in shelves {
+            let kind = ledgerSectionKind(for: shelf.root.startDate, now: now, calendar: calendar)
+            if let last = groups.indices.last, groups[last].kind == kind {
+                groups[last].shelves.append(shelf)
+                continue
+            }
+            let runIndex = runsByKind[kind, default: 0]
+            runsByKind[kind] = runIndex + 1
+            groups.append(MeetingLedgerGroup(kind: kind, shelves: [shelf], runIndex: runIndex))
+        }
+        return groups
+    }
+
+    /// Standalone month name for a month number, from the same bounded
+    /// formatter cache every other browser date uses.
+    static func monthName(_ month: Int, locale: Locale, timeZone: TimeZone = .current) -> String {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = timeZone
+        var components = DateComponents()
+        components.year = 2000
+        components.month = month
+        components.day = 1
+        guard let date = calendar.date(from: components) else { return "" }
+        return dateFormatters.string(from: date, template: "LLLL", locale: locale, timeZone: timeZone)
+    }
+
+    private static func monthKind(
+        for date: Date,
+        calendar: Calendar
+    ) -> MeetingLedgerSectionKind {
+        let components = calendar.dateComponents([.year, .month], from: date)
+        return .month(year: components.year ?? 0, month: components.month ?? 0)
+    }
+
+    /// Whether a thread opens expanded before the user touches its fold.
     ///
     /// Collapsed is the default, because the library reads as its roots. The
     /// exception is a thread kept on screen only because a follow-up inside the
     /// range needed its ancestors: there the match sits below the fold, hidden
-    /// behind a control the user has no reason to expect, so the shelf opens
-    /// with it. The user can still collapse it.
+    /// behind a control the user has no reason to expect, so the thread opens
+    /// with it. The user can still fold it.
     static func shelfStartsExpanded(rootMatchesRange: Bool, annotatesMatches: Bool) -> Bool {
         annotatesMatches && !rootMatchesRange
     }
@@ -386,6 +576,7 @@ enum MeetingBrowserLogic {
                 || (parentID != nil && parentTitle != nil && depth > indentationCapDepth)
             return MeetingBrowserNode(
                 entry: entry,
+                startDate: dateByID[id] ?? .distantPast,
                 record: record,
                 externalParent: externalParent,
                 parentLinkTitle: showsParentLink ? parentTitle : nil,
@@ -599,10 +790,9 @@ struct MeetingsView: View {
     let controller: MeetsController
     @State private var selectedFilter: MeetingBrowserFilter = .all
     @State private var selectedSort: MeetingBrowserSort = .newestFirst
-    /// Shelves whose disclosure state the user has overridden. Kept as a toggle
-    /// rather than a set of expanded ids because a filtered thread can also
-    /// open itself (see `shelfStartsExpanded`), and either direction has to
-    /// survive that.
+    /// Threads whose fold the user has overridden. Kept as a toggle rather than
+    /// a set of expanded ids because a filtered thread can also open itself
+    /// (see `shelfStartsExpanded`), and either direction has to survive that.
     @State private var toggledShelfIDs: Set<Int64> = []
 
     /// Complete browse index for the current scope, so shelves keep every
@@ -617,12 +807,13 @@ struct MeetingsView: View {
         appState.meetingRows
     }
 
-    private var browserPresentation: MeetingBrowserShelfPresentation {
+    private func browserPresentation(now: Date) -> MeetingBrowserShelfPresentation {
         MeetingBrowserLogic.shelves(
             entries: scopedEntries,
             records: scopedMeetings,
             filter: selectedFilter,
-            sort: selectedSort
+            sort: selectedSort,
+            now: now
         )
     }
 
@@ -670,7 +861,12 @@ struct MeetingsView: View {
         GeometryReader { proxy in
             let contentWidth = proxy.size.width
             ScrollView {
-                let presentation = browserPresentation
+                // One clock for the whole page: the shelves, the date sections
+                // they group into, and the range menu all read the same "now",
+                // so a row cannot land in a section built from a different
+                // minute than the one that placed it.
+                let now = Date()
+                let presentation = browserPresentation(now: now)
                 VStack(alignment: .leading, spacing: MeetsTheme.spacing24) {
                     PageTitle(currentFolderName)
 
@@ -696,11 +892,7 @@ struct MeetingsView: View {
                     if presentation.shelves.isEmpty {
                         emptyState
                     } else {
-                        shelfLayout(
-                            shelves: presentation.shelves,
-                            meetingIDsWithFollowUps: presentation.meetingIDsWithFollowUps,
-                            width: contentWidth
-                        )
+                        ledger(presentation: presentation, now: now, width: contentWidth)
                     }
                 }
                 .frame(maxWidth: 960, alignment: .leading)
@@ -740,15 +932,16 @@ struct MeetingsView: View {
         return [GridItem(.adaptive(minimum: 180, maximum: 300), spacing: MeetsTheme.spacing8, alignment: .top)]
     }
 
-    /// Card width below which a card drops to tighter padding and a single
-    /// preview line.
-    static let compactCardWidth: CGFloat = 300
+    /// Card width below which a ledger row drops its time gutter and stacks its
+    /// metadata.
+    static let compactLedgerWidth: CGFloat = 300
 
-    /// True when a card must tighten its padding and drop to one preview line.
-    /// Shelves are one full-width column, so the rendered card width is the
-    /// page width less both gutters.
-    static func usesCompactCardHeader(for width: CGFloat) -> Bool {
-        width - horizontalPadding(for: width) * 2 < compactCardWidth
+    /// True when a ledger row must drop its time gutter, put the date into the
+    /// metadata line, and wrap rather than truncate. The ledger is one
+    /// full-width column, so the rendered row width is the page width less both
+    /// gutters.
+    static func usesCompactLedger(for width: CGFloat) -> Bool {
+        width - horizontalPadding(for: width) * 2 < compactLedgerWidth
     }
 
     // MARK: - Coming Up
@@ -1298,47 +1491,41 @@ struct MeetingsView: View {
         }
     }
 
-    // MARK: - Shelves
+    // MARK: - Ledger
 
-    /// The shelves, one full-width list column: a family's root with its
-    /// follow-ups folded beneath it, read top to bottom like the archive it
-    /// summarizes.
+    /// The ledger: one column of date sections, each a heading pinned over the
+    /// meetings that belong to it, with a family's follow-ups hanging from a
+    /// rail under their root.
     @ViewBuilder
-    private func shelfLayout(
-        shelves: [MeetingBrowserShelf],
-        meetingIDsWithFollowUps: Set<Int64>,
-        width: CGFloat
-    ) -> some View {
-        LazyVStack(alignment: .leading, spacing: MeetsTheme.spacing12) {
-            shelfCells(shelves: shelves, meetingIDsWithFollowUps: meetingIDsWithFollowUps, width: width)
-        }
-    }
-
-    @ViewBuilder
-    private func shelfCells(
-        shelves: [MeetingBrowserShelf],
-        meetingIDsWithFollowUps: Set<Int64>,
+    private func ledger(
+        presentation: MeetingBrowserShelfPresentation,
+        now: Date,
         width: CGFloat
     ) -> some View {
         let actions = shelfActions
         let breadcrumbs = folderBreadcrumbsByID
-        let compact = Self.usesCompactCardHeader(for: width)
         let annotatesMatches = selectedFilter != .all
-        ForEach(shelves) { shelf in
-            MeetingShelfView(
-                shelf: shelf,
-                isExpanded: MeetingBrowserLogic.shelfStartsExpanded(
+        MeetingLedgerView(
+            groups: MeetingBrowserLogic.ledgerGroups(
+                from: presentation.shelves,
+                now: now,
+                calendar: .current
+            ),
+            now: now,
+            expandedResolver: { shelf in
+                MeetingBrowserLogic.shelfStartsExpanded(
                     rootMatchesRange: shelf.root.matchesFilter,
                     annotatesMatches: annotatesMatches
-                ) != toggledShelfIDs.contains(shelf.id),
-                rootHasFollowUps: meetingIDsWithFollowUps.contains(shelf.root.id),
-                folders: appState.folders,
-                folderBreadcrumbs: breadcrumbs,
-                compact: compact,
-                annotatesHiddenMatches: annotatesMatches,
-                actions: actions
-            )
-        }
+                ) != toggledShelfIDs.contains(shelf.id)
+            },
+            meetingIDsWithFollowUps: presentation.meetingIDsWithFollowUps,
+            folders: appState.folders,
+            folderBreadcrumbs: breadcrumbs,
+            currentFolderID: appState.selectedFolderID,
+            compact: Self.usesCompactLedger(for: width),
+            annotatesHiddenMatches: annotatesMatches,
+            actions: actions
+        )
     }
 
     private var folderBreadcrumbsByID: [Int64: String] {
