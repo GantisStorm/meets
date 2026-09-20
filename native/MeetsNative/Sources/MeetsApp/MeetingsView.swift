@@ -3,12 +3,14 @@ import MeetsCore
 
 // DIRECTION — Meetings browser (seed 0e51c253, Operate)
 // THESIS: A ledger, not a deck of cards. Time is the spine: pinned date
-//   headings, a fixed time gutter, and follow-ups hanging from a thread rail.
+//   headings, a fixed time gutter, and follow-ups as a plain sublist under the
+//   meeting they follow.
 // FIRST VIEWPORT: "Today" heading, three rows with times in the gutter, one
-//   family open on its rail. Nothing is a card; nothing is nested in a card.
+//   family opened from its pill into a plain indented sublist. Nothing is a
+//   card; nothing is nested in a card.
 // MATERIAL: base canvas, hairline rules, hover fill only. Weight and size
 //   carry hierarchy; color is reserved for status.
-// MOTION: one moment — a family unfolding along its rail, 180ms ease-out.
+// MOTION: one moment — a family unfolding beneath its pill, 180ms ease-out.
 // REFUSE: same-size cards, eyebrow labels, accent borders, decorative fills.
 
 enum MeetingBrowserFilter: Hashable {
@@ -140,22 +142,15 @@ enum MeetingLedgerSectionKind: Hashable {
 
 /// A run of shelves that share one date section: the pinned heading and
 /// everything under it.
+///
+/// `ledgerGroups` orders families by the meetings they started from before it
+/// groups them, so a section is always exactly one run and the section kind is
+/// the group's whole identity.
 struct MeetingLedgerGroup: Identifiable {
     let kind: MeetingLedgerSectionKind
     var shelves: [MeetingBrowserShelf]
-    /// Which run of this section this is. Almost always 0; a thread retained
-    /// for a matching follow-up can hang off a root older than the meetings
-    /// around it, which puts one section on screen twice, and a list keyed on
-    /// the section alone would then carry two rows with the same identity.
-    let runIndex: Int
 
-    /// Section plus run — never the section alone, which can repeat.
-    struct ID: Hashable {
-        let kind: MeetingLedgerSectionKind
-        let runIndex: Int
-    }
-
-    var id: ID { ID(kind: kind, runIndex: runIndex) }
+    var id: MeetingLedgerSectionKind { kind }
 
     /// Meetings under this heading, context rows included: the count describes
     /// what the heading covers, not only what matched the active range.
@@ -208,26 +203,21 @@ enum MeetingBrowserLogic {
         return filters
     }
 
-    /// Follow-ups a collapsed thread shows before it offers the rest, so a
-    /// family reads as its root plus a hint of the thread without pushing every
-    /// later meeting off the screen.
-    static let ledgerCollapsedDescendantLimit = 2
-
-    /// Label for a thread's fold control: how many follow-ups are still behind
-    /// it, and — while a date range is active and some of them are inside it —
-    /// how many the range is looking for. The count is the whole information:
-    /// collapsed, the fold is all or nothing. Expanded, the control's only
-    /// remaining job is to close the thread again. "All time" passes `false`:
-    /// there is no range, so there is nothing to report.
-    static func ledgerMoreLabel(
-        hiddenCount: Int,
+    /// Label for a shelf root's follow-up pill: how many follow-ups hang under
+    /// the meeting, and — while the thread is collapsed, a date range is active
+    /// and some of them are inside it — how many the range is looking for.
+    /// Collapsed, the pill is all or nothing, so the count is the whole
+    /// information. Expanded, those follow-ups are on screen under the pill and
+    /// the count alone is what remains. "All time" passes `false`: there is no
+    /// range, so there is nothing to report.
+    static func followUpPillLabel(
+        descendantCount: Int,
         hiddenMatchCount: Int,
         annotatesMatches: Bool,
         isExpanded: Bool
     ) -> String {
-        guard !isExpanded else { return "Show fewer follow-ups" }
-        let base = "\(hiddenCount) more \(hiddenCount == 1 ? "follow-up" : "follow-ups")"
-        guard annotatesMatches, hiddenMatchCount > 0 else { return base }
+        let base = "\(descendantCount) follow-up\(descendantCount == 1 ? "" : "s")"
+        guard !isExpanded, annotatesMatches, hiddenMatchCount > 0 else { return base }
         return "\(base) \u{00B7} \(hiddenMatchCount) in range"
     }
 
@@ -308,27 +298,47 @@ enum MeetingBrowserLogic {
         return monthKind(for: date, calendar: calendar)
     }
 
-    /// Sections for a shelf list. The incoming order is the ledger's order:
-    /// shelves arrive sorted and reordering them here would undo the user's
-    /// sort, so a group is only ever a *run* of shelves sharing a section.
-    /// Newest-first therefore reads today downwards and oldest-first reads the
-    /// same sections in reverse, which is exactly what that sort asked for.
+    /// Sections for a shelf list, in the order the user asked for.
+    ///
+    /// The ledger's spine is each family's *root*: a family is filed under the
+    /// meeting it started from, never under how recent its follow-ups are.
+    /// `shelves` orders families by activity instead, so a root from an old
+    /// month whose follow-up is recent would otherwise surface among the recent
+    /// days and split that month's heading in two. Sorting on the root here is
+    /// what lets a section be one run of consecutive families, and therefore one
+    /// heading.
+    ///
+    /// The sort is stable and follows the active sort, so shelves that share a
+    /// root time keep the order they arrived in. A root whose timestamp does not
+    /// parse sorts last either way rather than landing among the dated ones.
     static func ledgerGroups(
         from shelves: [MeetingBrowserShelf],
+        sort: MeetingBrowserSort,
         now: Date,
         calendar: Calendar
     ) -> [MeetingLedgerGroup] {
+        let ordered = shelves.enumerated().sorted { left, right in
+            switch (parseDate(left.element.root.entry.startTime), parseDate(right.element.root.entry.startTime)) {
+            case let (leftDate?, rightDate?):
+                guard leftDate != rightDate else { return left.offset < right.offset }
+                return sort == .newestFirst ? leftDate > rightDate : leftDate < rightDate
+            case (nil, nil):
+                return left.offset < right.offset
+            case (nil, _):
+                return false
+            case (_, nil):
+                return true
+            }
+        }
+
         var groups: [MeetingLedgerGroup] = []
-        var runsByKind: [MeetingLedgerSectionKind: Int] = [:]
-        for shelf in shelves {
+        for shelf in ordered.map(\.element) {
             let kind = ledgerSectionKind(for: shelf.root.startDate, now: now, calendar: calendar)
             if let last = groups.indices.last, groups[last].kind == kind {
                 groups[last].shelves.append(shelf)
                 continue
             }
-            let runIndex = runsByKind[kind, default: 0]
-            runsByKind[kind] = runIndex + 1
-            groups.append(MeetingLedgerGroup(kind: kind, shelves: [shelf], runIndex: runIndex))
+            groups.append(MeetingLedgerGroup(kind: kind, shelves: [shelf]))
         }
         return groups
     }
@@ -1508,6 +1518,7 @@ struct MeetingsView: View {
         MeetingLedgerView(
             groups: MeetingBrowserLogic.ledgerGroups(
                 from: presentation.shelves,
+                sort: selectedSort,
                 now: now,
                 calendar: .current
             ),

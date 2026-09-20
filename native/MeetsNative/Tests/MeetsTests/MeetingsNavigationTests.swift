@@ -1685,7 +1685,8 @@ struct MeetingBrowserLogicTests {
 /// Follow-up hierarchy coverage: deep chains, siblings, out-of-scope parents,
 /// dangling links, cycles, date-filter context, sort ties, and shelves that
 /// stay complete when the loaded record window excludes members — plus the
-/// ledger sections, gutters, and fold labels those shelves are rendered into.
+/// ledger sections, gutters, and follow-up pills those shelves are rendered
+/// into.
 @Suite("Meeting browser shelves")
 struct MeetingBrowserShelfTests {
     private let baseDate = Date(timeIntervalSince1970: 1_770_000_000)
@@ -1733,6 +1734,7 @@ struct MeetingBrowserShelfTests {
         records: [MeetingRecord] = [],
         filter: MeetingBrowserFilter = .all,
         sort: MeetingBrowserSort = .newestFirst,
+        now: Date? = nil,
         calendar: Calendar? = nil
     ) -> MeetingBrowserShelfPresentation {
         MeetingBrowserLogic.shelves(
@@ -1740,7 +1742,7 @@ struct MeetingBrowserShelfTests {
             records: records,
             filter: filter,
             sort: sort,
-            now: baseDate,
+            now: now ?? baseDate,
             calendar: calendar ?? self.calendar
         )
     }
@@ -2044,8 +2046,8 @@ struct MeetingBrowserShelfTests {
         ))
     }
 
-    @Test("a collapsed filtered thread reports the matches it is folding away")
-    func collapsedFilteredThreadReportsFoldedMatches() throws {
+    @Test("a collapsed filtered family's pill reports the matches it is hiding")
+    func collapsedFilteredFamilyPillReportsHiddenMatches() throws {
         let entries = [
             entry(1, daysAgo: 2),
             entry(2, daysAgo: 20, followUpTo: 1),
@@ -2056,22 +2058,21 @@ struct MeetingBrowserShelfTests {
 
         let shelf = try #require(shelves(entries, filter: .lastWeek).shelves.first { $0.id == 1 })
 
-        // The root matched, so the thread stays folded. Two members inside the
-        // range are kept as ancestors of a later match, and they sit behind the
-        // fold: thread order is untouched, and the fold reports the matches it
-        // is holding back rather than reordering the thread to reach them.
+        // The root matched, so the family stays folded. Two of the four
+        // follow-ups are inside the range, kept as ancestors of a later match,
+        // and all four sit behind the pill: thread order is untouched, and the
+        // pill reports the matches it is holding back rather than reordering the
+        // thread to reach them.
         #expect(shelf.root.matchesFilter)
         #expect(shelf.nodes.map(\.id) == [1, 2, 3, 4, 5])
         #expect(shelf.descendants.map(\.matchesFilter) == [false, true, false, true])
 
-        let folded = shelf.descendants.dropFirst(MeetingBrowserLogic.ledgerCollapsedDescendantLimit)
-        #expect(folded.map(\.id) == [4, 5])
-        #expect(MeetingBrowserLogic.ledgerMoreLabel(
-            hiddenCount: folded.count,
-            hiddenMatchCount: folded.filter(\.matchesFilter).count,
+        #expect(MeetingBrowserLogic.followUpPillLabel(
+            descendantCount: shelf.descendants.count,
+            hiddenMatchCount: shelf.descendants.filter(\.matchesFilter).count,
             annotatesMatches: true,
             isExpanded: false
-        ) == "2 more follow-ups \u{00B7} 1 in range")
+        ) == "4 follow-ups \u{00B7} 2 in range")
     }
 
     // MARK: - Ledger sections
@@ -2214,68 +2215,112 @@ struct MeetingBrowserShelfTests {
         #expect(label(ledgerDate(2025, 9, 17, hour: 9, minute: 30)) == "Sep 2025")
     }
 
-    @Test("the fold label counts what is folded away and how much of it is in range")
-    func ledgerMoreLabelCountsHiddenFollowUpsAndRangeMatches() {
-        #expect(MeetingBrowserLogic.ledgerMoreLabel(
-            hiddenCount: 1,
+    @Test("the pill names the follow-up count and, folded, how much of it is in range")
+    func followUpPillLabelCountsFollowUpsAndRangeMatches() {
+        #expect(MeetingBrowserLogic.followUpPillLabel(
+            descendantCount: 1,
             hiddenMatchCount: 1,
             annotatesMatches: false,
             isExpanded: false
-        ) == "1 more follow-up")
+        ) == "1 follow-up")
 
-        // A single follow-up with an active range still says how many of the
-        // folded members the range is looking for.
-        #expect(MeetingBrowserLogic.ledgerMoreLabel(
-            hiddenCount: 1,
-            hiddenMatchCount: 1,
-            annotatesMatches: true,
-            isExpanded: false
-        ) == "1 more follow-up \u{00B7} 1 in range")
-
-        #expect(MeetingBrowserLogic.ledgerMoreLabel(
-            hiddenCount: 3,
-            hiddenMatchCount: 0,
-            annotatesMatches: true,
-            isExpanded: false
-        ) == "3 more follow-ups")
-
-        #expect(MeetingBrowserLogic.ledgerMoreLabel(
-            hiddenCount: 3,
+        #expect(MeetingBrowserLogic.followUpPillLabel(
+            descendantCount: 3,
             hiddenMatchCount: 2,
             annotatesMatches: true,
             isExpanded: false
-        ) == "3 more follow-ups \u{00B7} 2 in range")
+        ) == "3 follow-ups \u{00B7} 2 in range")
 
         // "All time": there is no range, so a count of matches would be noise.
-        #expect(MeetingBrowserLogic.ledgerMoreLabel(
-            hiddenCount: 3,
+        #expect(MeetingBrowserLogic.followUpPillLabel(
+            descendantCount: 3,
             hiddenMatchCount: 3,
             annotatesMatches: false,
             isExpanded: false
-        ) == "3 more follow-ups")
+        ) == "3 follow-ups")
 
-        // Expanded, the matches it was reporting are on screen and the control
-        // has one thing left to say.
-        #expect(MeetingBrowserLogic.ledgerMoreLabel(
-            hiddenCount: 3,
+        // A collapsed family whose range matches none of its follow-ups reports
+        // the count alone: there is nothing in range to point at.
+        #expect(MeetingBrowserLogic.followUpPillLabel(
+            descendantCount: 4,
+            hiddenMatchCount: 0,
+            annotatesMatches: true,
+            isExpanded: false
+        ) == "4 follow-ups")
+
+        // Expanded, the follow-ups are on screen under the pill, so the range
+        // clause has nothing left to say.
+        #expect(MeetingBrowserLogic.followUpPillLabel(
+            descendantCount: 3,
             hiddenMatchCount: 2,
             annotatesMatches: true,
             isExpanded: true
-        ) == "Show fewer follow-ups")
+        ) == "3 follow-ups")
+
+        // A single expanded follow-up keeps the singular, with the same clause
+        // dropped.
+        #expect(MeetingBrowserLogic.followUpPillLabel(
+            descendantCount: 1,
+            hiddenMatchCount: 1,
+            annotatesMatches: true,
+            isExpanded: true
+        ) == "1 follow-up")
     }
+
     private func ledgerGroups(
         _ presentation: MeetingBrowserShelfPresentation,
-        calendar: Calendar
+        calendar: Calendar,
+        sort: MeetingBrowserSort = .newestFirst,
+        now: Date? = nil
     ) -> [MeetingLedgerGroup] {
         MeetingBrowserLogic.ledgerGroups(
             from: presentation.shelves,
-            now: baseDate,
+            sort: sort,
+            now: now ?? baseDate,
             calendar: calendar
         )
     }
 
-    @Test("ledger sections group runs of shelves and never re-sort them")
-    func ledgerGroupsFollowShelfOrder() {
+    @Test("ledger sections follow the roots' dates and never repeat")
+    func ledgerSectionsFollowRootDatesOnce() throws {
+        // Thursday, so "today" and "earlier this week" are different sections.
+        let thursday = ledgerDate(2026, 2, 5, hour: 10)
+        let entries = [
+            entry(1, daysAgo: -3),                   // today
+            entry(2, daysAgo: 0),                    // Monday of this week
+            entry(3, daysAgo: 166),                  // 20 August 2025
+            entry(4, daysAgo: -2, followUpTo: 3)     // its follow-up, yesterday
+        ]
+
+        let presentation = shelves(entries, now: thursday, calendar: utcCalendar)
+        // The shelves arrive ordered by each family's activity, so the August
+        // family's recent follow-up floats it above the Monday one.
+        #expect(presentation.shelves.map(\.id) == [1, 3, 2])
+
+        let newestFirst = ledgerGroups(presentation, calendar: utcCalendar, now: thursday)
+        #expect(newestFirst.map(\.kind) == [
+            .today,
+            .earlierThisWeek,
+            .month(year: 2025, month: 8)
+        ])
+        // A section is one run of families, so no kind can appear twice.
+        #expect(Set(newestFirst.map(\.kind)).count == newestFirst.count)
+
+        let oldestFirst = ledgerGroups(
+            shelves(entries, sort: .oldestFirst, now: thursday, calendar: utcCalendar),
+            calendar: utcCalendar,
+            sort: .oldestFirst,
+            now: thursday
+        )
+        #expect(oldestFirst.map(\.kind) == [
+            .month(year: 2025, month: 8),
+            .earlierThisWeek,
+            .today
+        ])
+    }
+
+    @Test("ledger sections group consecutive shelves by their roots' dates")
+    func ledgerGroupsFollowRootOrder() {
         // Base date is Monday 2 February 2026 02:40 UTC, so the fixture lands
         // on: today, yesterday, the Saturday of last week, the Sunday that
         // started last week, and a December meeting.
@@ -2295,11 +2340,11 @@ struct MeetingBrowserShelfTests {
             .lastWeek,
             .month(year: 2025, month: 12)
         ])
-        // Consecutive shelves sharing a section merge into one group, in the
-        // order they arrived.
+        // Consecutive families sharing a section merge into one group, in date
+        // order.
         #expect(groups.map { $0.shelves.map(\.id) } == [[1], [2], [3, 4], [5]])
         #expect(groups.map(\.meetingCount) == [1, 1, 2, 1])
-        #expect(groups.map(\.runIndex) == [0, 0, 0, 0])
+        #expect(Set(groups.map(\.id)).count == groups.count)
     }
 
     @Test("oldest-first reads the same sections in reverse")
@@ -2311,7 +2356,7 @@ struct MeetingBrowserShelfTests {
         ]
 
         let presentation = shelves(entries, sort: .oldestFirst, calendar: utcCalendar)
-        let groups = ledgerGroups(presentation, calendar: utcCalendar)
+        let groups = ledgerGroups(presentation, calendar: utcCalendar, sort: .oldestFirst)
 
         // The ledger reverses with the sort rather than overriding it: the
         // oldest meeting leads, so the sections run backwards.
@@ -2323,11 +2368,12 @@ struct MeetingBrowserShelfTests {
         #expect(groups.map { $0.shelves.map(\.id) } == [[3], [2], [1]])
     }
 
-    @Test("a thread whose root predates the meetings around it keeps its own section")
-    func repeatedSectionsStayDistinct() throws {
-        // A root two months old, kept in the ledger by a follow-up from today:
-        // the family sorts to the top, so its section appears between newer
-        // ones — and a second, genuinely older meeting repeats it further down.
+    @Test("a family files under the date of the meeting it started from")
+    func familyFilesUnderItsRootsDate() throws {
+        // A root two months old, kept in the ledger by a follow-up from today.
+        // The family belongs under the root's own month: filing it by its newest
+        // meeting would float it among the recent days and print that month a
+        // second time, further down, for the older meeting on its own.
         let entries = [
             entry(1, daysAgo: 60),
             entry(2, daysAgo: 0, followUpTo: 1),
@@ -2338,18 +2384,13 @@ struct MeetingBrowserShelfTests {
 
         let groups = ledgerGroups(shelves(entries, calendar: utcCalendar), calendar: utcCalendar)
 
-        #expect(groups.map { $0.shelves.map(\.id) } == [[1], [3], [4], [5]])
+        #expect(groups.map { $0.shelves.map(\.id) } == [[3], [4], [5, 1]])
         #expect(groups.map(\.kind) == [
-            .month(year: 2025, month: 12),
             .today,
             .lastWeek,
             .month(year: 2025, month: 12)
         ])
-        // Two groups share a section, so identity carries the run as well: the
-        // ledger's list needs one id per group, and the section alone repeats.
-        #expect(groups[0].kind == groups[3].kind)
-        #expect(groups.map(\.runIndex) == [0, 0, 0, 1])
-        #expect(Set(groups.map(\.id)).count == groups.count)
+        #expect(Set(groups.map(\.kind)).count == groups.count)
     }
 
     @Test("the shelf presentation provides the oldest date for the range menu")

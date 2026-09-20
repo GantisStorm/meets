@@ -15,10 +15,14 @@ struct MeetingShelfActions {
     let canStartFollowUp: (MeetingBrowserNode) -> Bool
 }
 
-/// Geometry shared by the rows, the thread and the rail drawn through them.
-/// One definition, because the rail has to land exactly on the rows it marks:
-/// the gutter puts the time in a fixed column, and everything else is measured
-/// from that column rather than from each row's own contents.
+/// One speed for a family's unfold, so the sublist and the pill's chevron move
+/// as one thing.
+private let ledgerUnfoldDuration: Double = 0.18
+
+/// Geometry shared by the ledger's rows and the sublist they open into.
+/// One definition, because the gutter puts the time in a fixed column and the
+/// sublist indents against that same column rather than against each row's own
+/// contents.
 enum MeetingLedgerMetrics {
     /// Padding inside a row's hover box.
     static let rowHorizontalPadding: CGFloat = 8
@@ -33,54 +37,10 @@ enum MeetingLedgerMetrics {
     /// column: the whole point of the gutter is that it can be read down one
     /// edge.
     static func gutterWidth(compact: Bool) -> CGFloat { compact ? 0 : 92 }
-    /// Vertical rail the follow-ups hang from, in the thread's coordinates.
-    static func railX(compact: Bool) -> CGFloat {
-        rowHorizontalPadding + gutterWidth(compact: compact) + gutterSpacing
-    }
-    /// How far the rail reaches towards each follow-up. A follow-up's content
-    /// starts exactly this far right of the rail, so every tick lands on the
-    /// row it belongs to no matter how deep the thread runs.
-    static let railTickLength: CGFloat = 10
-    /// Extra indent per nesting level.
-    static let indentStep: CGFloat = 16
-    /// Nesting carried by indentation alone; deeper rows name their parent.
-    static let indentCap = MeetingBrowserLogic.indentationCapDepth
-
-    static func indent(forDepth depth: Int) -> CGFloat {
-        CGFloat(min(max(depth - 1, 0), indentCap - 1)) * indentStep
-    }
-
-    /// Where a follow-up's own content begins, relative to the thread.
-    static func childContentInset(forDepth depth: Int) -> CGFloat {
-        railTickLength + indent(forDepth: depth)
-    }
-
-    /// Where a row's title sits on the vertical axis: the row's own padding
-    /// plus the font's own baseline below the top of its line box. The rail's
-    /// ticks land on the title they mark, and the offset comes from the font
-    /// rather than from a hand-written constant, so changing the type size
-    /// moves both together. Rounded, because a hairlines that lands between two
-    /// pixel rows loses half its contrast to antialiasing.
-    static func titleBaselineY(inRowStartingAt minY: CGFloat, kind: MeetingLedgerRowKind) -> CGFloat {
-        (minY + rowVerticalPadding + titleBaselineOffset(for: kind)).rounded()
-    }
-
-    private static func titleBaselineOffset(for kind: MeetingLedgerRowKind) -> CGFloat {
-        let font: NSFont
-        switch kind {
-        case .root: font = .systemFont(ofSize: 14, weight: .semibold)
-        case .child: font = .systemFont(ofSize: 13, weight: .medium)
-        }
-        return font.ascender + font.leading / 2
-    }
-
-    /// The rail and its ticks. `textTertiary` rather than the hairline border
-    /// tone: a 10-point tick at border opacity disappears against the canvas,
-    /// and a rail nobody can see is a rail that isn't drawn.
-    static let rail = MeetsTheme.textTertiary
-
-    /// Height of the thread's fold control.
-    static let moreRowHeight: CGFloat = 28
+    /// How far a follow-up's body sits to the right of its root's, whatever its
+    /// depth: the sublist is flat, so one step is all the hierarchy needs — a
+    /// follow-up deeper than the first says in words which meeting it follows.
+    static let childIndent: CGFloat = 24
 }
 
 /// One ledger section: a pinned date heading over the families that belong to
@@ -130,13 +90,14 @@ struct MeetingLedgerSectionHeader: View {
 }
 
 /// The browser's meetings as a ledger: date sections, each holding the
-/// follow-up families that started inside it, with the family's thread hanging
-/// from a rail under its root.
+/// follow-up families that started inside it, with each family's follow-ups
+/// unfolding under its root when the root's pill is opened.
 ///
 /// One column and no cards — the archive is read top to bottom, and the only
 /// things that carry structure are the section headings, the fixed time gutter,
-/// and the rail. Root rows and follow-up rows use the same row shape, so a deep
-/// thread reads as the same kind of object as the meeting it came from.
+/// and the one step of indentation the sublist takes. Root rows and follow-up
+/// rows use the same row shape, so a deep thread reads as the same kind of
+/// object as the meeting it came from.
 struct MeetingLedgerView: View {
     let groups: [MeetingLedgerGroup]
     /// The page's single clock, so a row's gutter label and the section it sits
@@ -192,8 +153,8 @@ struct MeetingLedgerView: View {
     }
 }
 
-/// One follow-up family as a ledger entry: the root meeting, then — while the
-/// thread is open — its follow-ups hanging from a rail beneath it.
+/// One follow-up family as a ledger entry: the root meeting, then — while its
+/// pill is open — every follow-up in thread order, indented one step beneath it.
 struct MeetingLedgerFamily: View {
     let shelf: MeetingBrowserShelf
     let isExpanded: Bool
@@ -207,6 +168,12 @@ struct MeetingLedgerFamily: View {
     let annotatesHiddenMatches: Bool
     let actions: MeetingShelfActions
 
+    /// Every descendant is counted, not just a visible prefix: folded, the pill
+    /// hides all of them, so all of them are what the range is looking for.
+    private var hiddenMatchCount: Int {
+        shelf.descendants.filter(\.matchesFilter).count
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             MeetingLedgerRow(
@@ -215,6 +182,20 @@ struct MeetingLedgerFamily: View {
                 rootDate: shelf.root.startDate,
                 now: now,
                 hasOutsideScopeFollowUps: hasOutsideScopeFollowUps,
+                followUpLabel: shelf.descendants.isEmpty
+                    ? nil
+                    : MeetingBrowserLogic.followUpPillLabel(
+                        descendantCount: shelf.descendants.count,
+                        hiddenMatchCount: hiddenMatchCount,
+                        annotatesMatches: annotatesHiddenMatches,
+                        isExpanded: isExpanded
+                    ),
+                followUpsExpanded: isExpanded,
+                onToggleFollowUps: {
+                    withAnimation(.easeOut(duration: ledgerUnfoldDuration)) {
+                        actions.toggleExpanded(shelf.id)
+                    }
+                },
                 folders: folders,
                 folderBreadcrumbs: folderBreadcrumbs,
                 currentFolderID: currentFolderID,
@@ -222,31 +203,46 @@ struct MeetingLedgerFamily: View {
                 actions: actions
             )
 
-            if !shelf.descendants.isEmpty {
-                MeetingLedgerThread(
-                    shelf: shelf,
-                    isExpanded: isExpanded,
-                    now: now,
-                    folders: folders,
-                    folderBreadcrumbs: folderBreadcrumbs,
-                    currentFolderID: currentFolderID,
-                    compact: compact,
-                    annotatesHiddenMatches: annotatesHiddenMatches,
-                    actions: actions
-                )
-                .padding(.top, 2)
+            if isExpanded, !shelf.descendants.isEmpty {
+                followUpList
+                    .padding(.top, 2)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.bottom, 4)
     }
+
+    /// Every descendant, in thread order, as one flat list: rows carry their own
+    /// vertical padding, so nothing else has to separate them.
+    private var followUpList: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(shelf.descendants) { node in
+                MeetingLedgerRow(
+                    node: node,
+                    kind: .child,
+                    rootDate: shelf.root.startDate,
+                    now: now,
+                    hasOutsideScopeFollowUps: false,
+                    followUpLabel: nil,
+                    followUpsExpanded: false,
+                    onToggleFollowUps: {},
+                    folders: folders,
+                    folderBreadcrumbs: folderBreadcrumbs,
+                    currentFolderID: currentFolderID,
+                    compact: compact,
+                    actions: actions
+                )
+            }
+        }
+    }
 }
 
 /// Which place in a family a row occupies. Roots carry the family's weight;
-/// children are the same row, quieter, hanging one step to the right.
+/// children are the same row, quieter, one step to the right.
 enum MeetingLedgerRowKind: Hashable {
     case root
-    case child(depth: Int)
+    case child
 }
 
 /// One meeting as a ledger row: time in the gutter, title and state in the
@@ -263,6 +259,12 @@ struct MeetingLedgerRow: View {
     let rootDate: Date
     let now: Date
     let hasOutsideScopeFollowUps: Bool
+    /// The follow-ups hanging under this meeting, already counted into a pill's
+    /// label. Roots with a family carry one; every other row passes `nil`.
+    let followUpLabel: String?
+    /// Whether that family's follow-ups are on screen under this row.
+    let followUpsExpanded: Bool
+    let onToggleFollowUps: () -> Void
     let folders: [MeetingFolder]
     let folderBreadcrumbs: [Int64: String]
     let currentFolderID: Int64?
@@ -302,7 +304,7 @@ struct MeetingLedgerRow: View {
     private var contentInset: CGFloat {
         switch kind {
         case .root: return 0
-        case let .child(depth): return MeetingLedgerMetrics.childContentInset(forDepth: depth)
+        case .child: return MeetingLedgerMetrics.childIndent
         }
     }
 
@@ -319,7 +321,7 @@ struct MeetingLedgerRow: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 HStack(alignment: .firstTextBaseline, spacing: MeetingLedgerMetrics.gutterSpacing) {
-                    openButton
+                    openContent
                     actionMenu
                 }
 
@@ -355,25 +357,25 @@ struct MeetingLedgerRow: View {
         .frame(width: MeetingLedgerMetrics.gutterWidth(compact: compact), alignment: .trailing)
     }
 
-    /// Title, state and preview. The whole block opens the meeting; the actions
-    /// menu is its sibling, never nested, so both stay reachable from the
-    /// keyboard.
-    private var openButton: some View {
-        Button {
-            actions.open(node.id)
-        } label: {
-            VStack(alignment: .leading, spacing: 2) {
-                titleText
-                metaLine
-                previewLine
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(Rectangle())
+    /// Title, state and preview. The block opens the meeting on a tap gesture
+    /// rather than a wrapping Button: the follow-up pill and the actions menu
+    /// are real buttons inside the same row, and a button nested in a button's
+    /// label fights it for the tap. Same shape as the calendar's event rows.
+    private var openContent: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            titleText
+            metaLine
+            previewLine
         }
-        .buttonStyle(.plain)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+        .onTapGesture { actions.open(node.id) }
         .help("Open \(node.entry.title)")
+        .accessibilityElement(children: .contain)
         .accessibilityLabel(accessibilityLabel)
         .accessibilityHint("Opens the meeting")
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction { actions.open(node.id) }
     }
 
     /// The row's title. A narrow ledger has room for two lines, so it wraps
@@ -416,38 +418,78 @@ struct MeetingLedgerRow: View {
     }
 
     /// State, duration, folder, and where the meeting came from. The date leads
-    /// on a narrow ledger, where the gutter is gone. Two arrangements, because
-    /// the detail column can narrow to the point where one line of chips would
-    /// truncate the title's only remaining neighbours.
+    /// on a narrow ledger, where the gutter is gone. The arrangements go from
+    /// one line to three: the detail column can narrow to the point where a line
+    /// of chips would truncate the title's only remaining neighbours, and a
+    /// follow-up pill must never wrap inside itself — so it takes a line of its
+    /// own before that can happen.
     @ViewBuilder
     private var metaLine: some View {
         ViewThatFits(in: .horizontal) {
             HStack(spacing: MeetsTheme.spacing8) {
-                compactDateElement
-                statusElement
-                rangeElement
-                durationElement
-                folderElement
-                sourceElement
-                followUpsElsewhereElement
+                primaryElements
+                secondaryElements
+                followUpPill
                 Spacer(minLength: 0)
             }
 
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: MeetsTheme.spacing8) {
-                    compactDateElement
-                    statusElement
-                    rangeElement
-                    durationElement
+                    primaryElements
                     Spacer(minLength: 0)
                 }
                 HStack(spacing: MeetsTheme.spacing8) {
-                    folderElement
-                    sourceElement
-                    followUpsElsewhereElement
+                    secondaryElements
+                    followUpPill
                     Spacer(minLength: 0)
                 }
             }
+
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: MeetsTheme.spacing8) {
+                    primaryElements
+                    Spacer(minLength: 0)
+                }
+                HStack(spacing: MeetsTheme.spacing8) {
+                    secondaryElements
+                    Spacer(minLength: 0)
+                }
+                HStack(spacing: MeetsTheme.spacing8) {
+                    followUpPill
+                    Spacer(minLength: 0)
+                }
+            }
+        }
+    }
+
+    /// Date, state, range and duration: what the meeting is.
+    @ViewBuilder
+    private var primaryElements: some View {
+        compactDateElement
+        statusElement
+        rangeElement
+        durationElement
+    }
+
+    /// Folder and source, plus any follow-ups living outside this scope: where
+    /// the meeting sits.
+    @ViewBuilder
+    private var secondaryElements: some View {
+        folderElement
+        sourceElement
+        followUpsElsewhereElement
+    }
+
+    /// This meeting's follow-ups, counted and opened. Its own button, layered
+    /// over the row's tap target, so opening a family never opens the meeting.
+    @ViewBuilder
+    private var followUpPill: some View {
+        if let followUpLabel {
+            MeetingFollowUpPill(
+                label: followUpLabel,
+                isExpanded: followUpsExpanded,
+                onToggle: onToggleFollowUps
+            )
         }
     }
 
@@ -462,12 +504,14 @@ struct MeetingLedgerRow: View {
         }
     }
 
-    /// Past the indentation cap a thread's depth stops meaning anything, so the
-    /// row says in words what the rail can no longer show. A caption, not a
-    /// link: the parent is always somewhere above in the same thread.
+    /// A follow-up deeper than the first step says in words which meeting it
+    /// follows on from: the sublist indents every row one step, so indentation
+    /// alone can no longer say what it says for the row whose root is directly
+    /// above it. A caption, not a link: that meeting is always somewhere above
+    /// in the same sublist.
     @ViewBuilder
     private var parentCaption: some View {
-        if case .child = kind, let parentTitle = node.parentLinkTitle {
+        if case .child = kind, node.depth > 1, let parentTitle = node.entry.predecessorTitle {
             Text("Follow-up to \(parentTitle)")
                 .font(MeetsTheme.caption())
                 .foregroundStyle(MeetsTheme.textSecondary)
@@ -604,185 +648,47 @@ struct MeetingLedgerRow: View {
     }
 }
 
-/// Every follow-up of one family, in thread order, hanging from a rail under
-/// the root.
+/// The root row's follow-up pill: how many follow-ups hang under this meeting,
+/// and the way to open or fold the sublist they render into.
 ///
-/// The rail is the thread: one hairline from the root down to the last visible
-/// follow-up, with a tick landing on each row it reaches. Collapsed, it shows
-/// the first follow-ups and offers the rest; expanded, it shows all of them and
-/// offers to close again.
-struct MeetingLedgerThread: View {
-    let shelf: MeetingBrowserShelf
-    let isExpanded: Bool
-    let now: Date
-    let folders: [MeetingFolder]
-    let folderBreadcrumbs: [Int64: String]
-    let currentFolderID: Int64?
-    let compact: Bool
-    let annotatesHiddenMatches: Bool
-    let actions: MeetingShelfActions
-    @State private var isHoveringMore = false
-
-    /// Key for the fold control's own anchor, so the rail ends at the control
-    /// that stands for the rows it is hiding.
-    private static let moreRowAnchorID = Int64.min
-
-    /// One speed for the fold, so the rows and the control they hang from move
-    /// as one thing.
-    private static let foldAnimationDuration: Double = 0.18
-
-    private var visibleNodes: [MeetingBrowserNode] {
-        isExpanded
-            ? shelf.descendants
-            : Array(shelf.descendants.prefix(MeetingBrowserLogic.ledgerCollapsedDescendantLimit))
-    }
-
-    private var hidesFollowUps: Bool {
-        shelf.descendants.count > MeetingBrowserLogic.ledgerCollapsedDescendantLimit
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            ForEach(visibleNodes) { node in
-                MeetingLedgerRow(
-                    node: node,
-                    kind: .child(depth: node.depth),
-                    rootDate: shelf.root.startDate,
-                    now: now,
-                    hasOutsideScopeFollowUps: false,
-                    folders: folders,
-                    folderBreadcrumbs: folderBreadcrumbs,
-                    currentFolderID: currentFolderID,
-                    compact: compact,
-                    actions: actions
-                )
-                .anchorPreference(key: LedgerThreadAnchorKey.self, value: .bounds) { [node.id: $0] }
-            }
-
-            if hidesFollowUps {
-                moreRow
-                    .anchorPreference(key: LedgerThreadAnchorKey.self, value: .bounds) {
-                        [Self.moreRowAnchorID: $0]
-                    }
-            }
-        }
-        .overlayPreferenceValue(LedgerThreadAnchorKey.self) { anchors in
-            GeometryReader { proxy in
-                let frames = anchors.compactMapValues { proxy[$0] }
-                Path { path in
-                    let railX = MeetingLedgerMetrics.railX(compact: compact)
-                    guard let lastRow = frames[lastVisibleAnchorID] else { return }
-                    path.move(to: CGPoint(x: railX, y: 0))
-                    path.addLine(to: CGPoint(x: railX, y: lastRow.midY))
-
-                    for node in visibleNodes {
-                        guard let row = frames[node.id] else { continue }
-                        let y = MeetingLedgerMetrics.titleBaselineY(
-                            inRowStartingAt: row.minY,
-                            kind: .child(depth: node.depth)
-                        )
-                        path.move(to: CGPoint(x: railX, y: y))
-                        path.addLine(
-                            to: CGPoint(
-                                x: railX + MeetingLedgerMetrics.childContentInset(forDepth: node.depth),
-                                y: y
-                            )
-                        )
-                    }
-
-                    if hidesFollowUps, let foldRow = frames[Self.moreRowAnchorID] {
-                        let y = foldRow.midY.rounded()
-                        path.move(to: CGPoint(x: railX, y: y))
-                        path.addLine(to: CGPoint(x: railX + MeetingLedgerMetrics.railTickLength, y: y))
-                    }
-                }
-                .stroke(MeetingLedgerMetrics.rail, lineWidth: 1)
-            }
-            .allowsHitTesting(false)
-            .accessibilityHidden(true)
-        }
-    }
-
-    private var lastVisibleAnchorID: Int64 {
-        hidesFollowUps ? Self.moreRowAnchorID : (visibleNodes.last?.id ?? Self.moreRowAnchorID)
-    }
-
-    /// The thread's last element: the count of what is folded away, and the
-    /// control that folds it. Expanding brings every follow-up in along the
-    /// rail rather than jumping the page.
-    private var moreRow: some View {
-        MeetingLedgerMoreRow(
-            label: MeetingBrowserLogic.ledgerMoreLabel(
-                hiddenCount: shelf.descendants.count - MeetingBrowserLogic.ledgerCollapsedDescendantLimit,
-                hiddenMatchCount: shelf.descendants
-                    .dropFirst(MeetingBrowserLogic.ledgerCollapsedDescendantLimit)
-                    .filter(\.matchesFilter)
-                    .count,
-                annotatesMatches: annotatesHiddenMatches,
-                isExpanded: isExpanded
-            ),
-            isExpanded: isExpanded,
-            compact: compact,
-            isHovering: isHoveringMore,
-            onToggle: {
-                withAnimation(.easeOut(duration: Self.foldAnimationDuration)) {
-                    actions.toggleExpanded(shelf.id)
-                }
-            }
-        )
-        .onHover { isHoveringMore = $0 }
-    }
-}
-
-/// The frame of each rendered row, keyed by meeting id, so the rail is drawn
-/// through the rows that actually exist — their real heights, their real
-/// positions — instead of through assumed row metrics.
-private struct LedgerThreadAnchorKey: PreferenceKey {
-    static var defaultValue: [Int64: Anchor<CGRect>] { [:] }
-
-    static func reduce(
-        value: inout [Int64: Anchor<CGRect>],
-        nextValue: () -> [Int64: Anchor<CGRect>]
-    ) {
-        value.merge(nextValue()) { _, new in new }
-    }
-}
-
-/// The fold control at the end of a thread: how many follow-ups are still
-/// folded away, and the way in or out. It sits in the rail's column, so the
-/// thread's text stays one column wide whatever the control says.
-struct MeetingLedgerMoreRow: View {
+/// It is a button of its own inside the row's metadata line, layered over the
+/// row's tap target: opening a family and opening the meeting it belongs to are
+/// two different things, and neither should ever do the other. The chevron
+/// turns as the sublist unfolds, at the same speed and in the same moment.
+struct MeetingFollowUpPill: View {
     let label: String
     let isExpanded: Bool
-    let compact: Bool
-    let isHovering: Bool
     let onToggle: () -> Void
+    @State private var isHovering = false
 
     var body: some View {
         Button(action: onToggle) {
-            HStack(spacing: 6) {
-                Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                    .font(.system(size: 10, weight: .semibold))
+            HStack(spacing: 4) {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 9, weight: .semibold))
+                    .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                    .animation(.easeOut(duration: ledgerUnfoldDuration), value: isExpanded)
                 Text(label)
                     .font(MeetsTheme.captionMedium())
                     .lineLimit(1)
-                    .multilineTextAlignment(.leading)
-                Spacer(minLength: 0)
+                    // Never compress the count into an ellipsis: the pill moves
+                    // to a line of its own before that, and a label that says
+                    // "4 follow-ups · 4…" reports nothing.
+                    .fixedSize(horizontal: true, vertical: false)
             }
             .foregroundStyle(isHovering ? MeetsTheme.textPrimary : MeetsTheme.textSecondary)
-            .padding(
-                .leading,
-                MeetingLedgerMetrics.railX(compact: compact) + MeetingLedgerMetrics.railTickLength
-            )
-            .padding(.trailing, MeetingLedgerMetrics.rowHorizontalPadding)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .frame(height: MeetingLedgerMetrics.moreRowHeight)
-            .contentShape(Rectangle())
+            .padding(.horizontal, 8)
+            .frame(height: 20)
+            .background(MeetsTheme.surfacePrimary)
+            .clipShape(Capsule())
+            .contentShape(Capsule())
         }
         .buttonStyle(.plain)
-        .help(isExpanded ? "Fold this follow-up thread" : "Show every follow-up in this thread")
+        .onHover { isHovering = $0 }
+        .help("Shows this meeting's follow-up meetings")
         .accessibilityLabel("Follow-ups")
         .accessibilityValue(isExpanded ? "Expanded" : "Collapsed")
+        .accessibilityHint("Shows this meeting's follow-up meetings")
     }
 }
 
