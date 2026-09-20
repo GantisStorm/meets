@@ -1933,7 +1933,11 @@ struct OnboardingView: View {
             modelDownloadProgress = nil
             modelDownloadStatus = snapshot.message ?? "Preparing \(backend.label)..."
         case .ready:
-            modelDownloadStatus = snapshot.message ?? "\(backend.label) ready"
+            withAnimation { isModelStillDownloading = false }
+            isModelPreparingAfterDownload = false
+            modelDownloadProgress = 1.0
+            modelDownloadStatus = nil
+            modelDownloadSnapshot = nil
         case .paused:
             isModelStillDownloading = false
             isModelPreparingAfterDownload = false
