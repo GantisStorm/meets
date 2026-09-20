@@ -1685,7 +1685,7 @@ struct SettingsView: View {
                 description: aiConnectionLine(provider, state: state),
                 controlWidth: meetingControlWidth
             ) {
-                aiACPConnectionDetail(state: state)
+                ACPCommandPicker(appState: appState, controller: controller)
             }
         case .appleIntelligence:
             appleIntelligenceStatusRow
@@ -1714,40 +1714,6 @@ struct SettingsView: View {
                     onChange: { val in controller.updateConfig { $0.lmStudioURL = val } }
                 )
                 .frame(height: 22)
-            }
-        }
-    }
-
-    /// For ACP, "connected" is what this Mac can run, so the row lists the
-    /// agents that resolve here and marks the one in use. Which agent runs —
-    /// and its model and reasoning — belongs with the default it serves, not
-    /// here. A machine with no known launcher keeps the free-text picker so a
-    /// bespoke agent can still be typed in.
-    @ViewBuilder
-    private func aiACPConnectionDetail(state: AIConnectionState) -> some View {
-        let installed = state.installedACPAgents
-        if installed.isEmpty {
-            ACPCommandPicker(appState: appState, controller: controller)
-        } else {
-            let selected = appState.config.acpAgentCommand
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            VStack(alignment: .trailing, spacing: MeetsTheme.spacing4) {
-                ForEach(installed, id: \.command) { agent in
-                    HStack(spacing: 6) {
-                        Text(agent.label)
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundStyle(MeetsTheme.textSecondary)
-                        Text(agent.command)
-                            .font(.system(size: 10))
-                            .foregroundStyle(MeetsTheme.textTertiary)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                        Image(systemName: agent.command == selected ? "checkmark.circle.fill" : "circle")
-                            .font(.system(size: 10))
-                            .foregroundStyle(agent.command == selected ? MeetsTheme.success : MeetsTheme.textTertiary)
-                    }
-                    .help(agent.command == selected ? "Used for this provider" : agent.command)
-                }
             }
         }
     }
