@@ -167,6 +167,79 @@ enum AIProviderDirectory {
     }
 }
 
+/// One configured retry per pillar: which provider a failed attempt runs on
+/// instead. Kept pure so the retry decision is testable without a controller.
+enum AIFallbackPolicy {
+    /// The stored config to retry a failed summary on, or `nil` when the user
+    /// configured no fallback.
+    ///
+    /// The configured value is trimmed, then resolved through
+    /// `MeetingSummaryBackendOption.resolved(_:)` — which answers an unknown
+    /// value with ChatGPT. The resolved option has to round-trip back to the
+    /// trimmed string, so an unknown value means no fallback instead of
+    /// silently running ChatGPT. A value equal to the backend that just failed
+    /// is no fallback either.
+    static func fallbackSummaryConfig(from config: AppConfig, attempted: AppConfig) -> AppConfig? {
+        let configured = config.fallbackSummaryBackend
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !configured.isEmpty,
+              MeetingSummaryBackendOption.resolved(configured).backend == configured,
+              configured != attempted.meetingSummaryBackend else {
+            return nil
+        }
+        // The copy starts from the stored config, not the attempted snapshot, so
+        // the fallback provider brings its own configured model, URL and key
+        // rather than inheriting the failed provider's.
+        var fallback = config
+        fallback.meetingSummaryBackend = configured
+        return fallback
+    }
+
+    /// The stored config to retry a failed transcript cleanup on, or `nil` when
+    /// the user configured no fallback. Unknown or already-attempted backends
+    /// mean no fallback, the same way they do for summaries — see
+    /// `fallbackSummaryConfig(from:attempted:)`.
+    static func fallbackCleanupConfig(from config: AppConfig, attempted: AppConfig) -> AppConfig? {
+        let configured = config.fallbackPostProcessorBackend
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !configured.isEmpty,
+              TranscriptCleanupBackendOption.resolved(configured).backend == configured,
+              configured != attempted.postProcessorBackend else {
+            return nil
+        }
+        var fallback = config
+        fallback.postProcessorBackend = configured
+        return fallback
+    }
+
+    /// Runs one summary attempt with the stored config and, when it throws, once
+    /// more on the configured fallback. Returns the successful attempt's value, or
+    /// rethrows the first error when there is no fallback or the fallback fails too.
+    ///
+    /// One retry, never a chain — the same shape `MeetsController.cleanMeetingTranscript`
+    /// uses for cleanup. A caller that already tried an override config keeps that
+    /// responsibility: the first attempt here is always the stored config, and no
+    /// fallback is computed when the stored config names the backend that failed.
+    static func withSummaryFallback<T>(
+        config: AppConfig,
+        attempt: (AppConfig) async throws -> T
+    ) async throws -> T {
+        do {
+            return try await attempt(config)
+        } catch {
+            let primaryError = error
+            guard let fallbackConfig = fallbackSummaryConfig(from: config, attempted: config) else {
+                throw primaryError
+            }
+            do {
+                return try await attempt(fallbackConfig)
+            } catch {
+                throw primaryError
+            }
+        }
+    }
+}
+
 extension MeetsController {
     /// Snapshot of everything `AIProviderDirectory` needs that does not live in
     /// `AppConfig`.

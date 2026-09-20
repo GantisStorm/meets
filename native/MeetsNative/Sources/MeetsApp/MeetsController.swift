@@ -2941,57 +2941,123 @@ public final class MeetsController: NSObject {
             guard let self else { return }
             let plan = MeetingResummarizationPolicy.plan(for: meeting)
             let participantNames = await self.summaryParticipantNames(meetingID: meeting.id)
+            let runAttempt: (AppConfig) async throws -> Void = { attemptConfig in
+                try await self.generateAndPersistSummary(
+                    meeting: meeting,
+                    plan: plan,
+                    templateSnapshot: templateSnapshot,
+                    participantNames: participantNames,
+                    config: attemptConfig
+                )
+            }
             do {
-                let notes = try await MeetingSummaryClient.summarize(
-                    transcript: meeting.rawTranscript,
-                    meetingTitle: plan.promptTitle,
-                    config: effectiveSummaryConfig,
-                    template: templateSnapshot,
-                    existingNotes: self.notesContextForResummary(meeting),
-                    manualNotesToRetain: effectiveSummaryConfig.includeNotesInSummary ? meeting.manualNotes : nil,
-                    participantNames: participantNames
-                )
-                try self.dictationStore.updateMeetingSummary(
-                    id: meeting.id,
-                    title: plan.persistedTitle,
-                    formattedNotes: notes,
-                    selectedTemplateID: templateSnapshot.id,
-                    selectedTemplateName: templateSnapshot.name,
-                    selectedTemplateKind: templateSnapshot.kind,
-                    selectedTemplatePrompt: templateSnapshot.prompt
-                )
-                self.logLLMUsage(
-                    kind: "summary",
-                    backend: effectiveSummaryConfig.meetingSummaryBackend,
-                    model: effectiveSummaryConfig.meetingSummaryModel,
-                    status: "success",
-                    characters: meeting.rawTranscript.count,
-                    meetingID: meeting.id
-                )
-                await MainActor.run {
-                    self.syncAppState()
-                    self.historyWindowController?.reload()
-                    completion(.success(()))
-                }
+                try await runAttempt(effectiveSummaryConfig)
             } catch {
-                fputs("[meets] failed to generate or persist meeting summary: \(error)\n", stderr)
-                self.logLLMUsage(
-                    kind: "summary",
-                    backend: effectiveSummaryConfig.meetingSummaryBackend,
-                    model: effectiveSummaryConfig.meetingSummaryModel,
+                // One retry, on the provider the user configured for it. The
+                // primary failure is what the caller reports either way: the
+                // configured provider is the one that has to be fixed.
+                let primaryError = error
+                fputs("[meets] failed to generate or persist meeting summary: \(primaryError)\n", stderr)
+                self.logSummaryUsage(
+                    config: effectiveSummaryConfig,
                     status: "failed",
                     characters: meeting.rawTranscript.count,
                     meetingID: meeting.id
                 )
-                await MainActor.run {
-                    if error is MeetingSummaryError {
-                        completion(.failure(error))
-                    } else {
-                        completion(.failure(MeetingSummaryPersistenceError.failedToSaveSummary(underlying: error)))
+                var didRecover = false
+                if let fallbackConfig = AIFallbackPolicy.fallbackSummaryConfig(
+                    from: self.config,
+                    attempted: effectiveSummaryConfig
+                ) {
+                    do {
+                        try await runAttempt(fallbackConfig)
+                        didRecover = true
+                    } catch {
+                        fputs("[meets] fallback summary attempt failed: \(error)\n", stderr)
+                        self.logSummaryUsage(
+                            config: fallbackConfig,
+                            status: "failed",
+                            characters: meeting.rawTranscript.count,
+                            meetingID: meeting.id
+                        )
                     }
                 }
+                guard didRecover else {
+                    let reportedError: Error
+                    if primaryError is MeetingSummaryError {
+                        reportedError = primaryError
+                    } else {
+                        reportedError = MeetingSummaryPersistenceError.failedToSaveSummary(
+                            underlying: primaryError
+                        )
+                    }
+                    await MainActor.run {
+                        completion(.failure(reportedError))
+                    }
+                    return
+                }
+            }
+            await MainActor.run {
+                self.syncAppState()
+                self.historyWindowController?.reload()
+                completion(.success(()))
             }
         }
+    }
+
+    /// One summary attempt: generate the notes, persist them, and record the
+    /// usage line for a successful run. Throws so the driver can log the failed
+    /// attempt and decide whether to retry on the configured fallback provider.
+    private func generateAndPersistSummary(
+        meeting: MeetingRecord,
+        plan: MeetingResummarizationPlan,
+        templateSnapshot: MeetingTemplateSnapshot,
+        participantNames: [String],
+        config summaryConfig: AppConfig
+    ) async throws {
+        let notes = try await MeetingSummaryClient.summarize(
+            transcript: meeting.rawTranscript,
+            meetingTitle: plan.promptTitle,
+            config: summaryConfig,
+            template: templateSnapshot,
+            existingNotes: notesContextForResummary(meeting),
+            manualNotesToRetain: summaryConfig.includeNotesInSummary ? meeting.manualNotes : nil,
+            participantNames: participantNames
+        )
+        try dictationStore.updateMeetingSummary(
+            id: meeting.id,
+            title: plan.persistedTitle,
+            formattedNotes: notes,
+            selectedTemplateID: templateSnapshot.id,
+            selectedTemplateName: templateSnapshot.name,
+            selectedTemplateKind: templateSnapshot.kind,
+            selectedTemplatePrompt: templateSnapshot.prompt
+        )
+        logSummaryUsage(
+            config: summaryConfig,
+            status: "success",
+            characters: meeting.rawTranscript.count,
+            meetingID: meeting.id
+        )
+    }
+
+    /// Records one summary attempt in the usage log. The config is the
+    /// attempt's own, so a fallback attempt logs the fallback's backend and
+    /// model rather than the configured default's.
+    private func logSummaryUsage(
+        config summaryConfig: AppConfig,
+        status: String,
+        characters: Int,
+        meetingID: Int64
+    ) {
+        logLLMUsage(
+            kind: "summary",
+            backend: summaryConfig.meetingSummaryBackend,
+            model: summaryConfig.meetingSummaryModel,
+            status: status,
+            characters: characters,
+            meetingID: meetingID
+        )
     }
 
     func retranscribe(meeting: MeetingRecord, completion: @escaping (Result<Void, Error>) -> Void) {
@@ -3043,38 +3109,53 @@ public final class MeetsController: NSObject {
                 let templateSnapshot = self.meetingTemplateSnapshot(for: meeting)
                 let formattedNotes: String
                 do {
-                    formattedNotes = try await MeetingSummaryClient.summarize(
+                    formattedNotes = try await self.generateRetranscriptionSummary(
                         transcript: rawTranscript,
-                        meetingTitle: meeting.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Meeting" : meeting.title,
-                        config: self.config,
-                        template: templateSnapshot,
-                        existingNotes: self.notesContextForResummary(meeting),
-                        manualNotesToRetain: config.includeNotesInSummary ? meeting.manualNotes : nil
-                    )
-                    self.logLLMUsage(
-                        kind: "summary",
-                        backend: self.config.meetingSummaryBackend,
-                        model: self.config.meetingSummaryModel,
-                        status: "success",
-                        characters: rawTranscript.count,
-                        meetingID: meeting.id
+                        meeting: meeting,
+                        templateSnapshot: templateSnapshot,
+                        config: self.config
                     )
                 } catch {
-                    fputs("[meets] re-transcription summary generation failed: \(error)\n", stderr)
-                    self.logLLMUsage(
-                        kind: "summary",
-                        backend: self.config.meetingSummaryBackend,
-                        model: self.config.meetingSummaryModel,
+                    // One retry, on the provider the user configured for it,
+                    // before the notes fall back to the failure placeholder.
+                    let primaryError = error
+                    fputs("[meets] re-transcription summary generation failed: \(primaryError)\n", stderr)
+                    self.logSummaryUsage(
+                        config: self.config,
                         status: "failed",
                         characters: rawTranscript.count,
                         meetingID: meeting.id
                     )
-                    formattedNotes = MeetingSummaryClient.summaryFailureNotes(
+                    let failureNotes = MeetingSummaryClient.summaryFailureNotes(
                         transcript: rawTranscript,
                         meetingTitle: meeting.title,
-                        error: error,
+                        error: primaryError,
                         manualNotes: config.includeNotesInSummary ? meeting.manualNotes : nil
                     )
+                    if let fallbackConfig = AIFallbackPolicy.fallbackSummaryConfig(
+                        from: self.config,
+                        attempted: self.config
+                    ) {
+                        do {
+                            formattedNotes = try await self.generateRetranscriptionSummary(
+                                transcript: rawTranscript,
+                                meeting: meeting,
+                                templateSnapshot: templateSnapshot,
+                                config: fallbackConfig
+                            )
+                        } catch {
+                            fputs("[meets] re-transcription fallback summary generation failed: \(error)\n", stderr)
+                            self.logSummaryUsage(
+                                config: fallbackConfig,
+                                status: "failed",
+                                characters: rawTranscript.count,
+                                meetingID: meeting.id
+                            )
+                            formattedNotes = failureNotes
+                        }
+                    } else {
+                        formattedNotes = failureNotes
+                    }
                 }
 
                 do {
@@ -3114,6 +3195,33 @@ public final class MeetsController: NSObject {
                 completion(.failure(error))
             }
         }
+    }
+
+    /// One re-transcription summary attempt: generate the notes and record the
+    /// usage line for a successful run. Throws so the driver can log the failed
+    /// attempt and, when one is configured, run the same attempt again on the
+    /// fallback provider before giving up to the failure notes.
+    private func generateRetranscriptionSummary(
+        transcript: String,
+        meeting: MeetingRecord,
+        templateSnapshot: MeetingTemplateSnapshot,
+        config summaryConfig: AppConfig
+    ) async throws -> String {
+        let notes = try await MeetingSummaryClient.summarize(
+            transcript: transcript,
+            meetingTitle: meeting.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Meeting" : meeting.title,
+            config: summaryConfig,
+            template: templateSnapshot,
+            existingNotes: notesContextForResummary(meeting),
+            manualNotesToRetain: summaryConfig.includeNotesInSummary ? meeting.manualNotes : nil
+        )
+        logSummaryUsage(
+            config: summaryConfig,
+            status: "success",
+            characters: transcript.count,
+            meetingID: meeting.id
+        )
+        return notes
     }
 
     static func retranscriptionFailureStatus(
@@ -3697,6 +3805,10 @@ public final class MeetsController: NSObject {
     /// OpenRouter/Ollama/LM Studio/custom backend). Returns the cleaned text.
     /// `cleanupConfig` overrides the stored settings for this one request — an
     /// alternate provider's URL, key and model — without changing the default.
+    ///
+    /// A failed attempt is retried once on the configured fallback backend,
+    /// including when the failure is the on-device branch having no local model.
+    /// If that retry fails too, the first failure is what the caller sees.
     func cleanMeetingTranscript(id: Int64, cleanupConfig: AppConfig? = nil) async throws -> String {
         guard let meeting = meeting(id: id) else {
             throw TranscriptCleanupError.missingConfiguration("Meeting not found.")
@@ -3706,6 +3818,40 @@ public final class MeetsController: NSObject {
             throw TranscriptCleanupError.missingConfiguration("Meeting has no transcript to clean.")
         }
         let effectiveCleanupConfig = cleanupConfig ?? config
+        do {
+            return try await performTranscriptCleanup(
+                text: text,
+                config: effectiveCleanupConfig,
+                meetingID: id
+            )
+        } catch {
+            let primaryError = error
+            guard let fallbackConfig = AIFallbackPolicy.fallbackCleanupConfig(
+                from: config,
+                attempted: effectiveCleanupConfig
+            ) else {
+                throw primaryError
+            }
+            do {
+                return try await performTranscriptCleanup(
+                    text: text,
+                    config: fallbackConfig,
+                    meetingID: id
+                )
+            } catch {
+                fputs("[meets] fallback transcript cleanup failed: \(error)\n", stderr)
+                throw primaryError
+            }
+        }
+    }
+
+    /// One cleanup attempt against one config: the on-device branch, or the
+    /// hosted branch that reads URL, key and model from the config it is given.
+    private func performTranscriptCleanup(
+        text: String,
+        config effectiveCleanupConfig: AppConfig,
+        meetingID: Int64
+    ) async throws -> String {
         let backend = TranscriptCleanupBackendOption.resolved(effectiveCleanupConfig.postProcessorBackend)
         let systemPrompt = effectiveCleanupConfig.postProcessorSystemPrompt
 
@@ -3758,7 +3904,7 @@ public final class MeetsController: NSObject {
                 model: option.label,
                 status: "success",
                 characters: text.count,
-                meetingID: id
+                meetingID: meetingID
             )
             return result
         }
@@ -3784,7 +3930,7 @@ public final class MeetsController: NSObject {
                 model: model,
                 status: "success",
                 characters: text.count,
-                meetingID: id
+                meetingID: meetingID
             )
             return cleaned
         } catch {
@@ -3794,7 +3940,7 @@ public final class MeetsController: NSObject {
                 model: model,
                 status: "failed",
                 characters: text.count,
-                meetingID: id
+                meetingID: meetingID
             )
             throw error
         }
@@ -6000,15 +6146,17 @@ public final class MeetsController: NSObject {
 
         let regeneratedNotes: String
         do {
-            regeneratedNotes = try await MeetingSummaryClient.summarize(
-                transcript: combined,
-                meetingTitle: result.title,
-                config: config,
-                template: result.templateSnapshot,
-                existingNotes: nil,
-                manualNotesToRetain: includeNotes ? manualNotes : nil,
-                visualContext: mergedVisualContext
-            )
+            regeneratedNotes = try await AIFallbackPolicy.withSummaryFallback(config: config) { attemptConfig in
+                try await MeetingSummaryClient.summarize(
+                    transcript: combined,
+                    meetingTitle: result.title,
+                    config: attemptConfig,
+                    template: result.templateSnapshot,
+                    existingNotes: nil,
+                    manualNotesToRetain: includeNotes ? manualNotes : nil,
+                    visualContext: mergedVisualContext
+                )
+            }
         } catch {
             fputs("[meets] resume summary regeneration failed: \(error.localizedDescription)\n", stderr)
             regeneratedNotes = MeetingSummaryClient.summaryFailureNotes(

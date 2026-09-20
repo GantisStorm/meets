@@ -1795,6 +1795,23 @@ struct SettingsView: View {
             aiSummaryModelRows
             Divider().background(MeetsTheme.surfaceBorder)
             settingsRow(
+                "Fallback summary backend",
+                description: "Provider used when the default summary backend fails.",
+                controlWidth: meetingControlWidth
+            ) {
+                settingsMenu(
+                    selection: aiFallbackSummarySelectionLabel(state: state),
+                    options: aiFallbackSummaryPickerLabels(state: state)
+                ) { label in
+                    guard let option = aiSummaryOption(matchingPickerLabel: label) else {
+                        controller.updateConfig { $0.fallbackSummaryBackend = "" }
+                        return
+                    }
+                    controller.updateConfig { $0.fallbackSummaryBackend = option.backend }
+                }
+            }
+            Divider().background(MeetsTheme.surfaceBorder)
+            settingsRow(
                 "AI transcript cleanup",
                 description: "Automatically clean filler words and false starts from transcripts."
             ) {
@@ -1818,6 +1835,23 @@ struct SettingsView: View {
                     }
                 }
                 aiCleanupModelRows
+                Divider().background(MeetsTheme.surfaceBorder)
+                settingsRow(
+                    "Fallback cleanup source",
+                    description: "Source used when the default cleanup source fails.",
+                    controlWidth: meetingControlWidth
+                ) {
+                    settingsMenu(
+                        selection: aiFallbackCleanupSelectionLabel(state: state),
+                        options: aiFallbackCleanupPickerLabels(state: state)
+                    ) { label in
+                        guard let option = aiCleanupOption(matchingPickerLabel: label) else {
+                            controller.updateConfig { $0.fallbackPostProcessorBackend = "" }
+                            return
+                        }
+                        controller.updateConfig { $0.fallbackPostProcessorBackend = option.backend }
+                    }
+                }
                 Divider().background(MeetsTheme.surfaceBorder)
                 settingsRow(
                     "Cleanup prompt",
@@ -2111,6 +2145,68 @@ struct SettingsView: View {
         label.hasSuffix(Self.aiNotConnectedSuffix)
             ? String(label.dropLast(Self.aiNotConnectedSuffix.count))
             : label
+    }
+
+    /// "None" stands for the empty fallback value: nothing runs, the failure
+    /// surfaces.
+    private static let aiNoFallbackLabel = "None"
+
+    /// A fallback equal to the default never runs, so the default is left out
+    /// of the list. A stored pick that has since gone away stays listed, marked.
+    private func aiFallbackSummaryPickerLabels(state: AIConnectionState) -> [String] {
+        let defaultOption = appState.selectedMeetingSummaryBackend
+        let connected = AIProviderDirectory.connectedSummaryProviders(config: appState.config, state: state)
+            .map(\.label)
+            .filter { $0 != defaultOption.label }
+        var labels = [Self.aiNoFallbackLabel] + connected
+        let stored = appState.config.fallbackSummaryBackend
+        if !stored.isEmpty,
+           stored != defaultOption.backend,
+           let option = MeetingSummaryBackendOption.all.first(where: { $0.backend == stored }),
+           !labels.contains(option.label) {
+            labels.append(option.label + Self.aiNotConnectedSuffix)
+        }
+        return labels
+    }
+
+    private func aiFallbackSummarySelectionLabel(state: AIConnectionState) -> String {
+        let defaultOption = appState.selectedMeetingSummaryBackend
+        let stored = appState.config.fallbackSummaryBackend
+        guard !stored.isEmpty,
+              stored != defaultOption.backend,
+              let option = MeetingSummaryBackendOption.all.first(where: { $0.backend == stored })
+        else { return Self.aiNoFallbackLabel }
+        return aiFallbackSummaryPickerLabels(state: state).contains(option.label)
+            ? option.label
+            : option.label + Self.aiNotConnectedSuffix
+    }
+
+    private func aiFallbackCleanupPickerLabels(state: AIConnectionState) -> [String] {
+        let defaultOption = selectedCleanupBackend
+        let connected = AIProviderDirectory.connectedCleanupBackends(config: appState.config, state: state)
+            .map(\.label)
+            .filter { $0 != defaultOption.label }
+        var labels = [Self.aiNoFallbackLabel] + connected
+        let stored = appState.config.fallbackPostProcessorBackend
+        if !stored.isEmpty,
+           stored != defaultOption.backend,
+           let option = TranscriptCleanupBackendOption.all.first(where: { $0.backend == stored }),
+           !labels.contains(option.label) {
+            labels.append(option.label + Self.aiNotConnectedSuffix)
+        }
+        return labels
+    }
+
+    private func aiFallbackCleanupSelectionLabel(state: AIConnectionState) -> String {
+        let defaultOption = selectedCleanupBackend
+        let stored = appState.config.fallbackPostProcessorBackend
+        guard !stored.isEmpty,
+              stored != defaultOption.backend,
+              let option = TranscriptCleanupBackendOption.all.first(where: { $0.backend == stored })
+        else { return Self.aiNoFallbackLabel }
+        return aiFallbackCleanupPickerLabels(state: state).contains(option.label)
+            ? option.label
+            : option.label + Self.aiNotConnectedSuffix
     }
 
     private var appearanceSettingsPane: some View {

@@ -1591,6 +1591,8 @@ struct AppConfig: Codable {
     var meetingTranscriptionBackend: String = BackendOption.whisper.backend
     var meetingTranscriptionModel: String = BackendOption.whisper.model
     var meetingSummaryBackend: String = MeetingSummaryBackendOption.chatGPT.backend
+    /// Second provider to retry a failed summary on. Empty means no fallback.
+    var fallbackSummaryBackend: String = ""
     var defaultMeetingTemplateID: String = MeetingTemplates.autoID
     var autoRecordMeetings: Bool = false
     var upcomingMeetingsDayCount: Int = UpcomingMeetingsWindow.defaultDayCount
@@ -1664,6 +1666,9 @@ struct AppConfig: Codable {
     var calendarHideCancelled: Bool = true
     var enablePostProcessor: Bool = false
     var postProcessorBackend: String = TranscriptCleanupBackendOption.local.backend
+    /// Second backend to retry a failed transcript cleanup on. Empty means no
+    /// fallback.
+    var fallbackPostProcessorBackend: String = ""
     var postProcessorGemmaModel: String = Gemma4LiteRTModel.e2b.repoID
     var activePostProcessorId: String = PostProcessorOption.defaultOption.id
     var postProcessorChatGPTModel: String = ""
@@ -1719,6 +1724,7 @@ struct AppConfig: Codable {
         case meetingTranscriptionBackend = "meeting_transcription_backend"
         case meetingTranscriptionModel = "meeting_transcription_model"
         case meetingSummaryBackend = "meeting_summary_backend"
+        case fallbackSummaryBackend = "fallback_summary_backend"
         case defaultMeetingTemplateID = "default_meeting_template_id"
         case autoRecordMeetings = "auto_record_meetings"
         case upcomingMeetingsDayCount = "upcoming_meetings_day_count"
@@ -1783,6 +1789,7 @@ struct AppConfig: Codable {
         case calendarHideCancelled = "calendar_hide_cancelled"
         case enablePostProcessor = "enable_post_processor"
         case postProcessorBackend = "post_processor_backend"
+        case fallbackPostProcessorBackend = "fallback_post_processor_backend"
         case postProcessorGemmaModel = "post_processor_gemma_model"
         case activePostProcessorId = "active_post_processor_id"
         case postProcessorChatGPTModel = "post_processor_chatgpt_model"
@@ -1843,6 +1850,7 @@ struct AppConfig: Codable {
             meetingTranscriptionBackend = migrated.backend; meetingTranscriptionModel = migrated.model
         }
         meetingSummaryBackend = (try? c.decode(String.self, forKey: .meetingSummaryBackend)) ?? defaults.meetingSummaryBackend
+        fallbackSummaryBackend = (try? c.decode(String.self, forKey: .fallbackSummaryBackend)) ?? defaults.fallbackSummaryBackend
         defaultMeetingTemplateID = (try? c.decode(String.self, forKey: .defaultMeetingTemplateID)) ?? defaults.defaultMeetingTemplateID
         autoRecordMeetings = (try? c.decode(Bool.self, forKey: .autoRecordMeetings)) ?? defaults.autoRecordMeetings
         if c.contains(.upcomingMeetingsDayCount) {
@@ -1958,6 +1966,7 @@ struct AppConfig: Codable {
         calendarHideCancelled = (try? c.decode(Bool.self, forKey: .calendarHideCancelled)) ?? defaults.calendarHideCancelled
         enablePostProcessor = (try? c.decode(Bool.self, forKey: .enablePostProcessor)) ?? defaults.enablePostProcessor
         postProcessorBackend = TranscriptCleanupBackendOption.resolved(try? c.decode(String.self, forKey: .postProcessorBackend)).backend ?? defaults.postProcessorBackend
+        fallbackPostProcessorBackend = (try? c.decode(String.self, forKey: .fallbackPostProcessorBackend)) ?? defaults.fallbackPostProcessorBackend
         postProcessorGemmaModel = Gemma4LiteRTModel
             .resolved(try? c.decode(String.self, forKey: .postProcessorGemmaModel))
             .repoID

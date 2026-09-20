@@ -176,3 +176,202 @@ struct AIProviderDirectoryTests {
         }
     }
 }
+
+/// The fallback policy decides whether a failed attempt is retried, and on
+/// what. These cases pin the "unknown or equal means no fallback" rule, which
+/// is the one that keeps a typo in the settings from silently rerunning the
+/// provider that just failed.
+@Suite("AI fallback policy")
+struct AIFallbackPolicyTests {
+
+    /// `AppConfig` is not `Equatable`, so "no fallback" is read off the backend
+    /// the policy would have switched. The policy always sets that field on a
+    /// returned config, so a `nil` backend means no fallback.
+    private func summaryFallbackBackend(_ stored: AppConfig, _ attempted: AppConfig) -> String? {
+        AIFallbackPolicy.fallbackSummaryConfig(from: stored, attempted: attempted)?.meetingSummaryBackend
+    }
+
+    private func cleanupFallbackBackend(_ stored: AppConfig, _ attempted: AppConfig) -> String? {
+        AIFallbackPolicy.fallbackCleanupConfig(from: stored, attempted: attempted)?.postProcessorBackend
+    }
+
+    @Test("nothing configured, or whitespace, is no fallback")
+    func blankFallbackIsNoFallback() {
+        let config = AppConfig()
+        #expect(summaryFallbackBackend(config, config) == nil)
+        #expect(cleanupFallbackBackend(config, config) == nil)
+
+        var spaced = config
+        spaced.fallbackSummaryBackend = "   "
+        spaced.fallbackPostProcessorBackend = "\n"
+        #expect(summaryFallbackBackend(spaced, spaced) == nil)
+        #expect(cleanupFallbackBackend(spaced, spaced) == nil)
+    }
+
+    @Test("an unknown value means no fallback rather than a silent default")
+    func unknownFallbackIsNoFallback() {
+        var config = AppConfig()
+        config.meetingSummaryBackend = MeetingSummaryBackendOption.openAI.backend
+        config.postProcessorBackend = TranscriptCleanupBackendOption.local.backend
+        config.fallbackSummaryBackend = "nope"
+        config.fallbackPostProcessorBackend = "nope"
+
+        #expect(summaryFallbackBackend(config, config) == nil)
+        #expect(cleanupFallbackBackend(config, config) == nil)
+
+        // Both resolvers answer an unknown value with their default, so the
+        // name of that default stays a valid choice when it is written out.
+        config.fallbackSummaryBackend = MeetingSummaryBackendOption.chatGPT.backend
+        #expect(summaryFallbackBackend(config, config) == MeetingSummaryBackendOption.chatGPT.backend)
+        #expect(cleanupFallbackBackend(config, config) == nil)
+    }
+
+    @Test("a fallback equal to the backend that just failed is no fallback")
+    func equalFallbackIsNoFallback() {
+        var config = AppConfig()
+        config.meetingSummaryBackend = MeetingSummaryBackendOption.openAI.backend
+        config.fallbackSummaryBackend = MeetingSummaryBackendOption.openAI.backend
+        config.postProcessorBackend = TranscriptCleanupBackendOption.local.backend
+        config.fallbackPostProcessorBackend = TranscriptCleanupBackendOption.local.backend
+
+        #expect(summaryFallbackBackend(config, config) == nil)
+        #expect(cleanupFallbackBackend(config, config) == nil)
+
+        config.fallbackPostProcessorBackend = "  \(TranscriptCleanupBackendOption.local.backend)  "
+        #expect(cleanupFallbackBackend(config, config) == nil)
+    }
+
+    @Test("a configured summary fallback switches only the backend")
+    func summaryFallbackSwitchesOnlyTheBackend() {
+        var stored = AppConfig()
+        stored.meetingSummaryBackend = MeetingSummaryBackendOption.openAI.backend
+        stored.openAIModel = "gpt-5.5"
+        stored.chatGPTModel = "gpt-5.5-pro"
+        stored.defaultMeetingTemplateID = "custom-template"
+        stored.fallbackSummaryBackend = "  \(MeetingSummaryBackendOption.chatGPT.backend)  "
+
+        // The attempted snapshot carries the failed provider's per-request
+        // model; none of it belongs to the fallback.
+        var attempted = stored
+        attempted.chatGPTModel = "snapshot-model"
+
+        let fallback = AIFallbackPolicy.fallbackSummaryConfig(from: stored, attempted: attempted)
+        #expect(fallback?.meetingSummaryBackend == MeetingSummaryBackendOption.chatGPT.backend)
+        #expect(fallback?.chatGPTModel == "gpt-5.5-pro")
+        #expect(fallback?.openAIModel == "gpt-5.5")
+        #expect(fallback?.defaultMeetingTemplateID == "custom-template")
+    }
+
+    @Test("a configured cleanup fallback switches only the backend")
+    func cleanupFallbackSwitchesOnlyTheBackend() {
+        var stored = AppConfig()
+        stored.postProcessorBackend = TranscriptCleanupBackendOption.local.backend
+        stored.postProcessorOpenAIModel = "gpt-5.5"
+        stored.postProcessorSystemPrompt = "Tidy the transcript."
+        stored.activePostProcessorId = "local-s1-mini"
+        stored.fallbackPostProcessorBackend = TranscriptCleanupBackendOption.hosted(.openAI).backend
+
+        var attempted = stored
+        attempted.postProcessorOpenAIModel = "snapshot-model"
+
+        let fallback = AIFallbackPolicy.fallbackCleanupConfig(from: stored, attempted: attempted)
+        #expect(fallback?.postProcessorBackend == TranscriptCleanupBackendOption.hosted(.openAI).backend)
+        #expect(fallback?.postProcessorOpenAIModel == "gpt-5.5")
+        #expect(fallback?.postProcessorSystemPrompt == "Tidy the transcript.")
+        #expect(fallback?.activePostProcessorId == "local-s1-mini")
+    }
+
+    /// Two distinct failures, so a rethrown first error cannot be mistaken for
+    /// the fallback's own failure.
+    private enum SummaryAttemptFailure: Error, Equatable {
+        case primary
+        case fallback
+    }
+
+    @Test("a configured fallback is attempted once and its value wins")
+    func summaryFallbackReturnsTheFallbackValue() async throws {
+        var stored = AppConfig()
+        stored.meetingSummaryBackend = MeetingSummaryBackendOption.openAI.backend
+        stored.fallbackSummaryBackend = MeetingSummaryBackendOption.chatGPT.backend
+
+        var backends: [String] = []
+        let notes = try await AIFallbackPolicy.withSummaryFallback(config: stored) { attemptConfig in
+            backends.append(attemptConfig.meetingSummaryBackend)
+            guard attemptConfig.meetingSummaryBackend == MeetingSummaryBackendOption.chatGPT.backend else {
+                throw SummaryAttemptFailure.primary
+            }
+            return "fallback notes"
+        }
+
+        #expect(notes == "fallback notes")
+        #expect(backends == [
+            MeetingSummaryBackendOption.openAI.backend,
+            MeetingSummaryBackendOption.chatGPT.backend
+        ])
+    }
+
+    @Test("no configured fallback rethrows the first error without a second attempt")
+    func summaryWithoutFallbackRethrowsTheFirstError() async {
+        var stored = AppConfig()
+        stored.meetingSummaryBackend = MeetingSummaryBackendOption.openAI.backend
+
+        var attempts = 0
+        var observed: (any Error)?
+        do {
+            _ = try await AIFallbackPolicy.withSummaryFallback(config: stored) { (_: AppConfig) -> String in
+                attempts += 1
+                throw SummaryAttemptFailure.primary
+            }
+        } catch {
+            observed = error
+        }
+
+        #expect(observed as? SummaryAttemptFailure == .primary)
+        #expect(attempts == 1)
+    }
+
+    @Test("a fallback that fails too rethrows the first error, not the fallback's")
+    func summaryFallbackFailureRethrowsTheFirstError() async {
+        var stored = AppConfig()
+        stored.meetingSummaryBackend = MeetingSummaryBackendOption.openAI.backend
+        stored.fallbackSummaryBackend = MeetingSummaryBackendOption.chatGPT.backend
+
+        var backends: [String] = []
+        var observed: (any Error)?
+        do {
+            _ = try await AIFallbackPolicy.withSummaryFallback(config: stored) { attemptConfig -> String in
+                backends.append(attemptConfig.meetingSummaryBackend)
+                throw attemptConfig.meetingSummaryBackend == MeetingSummaryBackendOption.chatGPT.backend
+                    ? SummaryAttemptFailure.fallback
+                    : SummaryAttemptFailure.primary
+            }
+        } catch {
+            observed = error
+        }
+
+        #expect(observed as? SummaryAttemptFailure == .primary)
+        #expect(backends == [
+            MeetingSummaryBackendOption.openAI.backend,
+            MeetingSummaryBackendOption.chatGPT.backend
+        ])
+    }
+
+    @Test("the first attempt runs on the stored config, not the fallback's")
+    func firstSummaryAttemptUsesTheStoredConfig() async throws {
+        var stored = AppConfig()
+        stored.meetingSummaryBackend = MeetingSummaryBackendOption.chatGPT.backend
+        stored.chatGPTModel = "stored-chatgpt-model"
+        stored.fallbackSummaryBackend = MeetingSummaryBackendOption.openAI.backend
+
+        var handed: AppConfig?
+        let notes = try await AIFallbackPolicy.withSummaryFallback(config: stored) { attemptConfig in
+            handed = attemptConfig
+            return "notes"
+        }
+
+        #expect(notes == "notes")
+        #expect(handed?.meetingSummaryBackend == MeetingSummaryBackendOption.chatGPT.backend)
+        #expect(handed?.chatGPTModel == "stored-chatgpt-model")
+        #expect(handed?.fallbackSummaryBackend == MeetingSummaryBackendOption.openAI.backend)
+    }
+}

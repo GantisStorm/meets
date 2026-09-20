@@ -257,14 +257,16 @@ enum AudioFileImportController {
         let templateSnapshot = context.templateSnapshot
         let formattedNotes: String
         do {
-            formattedNotes = try await MeetingSummaryClient.summarize(
-                transcript: diarizedTranscript,
-                meetingTitle: generatedTitle,
-                config: config,
-                template: templateSnapshot,
-                existingNotes: nil,
-                manualNotesToRetain: ""
-            )
+            formattedNotes = try await AIFallbackPolicy.withSummaryFallback(config: config) { attemptConfig in
+                try await MeetingSummaryClient.summarize(
+                    transcript: diarizedTranscript,
+                    meetingTitle: generatedTitle,
+                    config: attemptConfig,
+                    template: templateSnapshot,
+                    existingNotes: nil,
+                    manualNotesToRetain: ""
+                )
+            }
         } catch {
             fputs("[import] summary generation failed: \(error)\n", stderr)
             formattedNotes = MeetingSummaryClient.summaryFailureNotes(

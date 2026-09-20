@@ -925,17 +925,19 @@ final class MeetingSession {
         let participantNames = await participantNamesProvider?() ?? []
         let formattedNotes: String
         do {
-            formattedNotes = try await MeetingSummaryClient.summarize(
-                transcript: rawTranscript,
-                meetingTitle: generatedTitle,
-                config: config,
-                template: templateSnapshot,
-                existingNotes: nil,
-                manualNotesToRetain: manualNotesToRetain,
-                participantNames: participantNames,
-                visualContext: visualContext.isEmpty ? nil : visualContext,
-                previousMeetingNotes: previousMeetingNotes
-            )
+            formattedNotes = try await AIFallbackPolicy.withSummaryFallback(config: config) { attemptConfig in
+                try await MeetingSummaryClient.summarize(
+                    transcript: rawTranscript,
+                    meetingTitle: generatedTitle,
+                    config: attemptConfig,
+                    template: templateSnapshot,
+                    existingNotes: nil,
+                    manualNotesToRetain: manualNotesToRetain,
+                    participantNames: participantNames,
+                    visualContext: visualContext.isEmpty ? nil : visualContext,
+                    previousMeetingNotes: previousMeetingNotes
+                )
+            }
         } catch {
             fputs("[meeting] summary generation failed: \(error.localizedDescription)\n", stderr)
             formattedNotes = MeetingSummaryClient.summaryFailureNotes(
