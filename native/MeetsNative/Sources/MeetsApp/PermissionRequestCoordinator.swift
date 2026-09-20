@@ -1,6 +1,8 @@
 import AppKit
 import AVFoundation
 import Foundation
+import IOKit.hidsystem
+import ScreenCaptureKit
 
 /// The privacy permissions Meets requests through the system APIs, plus how
 /// each one reads back from a captured `InteractionPermissionSnapshot`.
@@ -194,12 +196,78 @@ struct SystemPermissionRequester: SystemPermissionRequesting {
         return AXIsProcessTrustedWithOptions(options)
     }
 
+    /// Input Monitoring has no single API that both prompts and registers the
+    /// app in the TCC list: `CGRequestListenEventAccess` opens the pane but can
+    /// leave Meets absent from it, so the user has to add it with "+". Run
+    /// every documented trigger in order, then report what the preflight says.
     func requestInputMonitoring() -> Bool {
-        CGRequestListenEventAccess()
+        let hidRequested = IOHIDRequestAccess(kIOHIDRequestTypeListenEvent)
+        Self.log("input monitoring IOHIDRequestAccess: \(hidRequested)")
+
+        let requested = CGRequestListenEventAccess()
+        Self.log("input monitoring CGRequestListenEventAccess: \(requested)")
+
+        if !CGPreflightListenEventAccess() {
+            Self.log("input monitoring preflight false; creating listen-only tap")
+            let mask = CGEventMask(1 << CGEventType.flagsChanged.rawValue)
+            let tap = CGEvent.tapCreate(
+                tap: .cgSessionEventTap,
+                place: .headInsertEventTap,
+                options: .listenOnly,
+                eventsOfInterest: mask,
+                callback: { _, _, event, _ in Unmanaged.passUnretained(event) },
+                userInfo: nil
+            )
+            if let tap {
+                CGEvent.tapEnable(tap: tap, enable: false)
+                CFMachPortInvalidate(tap)
+                Self.log("input monitoring listen-only tap created (registration trigger)")
+            } else {
+                Self.log("input monitoring listen-only tap creation returned nil")
+            }
+        }
+
+        let granted = CGPreflightListenEventAccess()
+        Self.log("input monitoring preflight: \(granted)")
+        return granted
     }
 
+    /// Same shape as Input Monitoring: macOS 15+ does not reliably list an app
+    /// under Screen Recording until a capture API is touched, so querying
+    /// shareable content registers it. Fire-and-forget — the coordinator polls
+    /// the snapshot, so blocking here would only delay the pane.
     func requestScreenRecording() -> Bool {
-        CGRequestScreenCaptureAccess()
+        let requested = CGRequestScreenCaptureAccess()
+        Self.log("screen recording CGRequestScreenCaptureAccess: \(requested)")
+
+        if !CGPreflightScreenCaptureAccess() {
+            if #available(macOS 12.3, *) {
+                Self.log("screen recording preflight false; starting shareable-content probe")
+                Task {
+                    do {
+                        _ = try await SCShareableContent.excludingDesktopWindows(
+                            false,
+                            onScreenWindowsOnly: true
+                        )
+                        Self.log("screen recording shareable-content probe finished")
+                    } catch {
+                        Self.log("screen recording shareable-content probe failed: \(error)")
+                    }
+                }
+            } else {
+                Self.log("screen recording shareable-content probe skipped (macOS < 12.3)")
+            }
+        }
+
+        let granted = CGPreflightScreenCaptureAccess()
+        Self.log("screen recording preflight: \(granted)")
+        return granted
+    }
+
+    /// One stderr line per registration step, matching the app's `[tag] …`
+    /// convention, so the next diagnosis of this pane has data.
+    private static func log(_ message: String) {
+        fputs("[permissions] \(message)\n", stderr)
     }
 
     var isMicrophoneDenied: Bool {
