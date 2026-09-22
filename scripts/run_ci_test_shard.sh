@@ -93,6 +93,7 @@ case "${shard}" in
       MeetingProcessingStageTests
       MeetingRecordingWriterTests
       MeetingResumePolicyTests
+      MeetingScreenContextCollectorTests
       MeetingStreamingPartialSessionTests
       MeetingFollowUpPolicyTests
       TranscriptLineAlignerTests

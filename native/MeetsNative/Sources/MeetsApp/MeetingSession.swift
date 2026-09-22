@@ -448,9 +448,21 @@ final class MeetingSession {
         } else {
             fputs("[meeting] VAD not available, using max-duration fallback only\n", stderr)
         }
-        if config.enableScreenContext && CGPreflightScreenCaptureAccess() {
-            // OCR screenshots are safe when using CoreAudio tap (no SCStream conflict)
-            await screenContextCollector.startPeriodicCapture(useOCR: config.useCoreAudioTap)
+        if config.enableScreenContext {
+            // Each half of meeting context has its own permission: the app text
+            // needs Accessibility, the screenshot and its OCR need Screen
+            // Recording (and the CoreAudio tap, whose capture an SCStream would
+            // otherwise fight). Requiring Screen Recording for both meant an
+            // Accessibility-only Mac captured nothing at all.
+            let accessibilityGranted = AXIsProcessTrusted()
+            let screenRecordingGranted = CGPreflightScreenCaptureAccess()
+            let useOCR = config.useCoreAudioTap && screenRecordingGranted
+            if accessibilityGranted || useOCR {
+                fputs("[meeting] screen context starting accessibility=\(accessibilityGranted) ocr=\(useOCR)\n", stderr)
+                await screenContextCollector.startPeriodicCapture(useOCR: useOCR)
+            } else {
+                fputs("[meeting] screen context is on but neither Accessibility nor Screen Recording is granted; capturing nothing\n", stderr)
+            }
         }
         setupStreamingPartialsIfAvailable()
     }

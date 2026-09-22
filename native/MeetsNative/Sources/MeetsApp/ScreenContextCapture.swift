@@ -437,7 +437,9 @@ enum ScreenContextCapture {
 // disrupting the active SCStream system audio capture during meetings.
 
 actor MeetingScreenContextCollector {
-    private struct Snapshot {
+    /// One captured moment: the text the summary may read, and what it cost.
+    /// Internal so the drain's budget rules can be tested without a meeting.
+    struct ContextEntry: Equatable {
         let timestamp: Date
         let appName: String
         let contextText: String
@@ -445,13 +447,28 @@ actor MeetingScreenContextCollector {
         let appContextCharCount: Int
     }
 
+    /// What one drain produced: the prompt's text, and how much of the meeting
+    /// it could carry.
+    struct DrainedContext: Equatable {
+        let text: String
+        let keptCount: Int
+        let capturedCount: Int
+    }
+
+    /// The drain's character budget. It is filled from the newest snapshot
+    /// backwards, so a meeting that ran long keeps its last minutes rather than
+    /// its first few.
+    static let drainCharacterBudget = 5_000
+
+    private static let blockSeparator = "\n\n"
+
     private static let timeFormatter: DateFormatter = {
         let f = DateFormatter()
         f.dateFormat = "HH:mm:ss"
         return f
     }()
 
-    private var snapshots: [Snapshot] = []
+    private var entries: [ContextEntry] = []
     private var captureTask: Task<Void, Never>?
     private var isPaused = false
 
@@ -467,6 +484,7 @@ actor MeetingScreenContextCollector {
     func startPeriodicCapture(interval: TimeInterval = 60, useOCR: Bool = false) {
         captureTask?.cancel()
         isPaused = false
+        entries = []
         captureTask = Task {
             while !Task.isCancelled {
                 if isPaused {
@@ -497,7 +515,7 @@ actor MeetingScreenContextCollector {
                 let contextText = sections.joined(separator: "\n\n")
                 fputs("[meeting] context capture app=\(appName) axChars=\(meaningfulAppContext.count) ocrChars=\(ocrText.count) appended=\(!contextText.isEmpty)\n", stderr)
                 if !contextText.isEmpty {
-                    snapshots.append(Snapshot(
+                    entries.append(ContextEntry(
                         timestamp: screenContext?.capturedAt ?? timestamp,
                         appName: appName,
                         contextText: contextText,
@@ -520,25 +538,55 @@ actor MeetingScreenContextCollector {
         captureTask?.cancel()
         captureTask = nil
         isPaused = false
-        guard !snapshots.isEmpty else { return "" }
+        let captured = entries
+        entries = []
+        guard !captured.isEmpty else { return "" }
 
-        var deduped: [Snapshot] = []
-        for snapshot in snapshots {
-            if let last = deduped.last, last.contextText == snapshot.contextText {
-                continue
-            }
-            deduped.append(snapshot)
+        let drained = Self.composeContext(from: captured)
+        let totalOCRChars = captured.reduce(0) { $0 + $1.ocrCharCount }
+        let totalAppContextChars = captured.reduce(0) { $0 + $1.appContextCharCount }
+        fputs("[meeting] context drain snapshots=\(drained.capturedCount) kept=\(drained.keptCount) axChars=\(totalAppContextChars) ocrChars=\(totalOCRChars) chars=\(drained.text.count)\n", stderr)
+        return drained.text
+    }
+
+    /// One entry as the prompt reads it.
+    static func formattedBlock(_ entry: ContextEntry) -> String {
+        "[\(timeFormatter.string(from: entry.timestamp))] \(entry.appName):\n\(entry.contextText)"
+    }
+
+    /// The drain: each distinct snapshot once, the newest ones while the budget
+    /// lasts, rejoined in the order they happened.
+    ///
+    /// Repeats collapse to their last sighting — a document looked at, left, and
+    /// returned to is one thing on screen, and its newest timestamp is the one
+    /// that says when the meeting was actually there — and a block is never cut
+    /// in half: half a block has lost the time and app the prompt reads it by,
+    /// so the oldest block that no longer fits whole is dropped instead.
+    static func composeContext(
+        from captured: [ContextEntry],
+        budget: Int = drainCharacterBudget
+    ) -> DrainedContext {
+        var seen = Set<String>()
+        var distinct: [ContextEntry] = []
+        for entry in captured.reversed() where seen.insert(entry.contextText).inserted {
+            distinct.append(entry)
         }
-        snapshots = []
+        distinct.reverse()
 
-        let totalOCRChars = deduped.reduce(0) { $0 + $1.ocrCharCount }
-        let totalAppContextChars = deduped.reduce(0) { $0 + $1.appContextCharCount }
-        fputs("[meeting] context drain snapshots=\(deduped.count) axChars=\(totalAppContextChars) ocrChars=\(totalOCRChars)\n", stderr)
+        var kept: [ContextEntry] = []
+        var used = 0
+        for entry in distinct.reversed() {
+            let cost = formattedBlock(entry).count + (kept.isEmpty ? 0 : blockSeparator.count)
+            if used + cost > budget, !kept.isEmpty { break }
+            kept.append(entry)
+            used += cost
+        }
+        kept.reverse()
 
-        let result = deduped.map { entry in
-            "[\(Self.timeFormatter.string(from: entry.timestamp))] \(entry.appName):\n\(entry.contextText)"
-        }.joined(separator: "\n\n")
-
-        return String(result.prefix(5000))
+        return DrainedContext(
+            text: kept.map(formattedBlock).joined(separator: blockSeparator),
+            keptCount: kept.count,
+            capturedCount: captured.count
+        )
     }
 }
