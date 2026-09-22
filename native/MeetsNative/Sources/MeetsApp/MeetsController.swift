@@ -436,7 +436,6 @@ public final class MeetsController: NSObject {
         MeetsController.current = self
         do {
             try dictationStore.migrateIfNeeded()
-            try dictationStore.markRunningComputerUseTracesInterrupted()
         } catch {
             fputs("[meets] startup error: \(error)\n", stderr)
         }
