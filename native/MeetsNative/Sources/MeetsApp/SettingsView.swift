@@ -2860,7 +2860,8 @@ struct SettingsView: View {
                             systemAudioGranted = await CoreAudioSystemRecorder.requestSystemAudioAccess()
                         }
                     },
-                    pane: "Privacy_ScreenCapture"
+                    pane: "Privacy_ScreenCapture",
+                    resets: "ScreenCapture"
                 )
             }
             Divider().background(MeetsTheme.surfaceBorder)
@@ -2878,7 +2879,8 @@ struct SettingsView: View {
                         calendarGranted = appState.calendarAuthorization == .fullAccess
                     }
                 },
-                pane: "Privacy_Calendars"
+                pane: "Privacy_Calendars",
+                resets: "Calendar"
             )
         }
     }
@@ -2890,7 +2892,9 @@ struct SettingsView: View {
             kind.title,
             state: controller.permissionRequests.presentation(for: kind),
             action: { controller.permissionRequests.request(kind) },
-            pane: kind.systemSettingsPane
+            pane: kind.systemSettingsPane,
+            resets: kind.tccService,
+            resetKind: kind
         )
     }
 
@@ -2898,7 +2902,9 @@ struct SettingsView: View {
         _ name: String,
         state: PermissionRowPresentation,
         action: @escaping () -> Void,
-        pane: String
+        pane: String,
+        resets: String,
+        resetKind: InteractionPermissionKind? = nil
     ) -> some View {
         VStack(alignment: .leading, spacing: MeetsTheme.spacing4) {
             HStack {
@@ -2922,6 +2928,17 @@ struct SettingsView: View {
                 }
                 .buttonStyle(.plain)
                 .help("Open in System Settings")
+                Button {
+                    removePermission(resets, kind: resetKind)
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(MeetsTheme.textTertiary)
+                        .frame(width: 28, height: 28)
+                }
+                .buttonStyle(.plain)
+                .help("Remove \(name) access for Meets. You will be asked to grant it again.")
+                .accessibilityLabel("Remove \(name) access")
             }
             .frame(minHeight: 32)
 
@@ -2931,6 +2948,25 @@ struct SettingsView: View {
                     .foregroundStyle(MeetsTheme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
+        }
+    }
+
+    /// Withdraws one permission and re-reads every row that shows it, so the
+    /// row goes back to offering the grant instead of claiming a level of
+    /// access Meets no longer has. App-side state that only made sense while
+    /// the grant existed — a pending request, a pane hint, meeting context —
+    /// is cleared with it.
+    private func removePermission(_ service: String, kind: InteractionPermissionKind?) {
+        if let kind {
+            appState.pendingPermissionRequests.remove(kind)
+            appState.permissionHints[kind] = nil
+        }
+        Task {
+            guard await SystemPermissionRemoval.remove(service: service) else { return }
+            controller.refreshInteractionPermissionSnapshot()
+            refreshPermissionStatuses(for: .permissionRequested)
+            await controller.refreshCalendarAccess()
+            refreshSystemAudioPermissionIfNeeded()
         }
     }
 

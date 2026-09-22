@@ -32,6 +32,17 @@ enum InteractionPermissionKind: String, CaseIterable, Identifiable, Sendable {
         }
     }
 
+    /// The service name `tccutil` knows this permission by, so a row can
+    /// withdraw exactly this grant instead of the whole database entry.
+    var tccService: String {
+        switch self {
+        case .microphone: return "Microphone"
+        case .accessibility: return "Accessibility"
+        case .inputMonitoring: return "ListenEvent"
+        case .screenRecording: return "ScreenCapture"
+        }
+    }
+
     func isGranted(in snapshot: InteractionPermissionSnapshot) -> Bool {
         switch self {
         case .microphone: return snapshot.microphone
@@ -279,5 +290,52 @@ struct SystemPermissionRequester: SystemPermissionRequesting {
             return
         }
         NSWorkspace.shared.open(url)
+    }
+}
+
+/// Withdraws Meets's approval for one permission.
+///
+/// Nothing in the frameworks that report a grant can forget it, so removal
+/// runs `tccutil reset` for this bundle alone — the same command the dev
+/// scripts run. It is deliberately not part of `SystemPermissionRequesting`:
+/// asking and forgetting are different verbs, and only Settings offers the
+/// second one.
+enum SystemPermissionRemoval {
+    /// True when the privacy database dropped the service for this bundle.
+    @discardableResult
+    static func remove(service: String) async -> Bool {
+        guard let bundleIdentifier = Bundle.main.bundleIdentifier, !bundleIdentifier.isEmpty else {
+            Self.log("removal skipped for \(service): no bundle identifier")
+            return false
+        }
+
+        return await Task.detached(priority: .userInitiated) {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/tccutil")
+            process.arguments = ["reset", service, bundleIdentifier]
+            let output = Pipe()
+            process.standardOutput = output
+            process.standardError = output
+
+            do {
+                try process.run()
+            } catch {
+                Self.log("removal of \(service) could not start tccutil: \(error)")
+                return false
+            }
+
+            // Both handles are closed on exit, so this cannot outlive the reset.
+            let data = output.fileHandleForReading.readDataToEndOfFile()
+            process.waitUntilExit()
+            let reply = String(data: data, encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            Self.log("removal of \(service): exit \(process.terminationStatus) \(reply)")
+            return process.terminationStatus == 0
+        }.value
+    }
+
+    /// One stderr line per removal, matching the app's `[tag] …` convention.
+    private static func log(_ message: String) {
+        fputs("[permissions] \(message)\n", stderr)
     }
 }
