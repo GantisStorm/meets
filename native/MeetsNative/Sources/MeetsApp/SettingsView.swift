@@ -100,6 +100,9 @@ struct SettingsView: View {
     @State private var isCheckingCalendarPermission = false
     @State private var isUsingCustomOpenRouterModel = false
     @State private var hasRefreshedMeetingCalendarSources = false
+    /// What each permission row says about its own remove button: kept per row
+    /// name so a removal reports itself in place.
+    @State private var permissionRemovals: [String: PermissionRemovalOutcome] = [:]
     @State private var isShowingCalendarSettings = false
     @State private var isShowingCleanupPromptManager = false
     @State private var cleanupDownloads: [String: Double] = [:]
@@ -2917,7 +2920,12 @@ struct SettingsView: View {
                         .foregroundStyle(MeetsTheme.textPrimary)
                 }
                 Spacer()
-                permissionStatusControl(state: state, action: action)
+                permissionStatusControl(state: state, action: {
+                    // Asking for the grant again is the reader moving past the
+                    // removal, so the line about it goes with the click.
+                    permissionRemovals[name] = nil
+                    action()
+                })
                 Button {
                     openPrivacyPane(pane)
                 } label: {
@@ -2929,7 +2937,7 @@ struct SettingsView: View {
                 .buttonStyle(.plain)
                 .help("Open in System Settings")
                 Button {
-                    removePermission(resets, kind: resetKind)
+                    removePermission(resets, kind: resetKind, row: name)
                 } label: {
                     Image(systemName: "xmark")
                         .font(.system(size: 11, weight: .semibold))
@@ -2948,21 +2956,66 @@ struct SettingsView: View {
                     .foregroundStyle(MeetsTheme.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
+
+            // The removal itself is instant; what the app *reads* is not. Each
+            // of these checks answers from a cache the process filled at first
+            // look, so a row can keep reporting the access it just lost until
+            // Meets starts again — say so rather than leaving a row that looks
+            // like the button did nothing.
+            switch permissionRemovals[name] {
+            case .removed where state == .granted:
+                HStack(spacing: MeetsTheme.spacing8) {
+                    Text(Self.permissionRemovedNote)
+                        .font(.system(size: 11))
+                        .foregroundStyle(MeetsTheme.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    inlineLinkButton("Reopen Meets", systemImage: "arrow.clockwise") {
+                        controller.relaunchApp()
+                    }
+                    .help("Quit and reopen Meets")
+                }
+            case .removed:
+                Text(Self.permissionRemovedNote)
+                    .font(.system(size: 11))
+                    .foregroundStyle(MeetsTheme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            case .failed:
+                Text("Could not remove this permission. Try again, or turn Meets off in System Settings.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(MeetsTheme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            case nil:
+                EmptyView()
+            }
         }
     }
+
+    /// What a row says after its remove button ran.
+    private enum PermissionRemovalOutcome {
+        case removed
+        case failed
+    }
+
+    /// One sentence for every successful removal: the record is gone here, and
+    /// macOS lists the app on its own schedule, so the line names both facts
+    /// instead of leaving a row that looks untouched.
+    private static let permissionRemovedNote =
+        "Removed. macOS may still list Meets in System Settings with the switch off."
 
     /// Withdraws one permission and re-reads every row that shows it, so the
     /// row goes back to offering the grant instead of claiming a level of
     /// access Meets no longer has. App-side state that only made sense while
     /// the grant existed — a pending request, a pane hint, meeting context —
     /// is cleared with it.
-    private func removePermission(_ service: String, kind: InteractionPermissionKind?) {
+    private func removePermission(_ service: String, kind: InteractionPermissionKind?, row: String) {
         if let kind {
             appState.pendingPermissionRequests.remove(kind)
             appState.permissionHints[kind] = nil
         }
         Task {
-            guard await SystemPermissionRemoval.remove(service: service) else { return }
+            let removed = await SystemPermissionRemoval.remove(service: service)
+            permissionRemovals[row] = removed ? .removed : .failed
+            guard removed else { return }
             controller.refreshInteractionPermissionSnapshot()
             refreshPermissionStatuses(for: .permissionRequested)
             await controller.refreshCalendarAccess()
