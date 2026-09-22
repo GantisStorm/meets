@@ -598,49 +598,84 @@ struct SettingsView: View {
 
     private var settingsHeader: some View {
         HStack(alignment: .firstTextBaseline, spacing: MeetsTheme.spacing24) {
+            // One line, whatever the window does: the pane row beside it is a
+            // single line too, and a wrapped page title would push the pane
+            // introduction down for no reader.
             PageTitle("Settings")
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
 
             Spacer(minLength: MeetsTheme.spacing24)
 
+            // The pane row is measured before the page title: a title that
+            // gives up a few points is invisible, a pane row that gives up its
+            // labels is not.
             settingsPanePicker
+                .layoutPriority(1)
         }
     }
 
+    /// Every pane on one line, never two: the titles when they fit beside the
+    /// page title, the same panes as their icons when they do not, so the
+    /// header keeps its height at every window width.
     private var settingsPanePicker: some View {
         ViewThatFits(in: .horizontal) {
             settingsPanePickerRow(SettingsPane.allCases)
-            VStack(alignment: .trailing, spacing: MeetsTheme.spacing8) {
-                let half = (SettingsPane.allCases.count + 1) / 2
-                settingsPanePickerRow(Array(SettingsPane.allCases.prefix(half)))
-                settingsPanePickerRow(Array(SettingsPane.allCases.suffix(from: half)))
+            settingsPaneIconPickerRow(SettingsPane.allCases)
+        }
+    }
+
+    private func settingsPanePickerRow(_ panes: [SettingsPane]) -> some View {
+        HStack(spacing: MeetsTheme.spacing16) {
+            ForEach(panes) { pane in
+                settingsPaneButton(pane) {
+                    Text(pane.title)
+                        .font(.system(size: 13, weight: selectedPane == pane ? .semibold : .medium))
+                }
             }
         }
     }
 
-    /// One row of pane buttons. The switcher uses a single row when the pane
-    /// titles fit beside the page title and two rows when they do not.
-    private func settingsPanePickerRow(_ panes: [SettingsPane]) -> some View {
-        HStack(spacing: MeetsTheme.spacing20) {
+    /// The narrow form of the same row: the pane's own icon, named in a tooltip
+    /// and to a reader, because a header that wrapped would push the page down.
+    /// The icons sit closer than the words do, so the page title beside them
+    /// keeps its own line intact as long as the window holds both.
+    private func settingsPaneIconPickerRow(_ panes: [SettingsPane]) -> some View {
+        HStack(spacing: MeetsTheme.spacing12) {
             ForEach(panes) { pane in
-                Button {
-                    withAnimation(.easeOut(duration: 0.16)) {
-                        selectedPane = pane
-                    }
-                } label: {
-                    Text(pane.title)
-                        .font(.system(size: 13, weight: selectedPane == pane ? .semibold : .medium))
-                        .foregroundStyle(selectedPane == pane ? MeetsTheme.textPrimary : MeetsTheme.textTertiary)
-                        .padding(.vertical, 5)
-                        .overlay(alignment: .bottom) {
-                            Rectangle()
-                                .fill(selectedPane == pane ? MeetsTheme.accent : Color.clear)
-                                .frame(height: 2)
-                        }
+                settingsPaneButton(pane) {
+                    Image(systemName: pane.iconName)
+                        .font(.system(size: 13, weight: .semibold))
+                        .frame(width: 20, height: 18)
                 }
-                .buttonStyle(.plain)
-                .accessibilityAddTraits(selectedPane == pane ? .isSelected : [])
+                .help(pane.title)
             }
         }
+    }
+
+    /// One pane in the switcher: the caller supplies the face, the switcher
+    /// owns the selection colour, the underline, and what a reader hears.
+    private func settingsPaneButton<Face: View>(
+        _ pane: SettingsPane,
+        @ViewBuilder face: () -> Face
+    ) -> some View {
+        Button {
+            withAnimation(.easeOut(duration: 0.16)) {
+                selectedPane = pane
+            }
+        } label: {
+            face()
+                .foregroundStyle(selectedPane == pane ? MeetsTheme.textPrimary : MeetsTheme.textTertiary)
+                .padding(.vertical, 5)
+                .overlay(alignment: .bottom) {
+                    Rectangle()
+                        .fill(selectedPane == pane ? MeetsTheme.accent : Color.clear)
+                        .frame(height: 2)
+                }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(pane.title)
+        .accessibilityAddTraits(selectedPane == pane ? .isSelected : [])
     }
 
     private var paneIntroduction: some View {
@@ -664,16 +699,7 @@ struct SettingsView: View {
     }
 
     private var selectedPaneIcon: String {
-        switch selectedPane {
-        case .general: "gearshape"
-        case .permissions: "hand.raised"
-        case .recording: "record.circle"
-        case .calendar: "calendar"
-        case .notes: "doc.text"
-        case .ai: "sparkles"
-        case .advanced: "terminal"
-        case .appearance: "paintbrush"
-        }
+        selectedPane.iconName
     }
 
     private var selectedPaneDescription: String {
@@ -685,7 +711,7 @@ struct SettingsView: View {
         case .recording:
             "Choose how meetings are captured and transcribed."
         case .calendar:
-            "Connect your calendars and decide which meetings Meets watches."
+            "Connect your calendars and choose which meetings Meets records."
         case .notes:
             "Pick the templates that shape the notes Meets generates."
         case .ai:
@@ -693,7 +719,7 @@ struct SettingsView: View {
         case .advanced:
             "Run a script of your own after each meeting."
         case .appearance:
-            "Tune Meets’s menu bar and recording controls to fit your workspace."
+            "Tune the menu bar and recording controls to fit your workspace."
         }
     }
 
@@ -780,7 +806,7 @@ struct SettingsView: View {
                     "Setup guide",
                     description: "Review meeting setup, permissions, transcription, and summaries."
                 ) {
-                    actionButton("Onboarding", systemImage: "arrow.up.right.square") {
+                    actionButton("Open Setup Guide", systemImage: "arrow.up.right.square") {
                         controller.showOnboarding()
                     }
                 }
@@ -1157,7 +1183,7 @@ struct SettingsView: View {
             }
             meetingTranscriptionSettingsSection
 
-            settingsSection("Recording", iconName: "record.circle") {
+            settingsSection("Saved Audio", iconName: "record.circle") {
                 settingsRow(
                     "Save meeting recording",
                     description: "Keep the recorded audio after transcription."
@@ -1474,7 +1500,7 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: MeetsTheme.spacing20) {
             settingsDisclosureSection(
                 "Automation",
-                summary: appState.config.meetingHookEnabled ? "Post-meeting hook enabled" : "Run an optional script after meetings",
+                summary: appState.config.meetingHookEnabled ? "Runs after every completed meeting" : "Nothing runs after a meeting",
                 icon: "terminal",
             ) {
                 settingsRow(
@@ -2320,13 +2346,7 @@ struct SettingsView: View {
                 }
             }
 
-            settingsSection("Appearance", iconName: "paintbrush") {
-                settingsRow("Dark mode") {
-                    settingsSwitch(isOn: appState.config.darkMode) { newValue in
-                        controller.updateConfig { $0.darkMode = newValue }
-                    }
-                }
-                Divider().background(MeetsTheme.surfaceBorder)
+            settingsSection("Menu Bar", iconName: "menubar.rectangle") {
                 settingsRow("Menu bar icon") {
                     menuBarIconPicker
                 }
@@ -2337,6 +2357,20 @@ struct SettingsView: View {
                     }
                 }
                 Divider().background(MeetsTheme.surfaceBorder)
+                settingsRow("Show next meeting in menu bar") {
+                    settingsSwitch(isOn: appState.config.showNextMeetingInMenuBar) { newValue in
+                        controller.updateConfig { $0.showNextMeetingInMenuBar = newValue }
+                    }
+                }
+            }
+
+            settingsSection("Theme & Sound", iconName: "paintpalette") {
+                settingsRow("Dark mode") {
+                    settingsSwitch(isOn: appState.config.darkMode) { newValue in
+                        controller.updateConfig { $0.darkMode = newValue }
+                    }
+                }
+                Divider().background(MeetsTheme.surfaceBorder)
                 settingsRow("Accent color") {
                     glassTintPicker
                 }
@@ -2344,12 +2378,6 @@ struct SettingsView: View {
                 settingsRow("Play sound effects") {
                     settingsSwitch(isOn: appState.config.soundEnabled) { newValue in
                         controller.updateConfig { $0.soundEnabled = newValue }
-                    }
-                }
-                Divider().background(MeetsTheme.surfaceBorder)
-                settingsRow("Show next meeting in menu bar") {
-                    settingsSwitch(isOn: appState.config.showNextMeetingInMenuBar) { newValue in
-                        controller.updateConfig { $0.showNextMeetingInMenuBar = newValue }
                     }
                 }
             }
@@ -2399,42 +2427,48 @@ struct SettingsView: View {
         }
     }
 
+    /// Twelve choices, wrapped to as many rows as the control column needs: a
+    /// row that runs off the right edge with no scroll indicator reads as a
+    /// truncated list of icons, not as a list you can scroll, and this row is
+    /// the only place the whole set is ever visible.
     private var menuBarIconPicker: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 4) {
-                ForEach(MenuBarIconRenderer.options, id: \.id) { option in
-                    let isSelected = appState.config.menuBarIcon == option.id
-                    Button {
-                        controller.updateConfig { $0.menuBarIcon = option.id }
-                    } label: {
-                        Group {
-                            if option.id == "meets",
-                               let img = MenuBarIconRenderer.make(choice: "meets") {
-                                Image(nsImage: img)
-                                    .resizable()
-                                    .scaledToFit()
-                                    .frame(width: 14, height: 14)
-                            } else {
-                                Image(systemName: option.id)
-                                    .font(.system(size: 12))
-                            }
+        LazyVGrid(
+            columns: [GridItem(.adaptive(minimum: 26, maximum: 26), spacing: 4)],
+            spacing: 4
+        ) {
+            ForEach(MenuBarIconRenderer.options, id: \.id) { option in
+                let isSelected = appState.config.menuBarIcon == option.id
+                Button {
+                    controller.updateConfig { $0.menuBarIcon = option.id }
+                } label: {
+                    Group {
+                        if option.id == "meets",
+                           let img = MenuBarIconRenderer.make(choice: "meets") {
+                            Image(nsImage: img)
+                                .resizable()
+                                .scaledToFit()
+                                .frame(width: 14, height: 14)
+                        } else {
+                            Image(systemName: option.id)
+                                .font(.system(size: 12))
                         }
-                        .foregroundStyle(isSelected ? MeetsTheme.accent : MeetsTheme.textSecondary)
-                        .frame(width: 26, height: 26)
-                        .background(
-                            RoundedRectangle(cornerRadius: 5)
-                                .fill(isSelected ? MeetsTheme.surfaceSelected : Color.clear)
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 5)
-                                .strokeBorder(Color.white.opacity(isSelected ? 0.3 : 0.08), lineWidth: 1)
-                        )
                     }
-                    .buttonStyle(.plain)
-                    .help(option.label)
+                    .foregroundStyle(isSelected ? MeetsTheme.accent : MeetsTheme.textSecondary)
+                    .frame(width: 26, height: 26)
+                    .background(
+                        RoundedRectangle(cornerRadius: 5)
+                            .fill(isSelected ? MeetsTheme.surfaceSelected : Color.clear)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 5)
+                            .strokeBorder(Color.white.opacity(isSelected ? 0.3 : 0.08), lineWidth: 1)
+                    )
                 }
+                .buttonStyle(.plain)
+                .help(option.label)
             }
         }
+        .frame(width: controlWidth, alignment: .trailing)
     }
 
     @ViewBuilder
@@ -2806,7 +2840,7 @@ struct SettingsView: View {
     // MARK: - Permissions
 
     private var permissionsSection: some View {
-        settingsSection("Permissions", iconName: "hand.raised") {
+        settingsSection("System Access", iconName: "hand.raised") {
             interactionPermissionRow(.microphone)
             Divider().background(MeetsTheme.surfaceBorder)
             interactionPermissionRow(.accessibility)

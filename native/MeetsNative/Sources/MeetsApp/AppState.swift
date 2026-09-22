@@ -41,6 +41,21 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         case .appearance: return "Appearance"
         }
     }
+
+    /// The pane's own glyph: the switcher's narrow form and the pane's
+    /// introduction draw the same one.
+    var iconName: String {
+        switch self {
+        case .general: return "gearshape"
+        case .permissions: return "hand.raised"
+        case .recording: return "record.circle"
+        case .calendar: return "calendar"
+        case .notes: return "doc.text"
+        case .ai: return "sparkles"
+        case .advanced: return "terminal"
+        case .appearance: return "paintbrush"
+        }
+    }
 }
 
 enum ModelsCategory: String, CaseIterable, Identifiable {
