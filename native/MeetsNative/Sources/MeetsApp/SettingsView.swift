@@ -100,7 +100,6 @@ struct SettingsView: View {
     @State private var isCheckingCalendarPermission = false
     @State private var isUsingCustomOpenRouterModel = false
     @State private var hasRefreshedMeetingCalendarSources = false
-    @State private var isRefreshingCalendarAccess = false
     @State private var isShowingCalendarSettings = false
     @State private var isShowingCleanupPromptManager = false
     @State private var cleanupDownloads: [String: Double] = [:]
@@ -1360,7 +1359,7 @@ struct SettingsView: View {
                 summary: calendarSettingsSummary,
                 icon: "calendar",
             ) {
-                calendarSyncRow
+                calendarAccessRow
                 Divider().background(MeetsTheme.surfaceBorder)
                 settingsRow(
                     "Use calendars already connected to your Mac",
@@ -1614,63 +1613,61 @@ struct SettingsView: View {
 
     // MARK: - Calendar management
 
-    private var calendarSyncRow: some View {
-        settingsRow("Sync with Apple Calendar", description: calendarSyncDescription) {
-            calendarSyncControl
+    /// Calendar access is granted in one place — the Permissions pane's
+    /// Calendar row — so this row reports the state and says where to change
+    /// it. A second Authorize button here would be a second grant site for the
+    /// same permission, and the two could disagree about it.
+    private var calendarAccessRow: some View {
+        settingsRow("Calendar access", description: calendarAccessDescription) {
+            HStack(spacing: 6) {
+                Image(systemName: calendarAccessIcon)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(calendarAccessColor)
+                Text(calendarAccessLabel)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(MeetsTheme.textSecondary)
+                if appState.calendarAuthorization != .fullAccess {
+                    inlineLinkButton("Permissions", systemImage: "hand.raised") {
+                        appState.selectedSettingsPane = .permissions
+                    }
+                    .help("Grant Calendar access in Permissions")
+                }
+                Spacer(minLength: 0)
+            }
         }
     }
 
-    private var calendarSyncDescription: String {
+    private var calendarAccessDescription: String {
         switch appState.calendarAuthorization {
-        case .unknown, .denied, .writeOnly:
-            return "Meets reads your calendars for upcoming meetings. Full access is required."
         case .fullAccess:
             return "Meets reads your calendars for upcoming meetings."
+        case .writeOnly, .denied, .unknown:
+            return "Grant Calendar access in Permissions to read your calendars."
         }
     }
 
-    @ViewBuilder
-    private var calendarSyncControl: some View {
+    private var calendarAccessLabel: String {
         switch appState.calendarAuthorization {
-        case .fullAccess:
-            HStack(spacing: 6) {
-                Image(systemName: "checkmark.circle.fill")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(MeetsTheme.success)
-                Text("On")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(MeetsTheme.textSecondary)
-                Spacer(minLength: 0)
-            }
-        case .writeOnly:
-            HStack(spacing: 6) {
-                Image(systemName: "exclamationmark.circle.fill")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(MeetsTheme.transcribing)
-                Text("Limited")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(MeetsTheme.textSecondary)
-                Spacer(minLength: 0)
-            }
-        case .denied:
-            HStack(spacing: 8) {
-                Image(systemName: "xmark.circle.fill")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(MeetsTheme.recording)
-                Text("Off")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(MeetsTheme.textSecondary)
-                Spacer(minLength: 0)
-                inlineLinkButton("Request Access", systemImage: "arrow.clockwise") {
-                    refreshMeetingCalendarSources()
-                }
-                .disabled(isRefreshingCalendarAccess)
-            }
-        case .unknown:
-            inlineLinkButton(isRefreshingCalendarAccess ? "Checking…" : "Authorize") {
-                refreshMeetingCalendarSources()
-            }
-            .disabled(isRefreshingCalendarAccess)
+        case .fullAccess: return "Full access"
+        case .writeOnly: return "Write only"
+        case .denied: return "Off"
+        case .unknown: return "Not granted"
+        }
+    }
+
+    private var calendarAccessIcon: String {
+        switch appState.calendarAuthorization {
+        case .fullAccess: return "checkmark.circle.fill"
+        case .writeOnly: return "exclamationmark.circle.fill"
+        case .denied, .unknown: return "xmark.circle.fill"
+        }
+    }
+
+    private var calendarAccessColor: Color {
+        switch appState.calendarAuthorization {
+        case .fullAccess: return MeetsTheme.success
+        case .writeOnly: return MeetsTheme.transcribing
+        case .denied, .unknown: return MeetsTheme.recording
         }
     }
 
@@ -3480,11 +3477,11 @@ struct SettingsView: View {
         refreshMeetingCalendarSources()
     }
 
+    /// Reads the current access and the calendars it reaches. Granting happens
+    /// in the Permissions pane, so this only ever reads.
     private func refreshMeetingCalendarSources() {
-        isRefreshingCalendarAccess = true
         Task {
             await controller.refreshCalendarAccess()
-            isRefreshingCalendarAccess = false
         }
     }
 
