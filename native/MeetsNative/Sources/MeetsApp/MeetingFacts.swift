@@ -81,6 +81,20 @@ struct MeetingFacts: Equatable {
         }
     }
 
+    /// The facts that spell themselves out — the attached event and the people
+    /// count — in the line's order. A drawn fact is not written out again: the
+    /// symbol is the statement, and `words` still carries what it stands for.
+    var spelledWords: [String] {
+        facts.compactMap { fact in
+            switch fact {
+            case let .words(words):
+                return words
+            case .symbol:
+                return nil
+            }
+        }
+    }
+
     /// The facts that draw as a symbol instead of spelling themselves out, in
     /// the line's order. Their words stay in `words` for everything that reads.
     var symbols: [MeetingFactSymbol] {
@@ -136,30 +150,49 @@ struct MeetingFacts: Equatable {
 
 /// The facts line those lists render, in one place and one tone: the attached
 /// event first, then people, written notes, and whether a summary exists. The
-/// event and the people count stay words; notes, a summary, and a bare
-/// transcript draw as symbols.
+/// event and the people count spell themselves out; notes, a summary, and a
+/// bare transcript draw as the symbol the rest of the app uses for them.
 /// Renders nothing when there is nothing to say, so a bare meeting keeps a
 /// bare row.
+///
+/// `drawsSymbols` is `false` for a caller that already draws them: the ledger
+/// keeps the symbols next to the row's title, so its facts line carries only
+/// the words.
 struct MeetingFactsRow: View {
     let facts: MeetingFacts
+    var drawsSymbols = true
 
     var body: some View {
         if !facts.text.isEmpty {
             HStack(spacing: 6) {
-                if !facts.words.isEmpty {
-                    Text(facts.words.joined(separator: " · "))
+                if !facts.spelledWords.isEmpty {
+                    Text(facts.spelledWords.joined(separator: " · "))
                         .lineLimit(1)
                         .truncationMode(.tail)
                 }
-                ForEach(facts.symbols) { symbol in
-                    Image(systemName: symbol.name)
-                        .help(symbol.label)
-                        .accessibilityLabel(symbol.label)
+                if drawsSymbols {
+                    MeetingFactSymbols(facts: facts)
                 }
             }
             .font(MeetsTheme.caption())
             .foregroundStyle(MeetsTheme.textTertiary)
             .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+}
+
+/// The facts that draw as symbols, in the line's order, with the words they
+/// stand for kept for a tooltip and for a reader that cannot see them.
+struct MeetingFactSymbols: View {
+    let facts: MeetingFacts
+
+    var body: some View {
+        HStack(spacing: 6) {
+            ForEach(facts.symbols) { symbol in
+                Image(systemName: symbol.name)
+                    .help(symbol.label)
+                    .accessibilityLabel(symbol.label)
+            }
         }
     }
 }

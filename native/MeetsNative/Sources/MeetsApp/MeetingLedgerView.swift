@@ -416,13 +416,27 @@ struct MeetingLedgerRow: View {
     /// title starts: it is a second line of the same row, not a column of its
     /// own, so it never moves the time gutter the ledger is scanned down.
     ///
-    /// Absent — not empty — when the page has nothing to say about this
-    /// meeting, so a bare meeting keeps a one-line row.
+    /// It carries only what spells itself out — an attached event's title, a
+    /// people count. Notes and a summary are icons beside the title, so a
+    /// meeting that has only those keeps a one-line row.
     @ViewBuilder
     private var factsLine: some View {
-        if let facts = facts[node.entry.id], !facts.text.isEmpty {
-            MeetingFactsRow(facts: facts)
+        if let facts = facts[node.entry.id], !facts.spelledWords.isEmpty {
+            MeetingFactsRow(facts: facts, drawsSymbols: false)
                 .padding(.leading, titleLeadingInset)
+        }
+    }
+
+    /// Written notes and a summary, drawn where the eye already is: beside the
+    /// title, in the size the rest of the row's quiet text uses. The words they
+    /// stand for stay in the row's accessibility label.
+    @ViewBuilder
+    private var factSymbols: some View {
+        if let facts = facts[node.entry.id], !facts.symbols.isEmpty {
+            MeetingFactSymbols(facts: facts)
+                .font(MeetsTheme.caption())
+                .foregroundStyle(MeetsTheme.textTertiary)
+                .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 2 }
         }
     }
 
@@ -447,6 +461,7 @@ struct MeetingLedgerRow: View {
             HStack(alignment: .firstTextBaseline, spacing: MeetingLedgerMetrics.gutterSpacing) {
                 followUpArrow
                 title
+                factSymbols
                 countLabel
                 statusWord
                 if showsDate {
