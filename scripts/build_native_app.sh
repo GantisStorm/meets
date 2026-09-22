@@ -27,6 +27,9 @@ SPARKLE_EDKEY="${MEETS_SPARKLE_EDKEY-ok9CQBJ3f0MJ2GXuGBubc6VyeWyb5exmqP2b9DceqH4
 STAGED_APP_DIR="$DIST_DIR/$APP_BUNDLE_NAME"
 APP_DIR="$INSTALL_DIR/$APP_BUNDLE_NAME"
 DEFAULT_SIGN_IDENTITY="Developer ID Application: Pranav Hari Guruvayurappan (58W55QJ567)"
+# Self-signed local certificate, when the machine has one: a name that survives
+# rebuilds is what makes macOS keep matching its privacy grants to this app.
+DEFAULT_LOCAL_SIGN_IDENTITY="${MEETS_LOCAL_SIGN_IDENTITY:-Meets Local Dev}"
 SIGN_IDENTITY="${MEETS_SIGN_IDENTITY:-$DEFAULT_SIGN_IDENTITY}"
 SKIP_SIGN="${MEETS_SKIP_SIGN:-0}"
 PROVISIONING_PROFILE="${MEETS_PROVISIONING_PROFILE:-}"
@@ -614,22 +617,36 @@ else
   # keep returning false even after the user grants permission, so onboarding stalls.
   #
   # Note: ad-hoc signatures have no stable designated requirement, so the cdhash changes on
-  # every rebuild and macOS privacy grants must be re-approved after each dev build. For grants
-  # that persist across rebuilds, create a self-signed code-signing certificate and pass its name
-  # via MEETS_SIGN_IDENTITY. No hardened runtime here: ad-hoc has no Team ID, so library
-  # validation would block dlopen of the bundled frameworks/dylibs.
+  # every rebuild and macOS privacy grants stop matching the app: the grant still reads as on
+  # in System Settings while AXIsProcessTrusted()/CGPreflightListenEventAccess() keep returning
+  # false, which is exactly the "granted, but Meets says not granted" report. A self-signed
+  # certificate fixes it by giving the bundle a requirement that outlives a rebuild, so the
+  # local path uses one when the machine has it. Create it once with:
+  #   Keychain Access > Certificate Assistant > Create a Certificate… (Code Signing, Self Signed)
+  #   named "$DEFAULT_LOCAL_SIGN_IDENTITY", or pass MEETS_SIGN_IDENTITY, or set
+  #   MEETS_LOCAL_SIGN_IDENTITY to a different local name. No hardened runtime here: an ad-hoc
+  # or self-signed build has no Team ID, so library validation would block dlopen of the
+  # bundled frameworks/dylibs.
   LOCAL_SIGN_IDENTITY="-"
   if [[ -n "${MEETS_SIGN_IDENTITY:-}" ]]; then
     LOCAL_SIGN_IDENTITY="$MEETS_SIGN_IDENTITY"
+  elif security find-identity -v -p codesigning | grep -Fq "$DEFAULT_LOCAL_SIGN_IDENTITY"; then
+    LOCAL_SIGN_IDENTITY="$DEFAULT_LOCAL_SIGN_IDENTITY"
+  fi
+  if [[ "$LOCAL_SIGN_IDENTITY" == "-" ]]; then
+    echo "Ad-hoc signing for local dev (MEETS_SKIP_SIGN=1; no Developer ID, no '$DEFAULT_LOCAL_SIGN_IDENTITY' identity)."
+    echo "  Privacy grants must be re-approved after every rebuild in this mode."
+  else
     if ! security find-identity -v -p codesigning | grep -Fq "$LOCAL_SIGN_IDENTITY"; then
       echo "Signing identity not found: $LOCAL_SIGN_IDENTITY" >&2
       exit 1
     fi
-    echo "Local signing with MEETS_SIGN_IDENTITY=$LOCAL_SIGN_IDENTITY (MEETS_SKIP_SIGN=1)..."
-  else
-    echo "Ad-hoc signing for local dev (MEETS_SKIP_SIGN=1; no Developer ID)..."
+    echo "Local signing with $LOCAL_SIGN_IDENTITY (MEETS_SKIP_SIGN=1); macOS privacy grants survive rebuilds."
   fi
-  ENTITLEMENTS="${MEETS_ENTITLEMENTS:-$ROOT/scripts/Meets.entitlements}"
+  # A local signature cannot satisfy the iCloud entitlements — AMFI rejects the app
+  # with "No matching profile found" — so this path defaults to the local-only set,
+  # the same one the dev lanes use, and MEETS_ENTITLEMENTS still overrides it.
+  ENTITLEMENTS="${MEETS_ENTITLEMENTS:-$ROOT/scripts/MeetsLocalOnly.entitlements}"
 
   find "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Frameworks" -maxdepth 1 -name "*.framework" -type d | while read -r framework; do
     # Sign every nested standalone Mach-O (e.g. Sparkle's Versions/B/Autoupdate),
