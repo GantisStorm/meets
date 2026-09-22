@@ -567,7 +567,7 @@ struct SettingsView: View {
 
     private func screenContextDescription(includesScreenOCR: Bool) -> String {
         if !accessibilityGranted {
-            return "Grant Accessibility, then toggle again if needed."
+            return "Accessibility is required. Grant it in Permissions, then turn this on."
         }
         if includesScreenOCR, !screenRecordingGranted {
             return "Adds nearby app text for meeting context. Screen Recording enables OCR context."
@@ -2968,15 +2968,20 @@ struct SettingsView: View {
         }
     }
 
-    @ViewBuilder
+    /// Screen context needs Accessibility, and that is granted in one place —
+    /// the Permissions pane — so this row points there instead of asking for
+    /// the same permission itself. A flip while the grant is missing records
+    /// the intent; MeetsController turns the feature on when the grant lands.
     private func screenContextControl() -> some View {
-        if accessibilityGranted {
+        HStack(spacing: MeetsTheme.spacing12) {
+            if !accessibilityGranted {
+                inlineLinkButton("Permissions", systemImage: "hand.raised") {
+                    appState.selectedSettingsPane = .permissions
+                }
+                .help("Grant Accessibility in Permissions")
+            }
             settingsSwitch(isOn: appState.config.enableScreenContext) { newValue in
                 handleScreenContextToggle(newValue)
-            }
-        } else {
-            actionButton("Grant") {
-                handleScreenContextToggle(true)
             }
         }
     }
@@ -2991,14 +2996,13 @@ struct SettingsView: View {
         }
 
         guard accessibilityGranted else {
+            // The grant lives in the Permissions pane, so the flip only records
+            // what the reader wanted: the switch stays off until Accessibility
+            // lands, and then it turns on by itself.
             pendingScreenContextEnable = true
             pendingScreenContextRequestedAt = Date().timeIntervalSince1970
-            let granted = controller.requestScreenContextEnable()
-            controller.refreshInteractionPermissionSnapshot()
-            if granted {
-                clearPendingScreenContextEnable()
-            }
-            return granted
+            controller.updateConfig { $0.enableScreenContext = false }
+            return false
         }
 
         controller.updateConfig { $0.enableScreenContext = true }
@@ -3031,11 +3035,6 @@ struct SettingsView: View {
         if reason.refreshesSystemAudio {
             refreshSystemAudioPermissionIfNeeded()
         }
-    }
-
-    private func clearPendingScreenContextEnable() {
-        pendingScreenContextEnable = false
-        pendingScreenContextRequestedAt = 0
     }
 
     private func refreshSystemAudioPermissionIfNeeded() {

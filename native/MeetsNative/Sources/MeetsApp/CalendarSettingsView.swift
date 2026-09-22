@@ -29,7 +29,6 @@ struct CalendarSettingsView: View {
     /// Tracks the in-flight toggle per calendar id so a rapid re-click cannot
     /// race the persisted disabled set.
     @State private var pendingToggleCalendarIDs: Set<String> = []
-    @State private var isRequestingAccess = false
     @State private var hasAttemptedInitialAccess = false
 
     var body: some View {
@@ -193,13 +192,7 @@ struct CalendarSettingsView: View {
                     .foregroundStyle(MeetsTheme.textTertiary)
                     .multilineTextAlignment(.center)
             }
-            Button("Allow Full Access") {
-                requestFullAccess()
-            }
-            .buttonStyle(.borderedProminent)
-            .tint(MeetsTheme.accent)
-            .foregroundStyle(MeetsTheme.accentContent)
-            .disabled(isRequestingAccess)
+            grantAccessButton
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -216,37 +209,56 @@ struct CalendarSettingsView: View {
                 Text("Calendar access is off")
                     .font(MeetsTheme.headline())
                     .foregroundStyle(MeetsTheme.textPrimary)
-                Text("Meets can't see your calendars. Enable Calendar access in System Settings > Privacy & Security, or re-request it here.")
+                Text("Meets can't see your calendars. Grant Calendar access in Permissions, or enable it in System Settings > Privacy & Security.")
                     .font(MeetsTheme.caption())
                     .foregroundStyle(MeetsTheme.textTertiary)
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
             }
             .padding(.horizontal, MeetsTheme.spacing24)
-            Button("Request Access") {
-                requestFullAccess()
-            }
-            .buttonStyle(.borderedProminent)
-            .tint(MeetsTheme.accent)
-            .foregroundStyle(MeetsTheme.accentContent)
-            .disabled(isRequestingAccess)
+            grantAccessButton
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(MeetsTheme.spacing24)
     }
 
+    /// Calendar access is granted in one place — the Permissions pane — so a
+    /// sheet that cannot read calendars says where to give it instead of
+    /// asking a second time, which for a refused permission asks in vain.
+    private var grantAccessButton: some View {
+        Button("Grant in Permissions") {
+            onClose()
+            appState.selectedSettingsPane = .permissions
+        }
+        .buttonStyle(.borderedProminent)
+        .tint(MeetsTheme.accent)
+        .foregroundStyle(MeetsTheme.accentContent)
+        .help("Opens Settings > Permissions, where Calendar access is granted")
+    }
+
     private var unknownContent: some View {
         VStack(spacing: MeetsTheme.spacing16) {
             Spacer()
-            ProgressView()
-                .controlSize(.small)
-            Text("Checking Calendar access…")
-                .font(MeetsTheme.caption())
+            Image(systemName: "calendar.badge.exclamationmark")
+                .font(.system(size: 34))
                 .foregroundStyle(MeetsTheme.textTertiary)
+            VStack(spacing: MeetsTheme.spacing4) {
+                Text("Calendar access is not set")
+                    .font(MeetsTheme.headline())
+                    .foregroundStyle(MeetsTheme.textPrimary)
+                Text("Meets has not been given Calendar access yet. Grant it in Permissions and this list fills in.")
+                    .font(MeetsTheme.caption())
+                    .foregroundStyle(MeetsTheme.textTertiary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(.horizontal, MeetsTheme.spacing24)
+            grantAccessButton
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(MeetsTheme.spacing24)
     }
 
     private var footer: some View {
@@ -591,19 +603,6 @@ struct CalendarSettingsView: View {
         }
     }
 
-    private func requestFullAccess() {
-        guard !isRequestingAccess else { return }
-        isRequestingAccess = true
-        Task {
-            await controller.refreshCalendarAccess(requestIfUndetermined: true)
-            isRequestingAccess = false
-            if appState.calendarAuthorization == .fullAccess {
-                await controller.refreshEventKitCalendars()
-                expandAllAccounts()
-            }
-        }
-    }
-
     private func performInitialAccessIfNeeded() {
         guard !hasAttemptedInitialAccess else { return }
         hasAttemptedInitialAccess = true
@@ -616,7 +615,9 @@ struct CalendarSettingsView: View {
                 expandAllAccounts()
             }
         } else if auth == .unknown {
-            requestFullAccess()
+            // Reading resolves an undetermined permission to a state this sheet
+            // can explain. Granting it happens in Permissions.
+            Task { await controller.refreshCalendarAccess() }
         }
     }
 
